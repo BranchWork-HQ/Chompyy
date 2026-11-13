@@ -4,7 +4,7 @@
 
 The home of Chompyy, spun out of [BranchWork](https://github.com/BranchWork-HQ/branchwork). For now it holds the research behind it: how to get more done per token with coding agents such as Claude Code, what exists, what actually works when measured, and where there's room left.
 
-> **Status: research stage.** Nothing to install yet. The direction below is a plan, not a product.
+> **Status: early MVP.** A first CLI is in [cli/](cli/README.md) (quota snapshot, board, blueprints, away runs, report). The rest of the direction below is still a plan.
 
 ## Why
 
@@ -55,6 +55,7 @@ Token saving only, in every direction. Utilization comes first; the rest follow:
 
 | Path | What's there |
 |---|---|
+| [cli/](cli/README.md) | The Chompyy MVP CLI (TypeScript): quota snapshot from the status line, board, blueprints, away runs in worktrees, report and rating, plus `/later`, `/eat-tokens`, `/away`, `/taste` skills |
 | [research/spec-token-utilization.md](research/spec-token-utilization.md) | Chompyy spec draft: board, blueprints, taste, quota reader, away runs, architecture, risks |
 | [research/landscape-2026-11.md](research/landscape-2026-11.md) | The survey: 71 projects in 10 angles, their growth, independent evidence, and the open gaps |
 | [research/atomic-knowledge.md](research/atomic-knowledge.md) | One fact per card (fact → source → harness rule), from provider docs and papers, ending in a minimal-harness sketch and what's still open |
