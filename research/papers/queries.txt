@@ -1,0 +1,38 @@
+# topic | arXiv query  (tools/paper_search.py search research/papers/queries.txt)
+# Mechanisms a harness can change, from the provider's cache to the agent's memory.
+cache | abs:"prompt caching" AND abs:LLM
+cache | abs:"prefix caching"
+cache | abs:"KV cache" AND abs:reuse AND abs:prefix
+cache | abs:"semantic cache" AND abs:LLM
+compress | abs:"prompt compression"
+compress | abs:"context compression" AND abs:LLM
+compress | abs:"tool output" AND abs:compression
+agent-context | abs:agent AND abs:trajectory AND abs:reduction AND abs:cost
+agent-context | abs:"context management" AND abs:agent AND abs:LLM
+agent-context | abs:"context window" AND abs:"coding agent"
+agent-context | abs:observation AND abs:pruning AND abs:agent
+long-context | abs:"lost in the middle"
+long-context | abs:"long context" AND abs:degradation AND abs:LLM
+long-context | abs:"context length" AND abs:performance AND abs:distractor
+route | abs:"LLM routing" AND abs:cost
+route | abs:"model cascade" AND abs:LLM
+route | abs:router AND abs:"large language models" AND abs:cheaper
+reasoning | abs:overthinking AND abs:reasoning AND abs:tokens
+reasoning | abs:"efficient reasoning" AND abs:length
+reasoning | abs:"token budget" AND abs:reasoning
+output | abs:verbosity AND abs:LLM AND abs:length
+output | abs:"concise" AND abs:"chain-of-thought" AND abs:tokens
+tools | abs:"tool retrieval" AND abs:LLM
+tools | abs:"tool selection" AND abs:"large number of tools"
+tools | abs:"code execution" AND abs:agent AND abs:tokens
+agent-cost | abs:"coding agent" AND abs:cost AND abs:tokens
+agent-cost | abs:agent AND abs:"token consumption"
+agent-cost | abs:"cost-efficient" AND abs:agent AND abs:LLM
+agent-cost | abs:"multi-agent" AND abs:"token" AND abs:cost
+memory | abs:"agent workflow memory"
+memory | abs:agent AND abs:"experience" AND abs:reuse AND abs:LLM
+memory | abs:"skill library" AND abs:agent
+memory | abs:"procedural memory" AND abs:agent
+memory | abs:"self-evolving" AND abs:agent AND abs:skills
+estimate | abs:"predict" AND abs:"output length" AND abs:LLM
+batch | abs:batching AND abs:LLM AND abs:API AND abs:cost
