@@ -1,6 +1,6 @@
 # Token saving for coding agents: the landscape (2026-11)
 
-Issue [#1](https://github.com/BranchWork-HQ/token-saving-research/issues/1). Stats measured 2026-11-08 with [`tools/repo_stats.py`](../tools/repo_stats.py) ([snapshot](../data/snapshots/2026-11-08.jsonl)); 71 projects from ~800 search hits, screened by hand.
+Issue [#1](https://github.com/BranchWork-HQ/Chompyy/issues/1). Stats measured 2026-11-08 with [`tools/repo_stats.py`](../tools/repo_stats.py) ([snapshot](../data/snapshots/2026-11-08.jsonl)); 71 projects from ~800 search hits, screened by hand.
 
 ## Answer first
 

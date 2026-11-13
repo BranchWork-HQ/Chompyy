@@ -15,7 +15,7 @@ import time
 import urllib.parse
 import urllib.request
 
-UA = {"User-Agent": "token-saving-research/0.1 (paper survey script)"}
+UA = {"User-Agent": "chompyy-research/0.1 (paper survey script)"}
 
 
 def get(url, data=None):

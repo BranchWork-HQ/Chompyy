@@ -1,8 +1,8 @@
-# token-saving-research
+# Chompyy
 
 > **It learns your taste, suggests the tasks you'd want done, and runs them while you're away, so tokens that would reset unused become work waiting for you when you're back.**
 
-Research spun out of [BranchWork](https://github.com/BranchWork-HQ/branchwork): how to get more done per token with coding agents such as Claude Code. It covers what exists, what actually works when measured, and where there's room left.
+The home of Chompyy, spun out of [BranchWork](https://github.com/BranchWork-HQ/branchwork). For now it holds the research behind it: how to get more done per token with coding agents such as Claude Code, what exists, what actually works when measured, and where there's room left.
 
 > **Status: research stage.** Nothing to install yet. The direction below is a plan, not a product.
 

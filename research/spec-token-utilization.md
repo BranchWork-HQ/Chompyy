@@ -2,7 +2,7 @@
 
 > **It learns your taste, suggests the tasks you'd want done, and runs them while you're away, so tokens that would reset unused become work waiting for you when you're back.**
 
-Status: draft, 2026-11-13. Nothing is built. Decisions here come from the research in this repo and the design conversations recorded in [issue #2](https://github.com/BranchWork-HQ/token-saving-research/issues/2). Card IDs (A1, C2, …) refer to [atomic-knowledge.md](atomic-knowledge.md).
+Status: draft, 2026-11-13. Nothing is built. Decisions here come from the research in this repo and the design conversations recorded in [issue #2](https://github.com/BranchWork-HQ/Chompyy/issues/2). Card IDs (A1, C2, …) refer to [atomic-knowledge.md](atomic-knowledge.md).
 
 ## 1. The problem
 
