@@ -51,6 +51,7 @@ chompyy show 1          # read the blueprint (Goal / Scope / Out of scope / Shap
 chompyy blueprint 1     # not happy? draft it again (or --model sonnet)
 chompyy approve 1       # later → approved; needs a blueprint
 chompyy status          # 5h left, reset time, pace, weekly used
+chompyy eat-tokens      # read-only view of the leftover window and cards to consider
 chompyy away 1h --dry-run   # the plan: which cards, where they'd run, whether the gate is open
 chompyy away 1h         # go get lunch; cards run one at a time, then move to review
 chompyy report          # what ran since the last report, with the first lines of each result
@@ -68,6 +69,7 @@ Each card in a git repo runs in its own worktree at `~/.chompyy/worktrees/<id>` 
 |---|---|
 | `chompyy statusline` | Status line hook: reads Claude Code's JSON on stdin, saves the snapshot, prints one line |
 | `chompyy status` | % left in the 5h window, time to reset, per-hour pace, weekly used, stale or not |
+| `chompyy eat-tokens` | Read-only view of remaining 5h quota and approved/later cards; starts nothing |
 | `chompyy later "<idea>"` | New card in *later*, remembering the current directory. Drafts the blueprint in the background when `claude` is available (`--wait` to wait for it, `--no-blueprint` to skip) |
 | `chompyy board [--column approved]` | Cards by column: suggested, later, approved, running, review, done |
 | `chompyy show <id>` | One card with its blueprint, last run and rating |

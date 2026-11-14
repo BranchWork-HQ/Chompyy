@@ -6,10 +6,10 @@ import { away } from './away.js';
 import { draftBlueprint } from './blueprint.js';
 import { addCard, COLUMNS, dropCard, formatBoard, formatCard, getCard, loadBoard, moveCard, updateBoard, type Column } from './board.js';
 import { loadConfig } from './config.js';
-import { parseDuration } from './duration.js';
+import { formatDuration, parseDuration } from './duration.js';
 import { budgetGate } from './gate.js';
 import { chompyyHome } from './home.js';
-import { loadSnapshot, mergeSnapshot, parseStatusline, saveSnapshot, statusLineText, statusText } from './quota.js';
+import { loadSnapshot, mergeSnapshot, parseStatusline, saveSnapshot, statusLineText, statusText, windowView } from './quota.js';
 import { cardsSince, formatReport, lastReportAt, markReported, rateCard, readTaste } from './report.js';
 import { ClaudeRunner, claudeAvailable } from './runner.js';
 import { planWorkspace, prepareWorkspace } from './workspace.js';
@@ -19,6 +19,7 @@ const HELP = `chompyy: use the 5-hour window capacity that would reset unused
 Quota
   chompyy statusline            Claude Code statusLine command: reads JSON on stdin, saves a snapshot
   chompyy status                % left, time to reset, pace, weekly used, staleness
+  chompyy eat-tokens            show leftover quota and cards you could choose to run (read-only)
 
 Board
   chompyy later "<idea>"        park an idea in later (blueprint drafted in the background)
@@ -120,6 +121,28 @@ async function main(argv: string[]): Promise<void> {
     }
     case 'status': {
       console.log(statusText(loadSnapshot(), now));
+      return;
+    }
+    case 'eat-tokens': {
+      const snapshot = loadSnapshot();
+      console.log(statusText(snapshot, now));
+      const view = windowView(snapshot?.fiveHour, now);
+      if (!view.known) {
+        console.log('\nNo leftover window can be planned: refresh the Claude Code status line first.');
+        return;
+      }
+      const eligible = loadBoard().cards.filter((card) => card.column === 'approved' || card.column === 'later');
+      if (!eligible.length) {
+        console.log('\nNo cards to consider. Park an idea with `chompyy later "<idea>"`.');
+        return;
+      }
+      console.log(`\n${Math.round(view.leftPct)}% left until reset (${formatDuration(view.msLeft)}). Choose from these cards:`);
+      for (const card of eligible) {
+        const state = card.column === 'approved' ? 'approved · ready' : 'later · approve to run';
+        console.log(`  #${card.id} ${card.title} [${state}]`);
+        if (card.column === 'later' && !card.blueprint?.trim()) console.log('      blueprint needed before approval');
+      }
+      console.log('\nThis is a read-only list. Start selected work with `chompyy away <duration>`.');
       return;
     }
     case 'later': {
