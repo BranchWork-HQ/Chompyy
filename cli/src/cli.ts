@@ -229,11 +229,25 @@ async function main(argv: string[]): Promise<void> {
       return;
     }
     case 'keep': {
-      console.log(keepCard(getCard(loadBoard(), need(args[0], 'chompyy keep <id>'))));
+      const id = need(args[0], 'chompyy keep <id>');
+      console.log(keepCard(getCard(loadBoard(), id)));
+      updateBoard((b) => {
+        const card = getCard(b, id);
+        card.outcome = 'kept';
+        card.updatedAt = now.toISOString();
+        return card;
+      });
       return;
     }
     case 'undo': {
-      console.log(undoCard(getCard(loadBoard(), need(args[0], 'chompyy undo <id>'))));
+      const id = need(args[0], 'chompyy undo <id>');
+      console.log(undoCard(getCard(loadBoard(), id)));
+      updateBoard((b) => {
+        const card = getCard(b, id);
+        card.outcome = 'undone';
+        card.updatedAt = now.toISOString();
+        return card;
+      });
       return;
     }
     case 'rate': {

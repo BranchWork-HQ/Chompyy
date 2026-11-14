@@ -2,6 +2,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { getCard, type BoardData, type Card } from './board.js';
 import { formatDuration } from './duration.js';
+import { wrap } from './review.js';
 import { appendJsonl, homePath, readJson, writeJson } from './home.js';
 
 interface State {
@@ -40,6 +41,12 @@ const ACTION: Record<string, { icon: string; rank: number; text: string }> = {
   ok: { icon: '✅', rank: 3, text: 'Check the change, then keep or undo' },
 };
 
+/** Once you've kept or undone a card, the only thing left is the rating. */
+const DECIDED: Record<'kept' | 'undone', { icon: string; rank: number; text: string }> = {
+  kept: { icon: '📥', rank: 4, text: 'Kept. Rate it so Chompyy learns your taste' },
+  undone: { icon: '↩️', rank: 4, text: 'Undone. Rate it so Chompyy learns what missed' },
+};
+
 function filesLine(files: string[]): string {
   if (!files.length) return 'no files changed';
   const shown = files.slice(0, 3).join(', ');
@@ -49,15 +56,17 @@ function filesLine(files: string[]): string {
 /** Short and action-first; details come from `show`, `diff`, `keep`, `undo` on request. */
 export function formatReport(cards: Card[], since: string | null, facts: (card: Card) => CardFacts): string {
   if (cards.length === 0) return since ? 'Nothing new since your last report.' : 'Nothing has run yet.';
-  const sorted = [...cards].sort((a, b) => (ACTION[a.run!.status]?.rank ?? 9) - (ACTION[b.run!.status]?.rank ?? 9));
+  const rank = (c: Card) => (c.outcome ? DECIDED[c.outcome].rank : (ACTION[c.run!.status]?.rank ?? 9));
+  const sorted = [...cards].sort((a, b) => rank(a) - rank(b));
   const out = [`🍪 While you were away · ${cards.length} card${cards.length === 1 ? '' : 's'}`, ''];
   for (const c of sorted) {
-    const action = ACTION[c.run!.status] ?? { icon: '•', text: 'Take a look' };
-    const { files, questions } = facts(c);
+    const decided = c.outcome ? DECIDED[c.outcome] : undefined;
+    const action = decided ?? ACTION[c.run!.status] ?? { icon: '•', text: 'Take a look' };
+    const { files, questions } = decided ? { files: [], questions: [] } : facts(c);
     out.push(`${action.icon} #${c.id}  ${c.title}`);
     out.push(`   → ${action.text}`);
-    for (const q of questions) out.push(`     · ${q}`);
-    out.push(`   changed: ${filesLine(files)} · took ${formatDuration(c.run!.durationMs)}`);
+    for (const q of questions) wrap(q, 70).forEach((part, i) => out.push(`     ${i === 0 ? '·' : ' '} ${part}`));
+    if (!decided) out.push(`   changed: ${filesLine(files)} · took ${formatDuration(c.run!.durationMs)}`);
     out.push('');
   }
   const id = sorted[0]!.id;

@@ -56,6 +56,8 @@ export interface Card {
   approvedAt?: string;
   logPath?: string;
   run?: RunInfo;
+  /** What the user decided after the run. */
+  outcome?: 'kept' | 'undone';
   rating?: Rating;
 }
 
@@ -187,6 +189,7 @@ export function formatCard(c: Card): string {
     if (c.run.summary) lines.push('', 'what the agent said:', ...c.run.summary.split('\n').map((l) => `  ${l}`));
   }
   if (c.logPath) lines.push(`log: ${c.logPath}`);
+  if (c.outcome) lines.push(`outcome: ${c.outcome}`);
   if (c.rating) lines.push(`rating: ${c.rating.score}/5${c.rating.reason ? ` · ${c.rating.reason}` : ''}`);
   return lines.join('\n');
 }

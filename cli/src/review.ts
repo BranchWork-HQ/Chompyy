@@ -15,21 +15,36 @@ function ran(card: Card) {
   return card.run;
 }
 
-/** Top-level items from QUESTIONS.md, shortened, at most `max`. */
+/** The question itself: up to the first "?", else the first sentence. Never cut mid-sentence. */
+function questionPart(text: string): string {
+  const q = text.indexOf('?');
+  if (q !== -1) return text.slice(0, q + 1);
+  const dot = text.search(/[.!](\s|$)/);
+  return dot !== -1 ? text.slice(0, dot + 1) : text;
+}
+
+/** Top-level items from QUESTIONS.md, as whole questions, at most `max`. */
 export function firstQuestions(markdown: string, max = 2): string[] {
   return markdown
     .split('\n')
     .filter((line) => /^(\d+\.|[-*])\s+/.test(line)) // top level only, not indented sub-points
-    .map((line) =>
-      line
-        .replace(/^(\d+\.|[-*])\s+/, '')
-        .replace(/\*\*|__|`/g, '')
-        .replace(/\s*Options:\s*$/, '')
-        .trim(),
-    )
+    .map((line) => questionPart(line.replace(/^(\d+\.|[-*])\s+/, '').replace(/\*\*|__|`/g, '').trim()))
     .filter(Boolean)
-    .slice(0, max)
-    .map((q) => (q.length > 90 ? `${q.slice(0, 87).trimEnd()}…` : q));
+    .slice(0, max);
+}
+
+/** Wrap text at word boundaries so long questions fold onto the next line instead of being cut. */
+export function wrap(text: string, width: number): string[] {
+  const lines: string[] = [];
+  let line = '';
+  for (const word of text.split(/\s+/)) {
+    if (line && line.length + 1 + word.length > width) {
+      lines.push(line);
+      line = word;
+    } else line = line ? `${line} ${word}` : word;
+  }
+  if (line) lines.push(line);
+  return lines;
 }
 
 export function questionsOf(card: Card): string[] {

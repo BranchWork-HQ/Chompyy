@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { Card, RunStatus } from '../src/board.js';
 import { formatReport } from '../src/report.js';
-import { changedFiles, firstQuestions, keepCard, questionsOf, undoCard } from '../src/review.js';
+import { changedFiles, firstQuestions, keepCard, questionsOf, undoCard, wrap } from '../src/review.js';
 import { prepareWorkspace } from '../src/workspace.js';
 import { NOW, useTempHome } from './helpers.js';
 
@@ -19,13 +19,20 @@ const ranCard = (id: string, status: RunStatus, extra: Partial<Card> = {}): Card
 describe('firstQuestions', () => {
   it('keeps top-level items, strips markdown, skips sub-points', () => {
     const md = `# Questions\n\nIntro.\n\n1. **What is the repo practising?** Options:\n   - (a) keep it generic\n2. **Who is it for?** Just you?\n3. Third\n`;
-    expect(firstQuestions(md)).toEqual(['What is the repo practising?', 'Who is it for? Just you?']);
+    expect(firstQuestions(md)).toEqual(['What is the repo practising?', 'Who is it for?']);
   });
 
-  it('shortens long questions', () => {
-    const q = firstQuestions(`- ${'x'.repeat(200)}`)[0];
-    expect(q.length).toBeLessThanOrEqual(90);
-    expect(q.endsWith('…')).toBe(true);
+  it('keeps the whole question, never cut mid-sentence', () => {
+    const long = `Who is it for, just you or a whole team of people who should be able to follow along later? Extra detail.`;
+    expect(firstQuestions(`1. ${long}`)).toEqual([long.slice(0, long.indexOf('?') + 1)]);
+    expect(firstQuestions('- Pick a name. More text')).toEqual(['Pick a name.']);
+  });
+
+  it('wraps long lines at word boundaries without losing words', () => {
+    const text = 'one two three four five six seven eight nine ten';
+    const lines = wrap(text, 12);
+    expect(lines.every((l) => l.length <= 12)).toBe(true);
+    expect(lines.join(' ')).toBe(text);
   });
 });
 
@@ -45,6 +52,20 @@ describe('formatReport', () => {
     const text = formatReport([ranCard('1', 'ok')], null, facts);
     expect(text).not.toContain('/x/w');
     expect(text).not.toContain('long agent text');
+  });
+
+  it('stops asking for keep/undo once you decided, and asks for a rating', () => {
+    const text = formatReport([ranCard('2', 'questions', { outcome: 'undone' })], null, facts);
+    expect(text).toContain('→ Undone. Rate it so Chompyy learns what missed');
+    expect(text).not.toContain('keep or undo');
+    expect(text).not.toContain('What is it for?');
+  });
+
+  it('wraps a long question instead of cutting it', () => {
+    const long = 'Who is it for, just you or others who should be able to follow along with this repo later on?';
+    const text = formatReport([ranCard('2', 'questions')], null, () => ({ files: [], questions: [long] }));
+    expect(text.replace(/\n\s+/g, ' ')).toContain(long);
+    expect(text).not.toContain('…');
   });
 
   it('says plainly when nothing is new', () => {
