@@ -1,0 +1,71 @@
+angle	repo	hooks_in	note
+say-less	DietrichGebert/ponytail	skill/plugin	"Laziest senior dev": YAGNI ladder so the agent writes less code. Claims −22 % tokens; JetBrains measured −10.3 % cost
+say-less	JuliusBrussee/caveman	skill + proxy + CLI	Terse replies, now 6 "rocks" (read less, Auto routing, code-mode Blocks, cache warm, browse). Claims 65 %; JetBrains measured −8.5 % output tokens
+say-less	drona23/claude-token-efficient	CLAUDE.md	One drop-in CLAUDE.md for terse output
+say-less	JayPokale/Chisle	skill + hooks	Terse prose, YAGNI-first code and tool-output compression in one
+say-less	kuba-guzik/caveman-micro	prompt	85-token caveman prompt that beat the 552-token original on its own benchmark
+say-less	wilpel/caveman-compression	library	Removes predictable grammar from context (input side)
+say-less	Green-PT/honey-for-devs	skill	Cross-tool "I shrunk the AI" skill
+compress-input	rtk-ai/rtk	CLI proxy (Rust)	Rewrites 100+ shell commands' output. Counts chars÷4 of Bash only; JetBrains measured +7.6 % cost at low effort
+compress-input	headroomlabs-ai/headroom	library + proxy + wrap + MCP	Compresses tool output, logs, RAG, history; `headroom learn` writes fixes into CLAUDE.md. Replay: 2.8 % of a real bill
+compress-input	mksglu/context-mode	plugin (10 agents)	Runs tools in a sandbox, indexes output in SQLite, returns only what the agent asks for; "think in code"
+compress-input	teamchong/pxpipe	proxy	Renders bulky context as PNGs (~3× chars per token). Works on Gemini 4 / Fable 5; later Claude models regressed at reading them
+compress-input	Paritok-official/paritok-4b-v1	gateway + 4B model	A distilled 4B compressor model plus an embedding tool filter (~29k → ~8k tokens per turn)
+compress-input	juyterman1000/entroly	hooks + MCP + proxy	Budgeted context selection with reversible omissions and a receipt per decision
+compress-input	yvgude/lean-ctx	gateway	Selects task-relevant context, records what was delivered
+compress-input	jfrog/boost	CLI	"Save tokens, maximize context, safely"
+compress-input	edouard-claude/snip	CLI proxy	rtk-style output filters, declared in YAML
+compress-input	zdk/lowfat	CLI	Strips noise from command output
+compress-input	ojuschugh1/sqz	hooks	Compresses tool output before it enters context
+compress-input	open-compress/claw-compactor	library	14-stage compression pipeline, reversible, AST-aware
+compress-input	fkiene/llmtrim	proxy	Compresses API requests in flight
+compress-input	Tarquinen/opencode-dynamic-context-pruning	plugin (OpenCode)	Prunes stale tool results from the conversation (AGPL)
+compress-input	microsoft/LLMLingua	library	The research baseline: small-model prompt compression, up to 20×
+retrieve-less	oraios/serena	MCP	Symbol-level retrieval and edits through language servers, instead of whole-file reads
+retrieve-less	jgravelle/jcodemunch-mcp	MCP	Fetch the function you need, not the file
+retrieve-less	cocoindex-io/cocoindex-code	CLI	AST-based embedded code search
+retrieve-less	redhat-et/ripwire	CLI + MCP	"The ripgrep of AI context", C++23
+retrieve-less	zzet/gortex	engine	Code-intelligence graph for agents, 257 languages
+retrieve-less	skibidiskib/ai-codex	CLI	Generates a compact codebase index
+startup-tax	portofcontext/pctx	runtime	Turns MCP tools into code the agent calls ("code mode"), so schemas aren't sent each turn
+startup-tax	ratel-ai/ratel	MCP layer	Fixes tool overload; ~80 % fewer tokens claimed
+startup-tax	voicetreelab/lazy-mcp	MCP proxy	Loads tools on demand
+startup-tax	activeing123/mcptoon	MCP gateway	One gateway for all servers and skills, token-optimised
+startup-tax	nadimtuhin/claude-token-optimizer	CLI	Trims what Claude Code loads at session start (small CLAUDE.md, docs on demand)
+cache	cnighswonger/claude-code-cache-fix	proxy	Repairs prompt-cache bugs that caused up to 20× cost on resume; stabilises the prefix, watches TTL downgrades
+cache	IyadhKhalfallah/clauditor	hooks	Blocks bloated sessions and rotates them with a saved handover
+route	cheaper-inference/OmniRoute	gateway	375 providers, 150+ free; never stop coding
+route	musistudio/claude-code-router	gateway	Route Claude Code to any model per task type
+route	yetone/magpie	menu-bar gateway	Any model in any agent; fails over when a quota runs out
+route	BlockRunAI/ClawRouter	router	Agent-native router with wallet billing
+route	lemony-ai/cascadeflow	library	In-loop cascades: per-step model choice, budget gates, escalate
+route	CommonstackAI/UncommonRoute	router	Learned router: 82 % cost saved at 79 % accuracy (own numbers)
+route	NadirRouter/NadirClaw	router	Simple prompts to cheap models (source-available)
+route	higress-group/HiRoute	local router	Stretches Codex / Claude Code subscriptions
+route	MaySudo/Misceo	gateway	Cheap-first routing with quality gates
+route	muaaz9329/cheap-ag	harness	Expensive model plans, a cheap model writes every line
+route	lm-sys/RouteLLM	library	The research baseline for learned routers (2024, quiet)
+learn	microsoft/TokenEconomizer	plugin (9 agents)	Learns repo facts across sessions, prunes unused tools, judge-checked loop guard. −18–31 % cost on 277 SWE-bench tasks, Pass@1 up
+learn	kayba-ai/agentic-context-engine	library	Reflects on failures, keeps a playbook of strategies; −49 % tokens on browser tasks
+learn	rohitg00/pro-workflow	plugin	Learns from your corrections into memory
+learn	cytostack/openwolf	local folder	Project memory, known fixes and handovers across agents, plus token accounting
+learn	kangarooking/cangjie-skill	skill	Distils books and videos into skills (not token saving: the "distil to a skill" pattern)
+see	ccusage/ccusage	CLI	The default: `npx ccusage`, cost from local logs
+see	junhoyeo/tokscale	CLI + web	Cross-agent usage with a global leaderboard (the shareable one)
+see	getagentseal/codeburn	CLI + app	Spend by project, branch, task and PR; `optimize` finds waste, applies fixes with undo, `act report` checks the promise
+see	alexgreensh/token-optimizer	plugin (6 agents)	"Find the ghost tokens": per-component audit, compaction checkpoints, quality grade, loop detection
+see	mikehasa/agentacct	CLI + app	Work receipts: what agents did vs what it cost, with confidence labels, Reported ≠ Verified
+see	matt1398/claude-devtools	app	Inspect session logs: tool calls, context breakdown, subagents
+see	phuryn/claude-usage	dashboard	Local Claude Code usage dashboard
+see	Maciek-roboblog/Claude-Code-Usage-Monitor	CLI	Live usage with burn-rate predictions
+see	ooples/token-optimizer-mcp	MCP	Measures savings per agent, shares a live dashboard
+lean-harness	earendil-works/pi	agent	Pi: the minimal coding agent many plugins above target
+lean-harness	TokenRhythm/opensquilla	agent	Microkernel agent with a harness-native learned router (tech report, data flywheel)
+lean-harness	clacky-ai/openclacky	agent	"The most token-efficient lightweight agent"
+lean-harness	JuliusBrussee/caveman-code	agent	Frozen; measured 1.93× fewer tokens than Codex CLI
+lean-harness	Tura-AI/tura	agent	"80 % less tokens, better results" (own claim)
+schedule	vdsmon/claude-warmup	cron + claude -p	Sends a tiny scheduled message so the 5-hour window starts early and resets when you need it
+schedule	mohit-kumawat/warmup	scheduler	Same warm-start trick; claims up to 2× more usable time
+schedule	starsh2001/qlaude	CLI + Telegram	Queue tasks, walk away, get pinged when Claude Code needs you
+schedule	yail259/overnight	CLI	Batch runner: queue tasks, run overnight, wake up to results
+schedule	ADM-NKH/claude-blitz	CLI	Pre-reset backlog runner: burns queued tasks in parallel before the quota resets

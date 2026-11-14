@@ -1,0 +1,107 @@
+arxiv	finding	card
+2601.06007	Caching cut agent API cost 41–80 % across OpenAI, Anthropic, Google (500+ sessions); excluding dynamic tool results and putting dynamic content last beat naive full-context caching, which can even raise latency	A1
+2502.07776	Statistical audits found prompt caches shared across users at 7 API providers: cache hits are a timing side channel	A13
+2311.04934	Reusing attention states for shared prompt modules cuts time-to-first-token 8× (GPU) to 60× (CPU) with no accuracy loss	A1
+2405.16444	Reusing KV caches of non-prefix text chunks (with partial recompute) cuts TTFT 2.2–3.3× for RAG	A1
+2510.09665	In enterprise serving, context truncation (a common trick) **halves the prefix-cache hit ratio**	C2
+2507.07400	Scheduling-aware prefix caching for multi-agent workflows: up to 2.19× speedup	F4
+2506.14852	Caching *plans* (not answers) and adapting them with a small model cut agent cost 50 % and latency 27 % at equal performance	G1
+2502.03771	Semantic caches need a per-entry threshold to stay within an error bound; fixed thresholds give wrong reused answers	G6
+2611.02498	Semantic caches can be tuned to spend an explicit error budget safely: 40 % more hits than vCache at the same error bound	G6
+2611.01077	Multi-turn semantic caching avoids 35–41 % of generation cost in task dialogues (baselines ≤ 25 %)	G6
+2411.05276	Semantic embedding cache cut API calls up to 68.8 % on repeated query categories, > 97 % correct hits	G6
+2611.00391	Agent traces need different KV eviction than chat (job-level reuse): up to 60 % lower completion time	A1
+2604.03143	Multi-agent rounds share most context; diff-based collective KV sharing cuts per-agent KV storage up to 17.5×	F4
+2604.22750	Agent token use varies up to 30× on the same task; input dominates; models predict their own spend at r ≤ 0.39 and underestimate	B4
+2608.25399	Task specification and effort shape agent token spend; one cheap probe predicts the spend distribution within 36 %	B5
+2509.23586	AgentDiet: removing useless/expired trajectory content cut input 40–60 % and cost 21–36 % at equal pass rate (flat pricing)	C2
+2601.20404	An AGENTS.md file lowered median runtime 28.6 % and output tokens 16.6 % on 124 PRs, same completion	E3
+2510.16786	A fixed turn cap at the 75th percentile cut cost 24–68 % with little solve-rate loss; on-demand extensions cut another 12–24 %	E1
+2607.22585	Harness choice alone changes tokens per solved task up to **40×**, while pass rates differ 0–8 points	B6
+2410.02506	Pruning redundant messages between agents matches top multi-agent topologies at $5.6 vs $43.7	F3
+2510.26585	A supervisor agent that flags waste and cleans observations cut multi-agent tokens 29.7 % on GAIA at equal success	F3
+2610.22732	TokenEconomizer: repo micro-skills + tool pruning + loop guard cut coding-agent cost 18.4–30.9 % across 5 agent–model pairs	G2
+2610.21914	Code health (maintainability) predicts the token cost of agentic code review, mediated by file size (pre-registered)	B7
+2610.28612	TraceLite: trace reduction (incl. rendering as images) cut input 33 % and cost 21 % at equal resolution rate	C2
+2611.10315	Keeping the prefix cache cuts fresh prompt tokens 86 % on recovery but energy only 8 %: cheap tokens ≠ cheap compute	A13
+2604.12301	Local-Splitter: 7 tactics singly, in pairs and greedy subsets; local routing + compression saved 45–79 % cloud tokens; **the best subset depends on the workload**	H1
+2611.07650	Third-party API relays bill unexplained extra input tokens and violate tool permissions; advertised price ≠ what you get	H4
+2610.31743	Assigning cheaper models to some agent roles cut multi-agent cost 85 % at equal or better score	F2
+2310.05736	LLMLingua: small-LM token pruning compresses prompts up to 20× with little loss (on QA/reasoning text)	C1
+2403.12968	LLMLingua-2: faster, task-agnostic token classification; 2–5× compression, 1.6–2.9× end-to-end speedup	C1
+2410.12388	Survey of hard vs soft prompt compression; most methods need model access or fine-tuning	C1
+2407.15504	Rate-distortion bound: current prompt compressors sit far from the optimum; query-aware compression closes much of the gap	C1
+2505.00019	Compression hurts long contexts more than short ones; moderate compression can *help* on LongBench	C3
+2503.19114	Compressors drop entities; controlling granularity preserves 2.7× more entities, +23 % downstream	C1
+2605.26596	AGORA: token-level compressors **collapse agents** (17/17 cells to reward ≤ 0.05) by deleting identifiers and brackets; step-level compression with an always-keep floor works	C1
+2609.32961	Context compression in agents: a third of the tokens can take **20–80 % longer** wall-clock; equal success rates hide different solved tasks; policy must fit task × model	C4
+2609.37590	FOCUS: decision-preserving compression cut peak context 48 % and *raised* success up to 8.9 points on closed-API models	C3
+2609.29875	Past reasoning becomes safe to drop once its result is externalised into code, files or tool output	C5
+2608.29363	Learning per-tool retention (which tool outputs matter) cut tokens 18–25 % on held-out environments	C5
+2611.06500	Latent (non-text) tool-output compression cut web-agent tokens 70–89 % and runtime 24–56 % while raising accuracy (needs model access)	C1
+2608.31057	Agent working memory is heterogeneous (instructions, artifacts, tool output, state); a nominal token budget misjudges management cost	C4
+2510.11967	Context-Folding: branching into sub-trajectories and folding them back keeps active context 10× smaller with equal or better results	F1
+2510.24699	AgentFold: proactive, multi-scale folding of history lets a 30B agent match much larger ones on BrowseComp	F1
+2603.29919	SkillReducer: cutting skill descriptions 48 % and bodies 39 % *improved* quality 2.8 % ("less is more"), transfers across 5 models	E2
+2602.07962	LOCA-bench: agents degrade as environment state grows; context-management strategies recover much of it	C3
+2508.04664	Irrelevant context causes proactive interference; letting the model manage its own history improves long-context reasoning	C3
+2610.35496	**42 trajectory-deletion configs, 9,400 runs: under flat pricing 26 save money; under cache-aware pricing 0 do** — deletion breaks the cached prefix, and agents re-fetch what was deleted	C2
+2610.36153	Stratum: a fresh agent inheriting a prior session's repo memory found the root cause 21/24 vs 6/24, at 4.5× lower median tokens	G3
+2603.04257	Indexed experience memory (store outside, dereference on demand) keeps working context small with higher success	F1
+2510.06727	Summarisation-based context management lets RL-trained agents work beyond a fixed window	F1
+2307.03172	Lost in the middle: accuracy is highest when the relevant fact is at the start or end of the context and drops in the middle	D1
+2404.06654	RULER: only half of models claiming ≥ 32k context perform well at 32k; effective context ≪ advertised	D2
+2502.05167	NoLiMa: without literal keyword matches, 11 of 12 long-context models fall to half their short-context score at 32k	D2
+2409.01666	RAG with fewer, order-preserved chunks beats stuffing the whole context: quality is an inverted U in the number of chunks	D3
+2505.10570	Tool calling degrades 7–85 % as the number of tools grows and 7–91 % as tool responses grow longer	D4
+2608.03297	Many "shorter context is better" results confound length with dropped evidence; measure with distractor-aware truncation	D5
+2509.09614	LoCoBench: long-context software tasks remain far from solved even for million-token models	D2
+2305.05176	FrugalGPT: cache + prompt adaptation + cascade together matched GPT-4 at up to 98 % lower cost (the early combined-tactics result)	H2
+2406.18665	RouteLLM: routers trained on preference data cut cost > 2× at equal quality and transfer to new model pairs	F2
+2403.12031	RouterBench: a standard benchmark for multi-LLM routing (405k outcomes)	F2
+2601.07206	LLMRouterBench: big gap remains to the oracle router; curating a few models beats large ensembles	F2
+2603.04445	Survey: routing and cascading can beat the best single model, generalisation is the open problem	F2
+2602.03478	Routers overpay by preferring strong models; cost-aware ranking fixes it	F2
+2610.31428	Learned predictors beat model self-confidence for routing mainly on weaker models; the edge shrinks as models improve	F2
+2604.23530	Multi-turn router: 43 % lower cost vs GPT-5 alone, partly by **switching models less often**	A3
+2508.21141	Budget-constrained routing as a bandit + knapsack, learned online from feedback	F2
+2502.03261	CARROT: cost-aware router with minimax-rate guarantees	F2
+2611.09028	Routers should price by *predicted length*, not fixed cost: a small-model prefill probe saves 22 % more; a ~2B scout is enough	B5
+2502.11133	Routing models per agent role in multi-agent systems cut overhead up to 52 %	F2
+2503.16419	Survey of efficient reasoning: model-, output- and prompt-based ways to curb overthinking	E4
+2412.18547	Telling the model a token budget for its reasoning cuts CoT tokens with only slight accuracy loss	E4
+2503.04472	Difficulty-adaptive thinking cuts reasoning tokens > 30 % without losing accuracy on hard problems	E4
+2502.15631	Higher reasoning effort spends more tokens on *every* problem, including ones the lower setting already solves	E4
+2506.08343	Suppressing "Wait"-style self-reflection tokens cuts reasoning length 27–51 % without utility loss	E4
+2504.13367	Reasoning models overthink easy questions badly; calibration is poor on trivially easy tasks	E4
+2505.16122	Planning, then budgeting per sub-question: up to 39 % fewer tokens and higher accuracy	E4
+2611.05860	A single model of completion time and correctness predicts success at any token budget	B5
+2502.18600	Chain of Draft: minimal intermediate notes match CoT accuracy at as little as 7.6 % of the tokens	E5
+2407.19825	Constrained-length CoT prompts shorten answers; conciseness metrics proposed	E5
+2503.01141	Each problem has a minimal "token complexity"; models compress far less than they could, especially on easy questions	E5
+2401.05618	Concise CoT: −48.7 % response length with negligible loss overall, but −27.7 % accuracy on math for a weaker model	E5
+2606.30128	What helps in CoT is the content of the extra tokens (reasoning, checking), not their count; filler of equal length helps not at all	E5
+2503.01763	Standard retrieval models are poor at retrieving tools, and bad retrieval lowers task pass rate	D4
+2505.06416	Dynamic MCP tool retrieval over 5,000 servers: retrieve tools per task instead of loading all	E2
+2512.15834	Speculative tool calls raise agent serving throughput; proposes a provider "tool cache" endpoint	F4
+2610.41905	Multi-tool tasks fail if retrieval misses any one tool: complete sets succeeded 21/21, incomplete 2/39	D4
+2609.35811	Budget-aware tool retrieval that models latency picks better tools under resource limits	E2
+2607.25718	Retrieve tools as *sets* (they depend on each other), not one by one	D4
+2305.16291	Voyager: an ever-growing library of verified code skills lets an agent reuse and compose behaviour in new worlds	G1
+2409.07429	Agent Workflow Memory: induced reusable workflows raised success 24.6–51.1 % and cut steps on web tasks	G1
+2508.06433	Procedural memory built by a strong model **transfers to a weaker model** with substantial gains	G4
+2507.23361	Experience bank of past repair trajectories: 73 % on SWE-bench Verified (Claude 4 Sonnet)	G1
+2602.20867	SoK on agent skills: curated skills raise success, **self-generated skills can degrade it**; skills are a supply-chain risk	G5
+2511.20857	Evo-Memory benchmark: retrieving prior experience (ExpRAG) is a strong baseline for test-time learning	G1
+2603.01145	AutoSkill: turns repeated user preferences into explicit, composable skills	G1
+2604.01687	Skills refined against a co-evolving verifier beat baselines on Claude Code and Codex	G5
+2604.04804	Hierarchical skill knowledge bases improve success and efficiency of weaker agents	G4
+2602.01869	Skill-Pro: skills learned from experience with high reuse and extreme memory compression	G1
+2611.01386	Skills compiled from a teacher's **verified traces** raise three weaker executors' pass rates 4.5–18.8 points at every effort level	G4
+2610.39508	Compiling skills into validated programs and reusing them: up to +32 % task performance	G1
+2610.27377	REM: governed experience (what to store, recall, forget) resolved more issues at 17 % lower cost; raw trajectories or summaries did not help	G5
+2610.27406	**More memory, worse agents**: stored experience reproduces past errors; keeping abstractions from persisting fixes it at the lowest cost	G5
+2512.10696	Dynamic procedural memory lets an 8B model beat a memoryless 14B one	G4
+2604.07931	Output length is heavy-tailed per prompt; predict a distribution, not a point	B5
+2607.05316	Models linearly encode how much output remains (decodable from hidden states)	B5
+2604.03684	Classifying 100 items per prompt instead of one stays within 2 points of accuracy at a fraction of the cost	F5
