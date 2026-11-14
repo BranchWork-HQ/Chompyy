@@ -24,6 +24,19 @@ export function safetyRules(workdir: string): string {
 5. End with a short summary: what you made, where it is, and how to check it.`;
 }
 
+/** Claude Code sandbox settings for an away run: writes only in the card's folder (+ its repo's .git), no network. */
+export function sandboxSettings(ws: Workspace, allowedDomains: string[]): Record<string, unknown> {
+  return {
+    sandbox: {
+      enabled: true,
+      failIfUnavailable: true, // refuse to run rather than run unprotected
+      allowUnsandboxedCommands: false, // no retrying outside the sandbox
+      filesystem: { allowWrite: ws.gitDir ? [ws.gitDir] : [] },
+      network: { allowedDomains },
+    },
+  };
+}
+
 export function taskPrompt(card: Card, workdir: string): string {
   return `${safetyRules(workdir)}
 
@@ -155,6 +168,7 @@ async function runCard(id: string, timeoutMs: number, deps: AwayDeps): Promise<s
       permissionPrompts: config.permissionPrompts,
       allowedTools: config.allowedTools,
       disallowedTools: config.disallowedTools,
+      ...(config.sandbox ? { settings: sandboxSettings(ws, config.sandboxAllowedDomains) } : {}),
       extraArgs: config.extraArgs,
     });
     exitCode = result.exitCode;

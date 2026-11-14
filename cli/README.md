@@ -114,6 +114,8 @@ An unknown weekly window doesn't close the gate (some plans don't report it); `a
 | `permissionPrompts` | `"none"` | `--permission-prompts`: anything that would ask for permission is denied, so a run never hangs waiting. Set `null` on Claude Code versions without this flag |
 | `allowedTools` | read/search tools, `git status/diff/log/add/commit`, `npm test`, `npm run`, `npx vitest`, `pytest` | `--allowedTools` |
 | `disallowedTools` | `git push/merge/rebase/reset/checkout/switch/worktree`, `gh`, `npm publish`, `curl`, `rm -rf` | `--disallowedTools` |
+| `sandbox` | `true` | Run away cards in Claude Code's OS sandbox (macOS, Linux, WSL2) |
+| `sandboxAllowedDomains` | `[]` | Domains sandboxed commands may reach, e.g. `["registry.npmjs.org"]` |
 | `extraArgs` | `[]` | Appended to every away-run `claude -p` call, e.g. `["--max-budget-usd", "2"]` for API-key users |
 
 Set `CHOMPYY_HOME` to keep state somewhere other than `~/.chompyy` (the tests do this).
@@ -124,6 +126,7 @@ A card runs unattended only inside a box (spec §5.5):
 
 - **Its own place**: a fresh git worktree on `chompyy/<id>`, or a draft folder under `~/.chompyy/runs/<id>/`. Your checkout is never touched; nothing is merged.
 - **Rules in the prompt**, before the blueprint: work only inside this directory; no git push, merge, rebase or PR; no sending, posting, publishing or purchases; if a decision is needed, stop and write `QUESTIONS.md` (the report flags those cards as ❓).
+- **Enforced by the OS** (default, `sandbox: true`): cards run in Claude Code's sandbox. Shell commands can write only inside the card's folder (plus its repo's `.git`, so commits work) and have **no network** unless you list domains in `sandboxAllowedDomains`. So a `git push` fails even if a test script tries it. If the sandbox can't start, the card refuses to run rather than run unprotected. Checked on macOS with a real headless run: network and outside writes were blocked, the commit worked. File reads are not restricted.
 - **Rules in the tools**: `acceptEdits` plus an allow list, a deny list for push/merge/`gh`/publish, and `--permission-prompts none` so anything outside the lists is refused instead of waiting for you.
 - **Caps**: a wall-clock timeout per card, a turn cap, the away duration, and the budget gate above.
 - **Blueprint first**: a card can't be approved without one.

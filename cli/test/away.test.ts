@@ -160,3 +160,22 @@ describe('away loop: recovery and questions', () => {
     expect(columns()).toEqual({ 1: 'review' });
   });
 });
+
+describe('sandbox', () => {
+  const home = useTempHome();
+  it('runs away cards sandboxed by default, allowing writes to the repo .git only', async () => {
+    const { deps, requests } = setup(home, { cards: 1 });
+    deps.prepare = (card) => ({ kind: 'worktree', dir: join(home(), 'worktrees', card.id), branch: `chompyy/${card.id}`, gitDir: '/repo/.git' });
+    mkdirSync(join(home(), 'worktrees', '1'), { recursive: true });
+    await away(60 * MIN, deps);
+    expect(requests[0]!.settings).toEqual({
+      sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, filesystem: { allowWrite: ['/repo/.git'] }, network: { allowedDomains: [] } },
+    });
+  });
+  it('can be turned off', async () => {
+    const { deps, requests } = setup(home, { cards: 1 });
+    deps.config = { ...deps.config, sandbox: false };
+    await away(60 * MIN, deps);
+    expect(requests[0]!.settings).toBeUndefined();
+  });
+});

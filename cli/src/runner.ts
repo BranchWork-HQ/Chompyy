@@ -14,6 +14,8 @@ export interface RunRequest {
   permissionPrompts?: string | null;
   allowedTools?: string[];
   disallowedTools?: string[];
+  /** Passed as --settings (JSON), e.g. the sandbox for away runs. */
+  settings?: Record<string, unknown>;
   extraArgs?: string[];
 }
 
@@ -38,6 +40,7 @@ export function claudeArgs(req: RunRequest): string[] {
   if (req.permissionPrompts) args.push('--permission-prompts', req.permissionPrompts);
   if (req.allowedTools?.length) args.push('--allowedTools', ...req.allowedTools);
   if (req.disallowedTools?.length) args.push('--disallowedTools', ...req.disallowedTools);
+  if (req.settings) args.push('--settings', JSON.stringify(req.settings));
   if (req.extraArgs?.length) args.push(...req.extraArgs);
   return args;
 }

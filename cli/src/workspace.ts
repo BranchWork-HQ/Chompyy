@@ -8,6 +8,8 @@ export interface Workspace {
   kind: 'worktree' | 'draft';
   dir: string;
   branch?: string;
+  /** The repo's shared .git folder: commits in a worktree write here. */
+  gitDir?: string;
 }
 
 function git(cwd: string, args: string[]): string {
@@ -47,9 +49,10 @@ export function prepareWorkspace(card: Card): Workspace {
   }
   const root = gitRoot(card.cwd)!;
   const branch = plan.branch!;
-  if (existsSync(plan.dir)) return plan; // a rerun keeps working in the same worktree
+  const gitDir = git(root, ['rev-parse', '--path-format=absolute', '--git-common-dir']);
+  if (existsSync(plan.dir)) return { ...plan, gitDir }; // a rerun keeps working in the same worktree
   // New branch from the repo's current HEAD; on a rerun after the folder was removed, reuse the branch.
   const args = branchExists(root, branch) ? ['worktree', 'add', plan.dir, branch] : ['worktree', 'add', '-b', branch, plan.dir, 'HEAD'];
   git(root, args);
-  return plan;
+  return { ...plan, gitDir };
 }

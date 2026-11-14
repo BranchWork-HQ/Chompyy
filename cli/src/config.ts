@@ -24,6 +24,10 @@ export interface Config {
   permissionPrompts: string | null;
   allowedTools: string[];
   disallowedTools: string[];
+  /** Run away cards in Claude Code's OS sandbox: shell writes only in the card's folder, network off. */
+  sandbox: boolean;
+  /** Domains sandboxed commands may reach (e.g. "registry.npmjs.org"). Empty = no network. */
+  sandboxAllowedDomains: string[];
   /** Appended verbatim to every away-run `claude -p` call. */
   extraArgs: string[];
 }
@@ -69,6 +73,8 @@ export const DEFAULT_CONFIG: Config = {
     'Bash(curl *)',
     'Bash(rm -rf *)',
   ],
+  sandbox: true,
+  sandboxAllowedDomains: [],
   extraArgs: [],
 };
 
