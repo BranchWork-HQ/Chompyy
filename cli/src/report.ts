@@ -69,8 +69,11 @@ export function formatReport(cards: Card[], since: string | null, facts: (card: 
     if (!decided) out.push(`   changed: ${filesLine(files)} · took ${formatDuration(c.run!.durationMs)}`);
     out.push('');
   }
-  const id = sorted[0]!.id;
-  out.push(`More on a card: chompyy show ${id} · diff ${id} · keep ${id} · undo ${id} · rate ${id} <1-5>`);
+  const top = sorted[0]!;
+  const id = top.id;
+  out.push(top.outcome
+    ? `More on a card: chompyy show ${id} · rate ${id} <1-5>`
+    : `More on a card: chompyy show ${id} · diff ${id} · keep ${id} · undo ${id} · rate ${id} <1-5>`);
   return out.join('\n');
 }
 
