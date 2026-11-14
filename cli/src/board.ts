@@ -182,7 +182,10 @@ export function formatCard(c: Card): string {
   ];
   if (c.idea !== c.title) lines.push('', c.idea);
   lines.push('', c.blueprint ?? (c.blueprintError ? `(blueprint failed: ${c.blueprintError})` : '(no blueprint yet)'));
-  if (c.run) lines.push('', `last run: ${c.run.status} · ${c.run.workdir}${c.run.branch ? ` · branch ${c.run.branch}` : ''}`);
+  if (c.run) {
+    lines.push('', `last run: ${c.run.status} · ${c.run.workdir}${c.run.branch ? ` · branch ${c.run.branch}` : ''}`);
+    if (c.run.summary) lines.push('', 'what the agent said:', ...c.run.summary.split('\n').map((l) => `  ${l}`));
+  }
   if (c.logPath) lines.push(`log: ${c.logPath}`);
   if (c.rating) lines.push(`rating: ${c.rating.score}/5${c.rating.reason ? ` · ${c.rating.reason}` : ''}`);
   return lines.join('\n');

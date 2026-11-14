@@ -54,7 +54,9 @@ chompyy status          # 5h left, reset time, pace, weekly used
 chompyy eat-tokens      # read-only view of the leftover window and cards to consider
 chompyy away 1h --dry-run   # the plan: which cards, where they'd run, whether the gate is open
 chompyy away 1h         # go get lunch; cards run one at a time, then move to review
-chompyy report          # what ran since the last report, with the first lines of each result
+chompyy report          # what ran, and the one thing to do about each (cards that need you first)
+chompyy diff 1          # see the change; then keep it, or throw it away
+chompyy keep 1          # merge its branch into your current branch  (or: chompyy undo 1)
 chompyy rate 1 4 "right scope, test was thin"
 chompyy board           # everything, by column
 ```
@@ -76,7 +78,10 @@ Each card in a git repo runs in its own worktree at `~/.chompyy/worktrees/<id>` 
 | `chompyy blueprint <id> [--model m]` | Draft (or redraft) the blueprint with a cheap model |
 | `chompyy approve <id>` / `drop <id>` | Queue a card for away runs / remove it (kept in `archive.jsonl`) |
 | `chompyy away <1h\|30m\|1h30m> [--dry-run] [--force]` | Run approved cards until the time is up or the gate closes |
-| `chompyy report [--all]` | Cards that ran since the last report |
+| `chompyy report [--all]` | Cards that ran since the last report: one action each, cards needing you first. No paths or raw agent text; ask for those with `show` |
+| `chompyy diff <id>` | The change the card made on its branch |
+| `chompyy keep <id>` | Merge the card's branch into your current branch and remove its worktree. Refuses if your repo has uncommitted changes |
+| `chompyy undo <id>` | Throw the run away: remove its worktree and branch (or draft folder). Your own branches are never touched |
 | `chompyy rate <id> <1-5> ["why"]` | Rate a result against its blueprint; moves it to *done* and logs a signal |
 | `chompyy taste` | Show `taste.md` (a stub for now; nothing is distilled yet) |
 

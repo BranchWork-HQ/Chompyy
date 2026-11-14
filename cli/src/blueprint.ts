@@ -15,7 +15,7 @@ Turn the idea below into a blueprint. Reply with ONLY this Markdown, no preamble
 - <3 to 5 bullets of what the result will contain>
 
 ## Out of scope
-- <1 to 3 bullets of what will NOT be done, especially anything outward: no push, merge, PR, sending or posting>
+- <1 to 3 bullets of what will NOT be done, especially anything outward: no push, merge, PR, sending or posting. Committing to its own chompyy branch is fine: that's how the user reviews and undoes it>
 
 ## Shape
 <a short outline of the artifact: files, sections or steps>

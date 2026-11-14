@@ -11,6 +11,7 @@ import { budgetGate } from './gate.js';
 import { chompyyHome } from './home.js';
 import { loadSnapshot, mergeSnapshot, parseStatusline, saveSnapshot, statusLineText, statusText, windowView } from './quota.js';
 import { cardsSince, formatReport, lastReportAt, markReported, rateCard, readTaste } from './report.js';
+import { changedFiles, diffCard, keepCard, questionsOf, undoCard } from './review.js';
 import { ClaudeRunner, claudeAvailable } from './runner.js';
 import { planWorkspace, prepareWorkspace } from './workspace.js';
 
@@ -25,7 +26,7 @@ Board
   chompyy later "<idea>"        park an idea in later (blueprint drafted in the background)
         --no-blueprint            don't draft one   --wait   draft it now, in the foreground
   chompyy board [--column c]    cards by column (suggested later approved running review done)
-  chompyy show <id>             one card with its blueprint
+  chompyy show <id>             one card: blueprint, last run, what the agent said
   chompyy blueprint <id>        (re)draft the blueprint with a cheap model  [--model haiku]
   chompyy approve <id>          later → approved (needs a blueprint)
   chompyy drop <id>             remove a card (kept in archive.jsonl)
@@ -36,7 +37,10 @@ Away
         --force                   skip the budget gate (the duration still holds)
 
 Back
-  chompyy report [--all]        what ran since the last report
+  chompyy report [--all]        what ran, and the one thing to do about each
+  chompyy diff <id>             the change it made
+  chompyy keep <id>             merge its branch into your current branch
+  chompyy undo <id>             throw it away (removes its branch; yours are untouched)
   chompyy rate <id> <1-5> ["why"]   rate a result against its blueprint
   chompyy taste                 show taste.md
 
@@ -216,8 +220,20 @@ async function main(argv: string[]): Promise<void> {
     }
     case 'report': {
       const since = values.all ? null : lastReportAt();
-      console.log(formatReport(cardsSince(loadBoard(), since), since));
+      console.log(formatReport(cardsSince(loadBoard(), since), since, (c) => ({ files: changedFiles(c), questions: questionsOf(c) })));
       markReported(now);
+      return;
+    }
+    case 'diff': {
+      console.log(diffCard(getCard(loadBoard(), need(args[0], 'chompyy diff <id>'))));
+      return;
+    }
+    case 'keep': {
+      console.log(keepCard(getCard(loadBoard(), need(args[0], 'chompyy keep <id>'))));
+      return;
+    }
+    case 'undo': {
+      console.log(undoCard(getCard(loadBoard(), need(args[0], 'chompyy undo <id>'))));
       return;
     }
     case 'rate': {

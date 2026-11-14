@@ -103,7 +103,7 @@ export function statusText(snap: Snapshot | null, now: Date): string {
       'then send one message in any Claude Code session.',
     ].join('\n');
   }
-  const clock = (unix: number) => new Date(unix * 1000).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+  const clock = (unix: number) => new Date(unix * 1000).toLocaleString('en-US', { weekday: 'short', hour: '2-digit', minute: '2-digit' });
   const lines: string[] = [];
   const five = windowView(snap.fiveHour, now);
   if (five.known) {

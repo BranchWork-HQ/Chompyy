@@ -25,21 +25,43 @@ export function cardsSince(board: BoardData, since: string | null): Card[] {
     .sort((a, b) => a.run!.finishedAt.localeCompare(b.run!.finishedAt));
 }
 
-const ICON: Record<string, string> = { ok: '✅', questions: '❓', timeout: '⏱', failed: '❌', error: '⚠️' };
+/** What the report needs to know about a card beyond the board: kept out so tests can fake it. */
+export interface CardFacts {
+  files: string[];
+  questions: string[];
+}
 
-export function formatReport(cards: Card[], since: string | null): string {
-  if (cards.length === 0) return since ? `Nothing ran since the last report (${since}).` : 'Nothing has run yet.';
-  const out = [`While you were away: ${cards.length} card(s)${since ? ` since ${since}` : ''}`, ''];
-  for (const c of cards) {
-    const r = c.run!;
-    out.push(`${ICON[r.status] ?? '•'} #${c.id} ${c.title}`);
-    out.push(`   ${r.status} · ${formatDuration(r.durationMs)} · ${r.branch ? `branch ${r.branch} · ` : ''}${r.workdir}`);
-    if (r.status === 'questions') out.push(`   needs you: see ${r.workdir}/QUESTIONS.md`);
-    for (const line of r.summary.split('\n').filter(Boolean)) out.push(`   │ ${line}`);
-    if (c.logPath) out.push(`   log: ${c.logPath}`);
+/** The one thing to do about each run, most urgent first. */
+const ACTION: Record<string, { icon: string; rank: number; text: string }> = {
+  questions: { icon: '❓', rank: 0, text: 'Answer its question, then keep or undo' },
+  failed: { icon: '❌', rank: 1, text: "It didn't finish. Look at what happened, then undo or run it again" },
+  error: { icon: '⚠️', rank: 1, text: "It couldn't start. Look at what happened" },
+  timeout: { icon: '⏱', rank: 2, text: 'It ran out of time. Check what it got done, then keep or undo' },
+  ok: { icon: '✅', rank: 3, text: 'Check the change, then keep or undo' },
+};
+
+function filesLine(files: string[]): string {
+  if (!files.length) return 'no files changed';
+  const shown = files.slice(0, 3).join(', ');
+  return files.length > 3 ? `${shown} +${files.length - 3} more` : shown;
+}
+
+/** Short and action-first; details come from `show`, `diff`, `keep`, `undo` on request. */
+export function formatReport(cards: Card[], since: string | null, facts: (card: Card) => CardFacts): string {
+  if (cards.length === 0) return since ? 'Nothing new since your last report.' : 'Nothing has run yet.';
+  const sorted = [...cards].sort((a, b) => (ACTION[a.run!.status]?.rank ?? 9) - (ACTION[b.run!.status]?.rank ?? 9));
+  const out = [`🍪 While you were away · ${cards.length} card${cards.length === 1 ? '' : 's'}`, ''];
+  for (const c of sorted) {
+    const action = ACTION[c.run!.status] ?? { icon: '•', text: 'Take a look' };
+    const { files, questions } = facts(c);
+    out.push(`${action.icon} #${c.id}  ${c.title}`);
+    out.push(`   → ${action.text}`);
+    for (const q of questions) out.push(`     · ${q}`);
+    out.push(`   changed: ${filesLine(files)} · took ${formatDuration(c.run!.durationMs)}`);
     out.push('');
   }
-  out.push('Rate each against its blueprint: chompyy rate <id> <1-5> ["why"]');
+  const id = sorted[0]!.id;
+  out.push(`More on a card: chompyy show ${id} · diff ${id} · keep ${id} · undo ${id} · rate ${id} <1-5>`);
   return out.join('\n');
 }
 
