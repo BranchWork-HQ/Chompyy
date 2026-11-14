@@ -1,0 +1,28 @@
+{
+  "name": "chompyy",
+  "version": "0.1.0",
+  "description": "Use Claude Code 5-hour window capacity that would reset unused: park ideas, blueprint them, run approved cards while you're away.",
+  "type": "module",
+  "bin": {
+    "chompyy": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "skills"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && chmod +x dist/cli.js",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepare": "npm run build"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.19.43",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.7"
+  }
+}

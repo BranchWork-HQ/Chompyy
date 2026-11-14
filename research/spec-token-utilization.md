@@ -66,7 +66,7 @@ v1 triggers:
 2. **`/away <duration>`**, when you say you're stepping out.
 3. **Bedtime**, set once.
 
-Before offering, check the weekly limit: never spend what the rest of the week is likely to need (keep a reserve, e.g. 10% of the remaining weekly allowance). An unused window is only lost if the weekly limit isn't binding, so measure how often that's true from real logs before claiming savings.
+Before offering, check the weekly limit by **staying on pace**: run only while weekly usage is behind an even pace through the week (2.5 days into a 7-day week, under ~36% used). That spends only what you haven't used so far and never borrows from the days ahead. A hard stop at 90% weekly used applies whatever the pace. (Decided 2026-11-14, replacing "keep 10% of the remaining weekly allowance", which shrinks as you spend.) An unused window is only lost if the weekly limit isn't binding, so measure how often that's true from real logs before claiming savings.
 
 ### 5.3 The board
 
