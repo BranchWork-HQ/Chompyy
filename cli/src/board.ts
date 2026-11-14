@@ -18,7 +18,7 @@ const TRANSITIONS: Record<Column, Column[]> = {
   suggested: ['later', 'approved'],
   later: ['approved'],
   approved: ['running', 'later'],
-  running: ['review'],
+  running: ['review', 'approved'],
   review: ['done', 'approved'],
   done: [],
 };
@@ -145,6 +145,16 @@ export function cardsIn(board: BoardData, column: Column): Card[] {
 }
 
 /** Approved cards in the order they were approved: the away queue. */
+/** Cards stuck in running (the away run was stopped or crashed) go back to approved. Returns their ids. */
+export function recoverRunning(board: BoardData, now: Date): string[] {
+  const stuck = cardsIn(board, 'running');
+  for (const c of stuck) {
+    c.column = 'approved';
+    c.updatedAt = now.toISOString();
+  }
+  return stuck.map((c) => c.id);
+}
+
 export function awayQueue(board: BoardData): Card[] {
   return cardsIn(board, 'approved').sort((a, b) => (a.approvedAt ?? '').localeCompare(b.approvedAt ?? ''));
 }

@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { addCard, awayQueue, canMove, dropCard, formatBoard, loadBoard, moveCard, updateBoard, type BoardData } from '../src/board.js';
+import { addCard, awayQueue, canMove, dropCard, formatBoard, loadBoard, moveCard, recoverRunning, updateBoard, type BoardData } from '../src/board.js';
 import { cardsSince, rateCard, readTaste } from '../src/report.js';
 import { NOW, useTempHome } from './helpers.js';
 
@@ -106,5 +106,17 @@ describe('rating', () => {
     expect(readTaste().created).toBe(true);
     expect(readTaste()).toMatchObject({ created: false });
     expect(readTaste().text).toMatch(/^# taste\.md/);
+  });
+});
+
+describe('recoverRunning', () => {
+  useTempHome();
+  it('puts cards stuck in running back to approved', () => {
+    const b = { nextId: 3, cards: [
+      { id: '1', title: 'a', idea: 'a', cwd: '/x', column: 'running', blueprint: 'bp', createdAt: '', updatedAt: '' },
+      { id: '2', title: 'b', idea: 'b', cwd: '/x', column: 'review', blueprint: 'bp', createdAt: '', updatedAt: '' },
+    ] } as unknown as BoardData;
+    expect(recoverRunning(b, NOW)).toEqual(['1']);
+    expect(b.cards.map((c) => c.column)).toEqual(['approved', 'review']);
   });
 });

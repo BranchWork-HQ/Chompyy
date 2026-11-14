@@ -115,6 +115,17 @@ describe('keep and undo', () => {
     expect(git(repo, 'branch', '--list', 'chompyy/6')).toBe('');
   });
 
+  it('keep on a conflict changes nothing and says how to merge by hand', () => {
+    const { repo, card, git } = setup('9');
+    writeFileSync(join(repo, 'NEW.md'), 'different\n');
+    git(repo, 'add', '.');
+    git(repo, 'commit', '-qm', 'conflicting');
+    const before = git(repo, 'rev-parse', 'HEAD');
+    expect(() => keepCard(card)).toThrow(/conflicts with .*Nothing was changed/);
+    expect(git(repo, 'rev-parse', 'HEAD')).toBe(before);
+    expect(git(repo, 'status', '--porcelain')).toBe('');
+  });
+
   it('keep refuses when the repo has uncommitted changes', () => {
     const { repo, card } = setup('7');
     writeFileSync(join(repo, 'README.md'), '# edited\n');

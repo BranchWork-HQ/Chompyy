@@ -42,6 +42,24 @@ export function claudeArgs(req: RunRequest): string[] {
   return args;
 }
 
+/** Process groups of agents still running, so Ctrl-C on chompyy stops them too. */
+const active = new Set<number>();
+let handlersInstalled = false;
+function stopActiveOnExit(): void {
+  if (handlersInstalled) return;
+  handlersInstalled = true;
+  for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+    process.once(signal, () => {
+      for (const pid of active) {
+        try {
+          process.kill(-pid, 'SIGTERM');
+        } catch {}
+      }
+      process.exit(130);
+    });
+  }
+}
+
 export class ClaudeRunner implements Runner {
   constructor(private bin = 'claude') {}
 
@@ -49,7 +67,17 @@ export class ClaudeRunner implements Runner {
     const started = Date.now();
     return new Promise((resolve) => {
       // The prompt goes in on stdin: no argument-length limits, nothing in `ps`.
-      const child = spawn(this.bin, claudeArgs(req), { cwd: req.cwd, stdio: ['pipe', 'pipe', 'pipe'] });
+      // Own process group, so a timeout also stops commands the agent started (tests, builds).
+      const child = spawn(this.bin, claudeArgs(req), { cwd: req.cwd, stdio: ['pipe', 'pipe', 'pipe'], detached: true });
+      stopActiveOnExit();
+      if (child.pid) active.add(child.pid);
+      const killAll = (signal: NodeJS.Signals) => {
+        try {
+          if (child.pid) process.kill(-child.pid, signal);
+        } catch {
+          child.kill(signal);
+        }
+      };
       let output = '';
       let stderr = '';
       let timedOut = false;
@@ -57,11 +85,12 @@ export class ClaudeRunner implements Runner {
       child.stderr.on('data', (d: Buffer) => (stderr += d.toString()));
       const timer = setTimeout(() => {
         timedOut = true;
-        child.kill('SIGTERM');
-        setTimeout(() => child.kill('SIGKILL'), 5000).unref();
+        killAll('SIGTERM');
+        setTimeout(() => killAll('SIGKILL'), 5000).unref();
       }, req.timeoutMs);
       const done = (exitCode: number | null) => {
         clearTimeout(timer);
+        if (child.pid) active.delete(child.pid);
         resolve({ exitCode, output, stderr, timedOut, durationMs: Date.now() - started });
       };
       child.on('error', (err) => {

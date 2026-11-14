@@ -1,7 +1,7 @@
 // Away run (spec §5.2, §5.5, §5.6): approved cards, one at a time, headless, inside the window.
-import { existsSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { awayQueue, loadBoard, updateBoard, getCard, type Card, type RunStatus } from './board.js';
+import { awayQueue, loadBoard, recoverRunning, updateBoard, getCard, type Card, type RunStatus } from './board.js';
 import type { Config } from './config.js';
 import { formatDuration } from './duration.js';
 import { budgetGate } from './gate.js';
@@ -77,6 +77,10 @@ export async function away(durationMs: number, deps: AwayDeps, opts: AwayOptions
   const { config, out } = deps;
   const start = deps.now();
   const deadline = start + durationMs;
+  if (!opts.dryRun) {
+    const recovered = updateBoard((b) => recoverRunning(b, new Date(deps.now())));
+    if (recovered.length) out(`Put back in approved after an interrupted run: ${recovered.map((id) => `#${id}`).join(', ')}`);
+  }
   const queue = awayQueue(loadBoard());
   const summary: AwaySummary = { ran: [], skipped: [], stoppedBecause: null };
 
@@ -139,6 +143,8 @@ async function runCard(id: string, timeoutMs: number, deps: AwayDeps): Promise<s
   try {
     ws = deps.prepare(card);
     const prompt = taskPrompt(card, ws.dir);
+    const questionsPath = join(ws.dir, 'QUESTIONS.md');
+    const questionsBefore = existsSync(questionsPath) ? readFileSync(questionsPath, 'utf8') : null;
     const result = await deps.runner.run({
       prompt,
       cwd: ws.dir,
@@ -152,7 +158,7 @@ async function runCard(id: string, timeoutMs: number, deps: AwayDeps): Promise<s
       extraArgs: config.extraArgs,
     });
     exitCode = result.exitCode;
-    const hasQuestions = existsSync(join(ws.dir, 'QUESTIONS.md'));
+    const hasQuestions = existsSync(questionsPath) && readFileSync(questionsPath, 'utf8') !== questionsBefore;
     status = result.timedOut ? 'timeout' : result.exitCode !== 0 ? 'failed' : hasQuestions ? 'questions' : 'ok';
     summaryText = firstLines(result.output) || firstLines(result.stderr);
     log = `# prompt\n\n${prompt}\n\n# output\n\n${result.output}\n\n# stderr\n\n${result.stderr}\n`;

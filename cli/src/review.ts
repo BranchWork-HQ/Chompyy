@@ -93,7 +93,14 @@ export function keepCard(card: Card): string {
     throw new Error(`${root} has uncommitted changes. Commit or set them aside first, then run keep again.`);
   }
   const into = git(root, ['rev-parse', '--abbrev-ref', 'HEAD']);
-  git(root, ['merge', '--no-ff', '-m', `Keep Chompyy card #${card.id}: ${card.title}`, run.branch]);
+  try {
+    git(root, ['merge', '--no-ff', '-m', `Keep Chompyy card #${card.id}: ${card.title}`, run.branch]);
+  } catch {
+    try {
+      git(root, ['merge', '--abort']);
+    } catch {}
+    throw new Error(`${run.branch} conflicts with ${into}. Nothing was changed. Merge it by hand: git -C ${root} merge ${run.branch}`);
+  }
   removeWorktree(root, card);
   git(root, ['branch', '-d', run.branch]);
   return `Kept #${card.id}: merged ${run.branch} into ${into}. Undo it with \`git -C ${root} reset --hard HEAD~1\`.`;

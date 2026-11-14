@@ -136,3 +136,27 @@ describe('away loop', () => {
     expect(existsSync(join(home(), 'runs'))).toBe(false);
   });
 });
+
+describe('away loop: recovery and questions', () => {
+  const home = useTempHome();
+
+  it('a QUESTIONS.md that was already there and untouched does not count as questions', async () => {
+    const { deps } = setup(home, { cards: 1 });
+    const dir = join(home(), 'runs', '1', 'work');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'QUESTIONS.md'), 'old question');
+    await away(60 * MIN, deps);
+    expect(loadBoard().cards[0]!.run!.status).toBe('ok');
+  });
+
+  it('puts a card left in running by an interrupted run back in the queue and runs it', async () => {
+    const { deps, lines } = setup(home, { cards: 1 });
+    updateBoard((b) => {
+      b.cards[0]!.column = 'running';
+    });
+    const summary = await away(60 * MIN, deps);
+    expect(lines.some((l) => l.includes('Put back in approved after an interrupted run: #1'))).toBe(true);
+    expect(summary.ran).toEqual(['1']);
+    expect(columns()).toEqual({ 1: 'review' });
+  });
+});
