@@ -14,8 +14,10 @@ export interface Config {
   maxTurns: number | null;
   /** Don't start a card when the 5h window has less than this % left. */
   min5hLeftPct: number;
-  /** Keep this % of the weekly allowance: stop when weekly used % > 100 - this. */
+  /** Hard stop: never run when weekly used % > 100 - this. */
   weeklyReservePct: number;
+  /** Only run while weekly usage is behind an even pace (used % ≤ % of the week gone). */
+  weeklyPace: boolean;
   /** --permission-mode for away runs. acceptEdits = file edits allowed, other tools need allowedTools. */
   permissionMode: string | null;
   /** --permission-prompts for away runs; "none" denies anything that would prompt instead of hanging. */
@@ -34,6 +36,7 @@ export const DEFAULT_CONFIG: Config = {
   maxTurns: 50,
   min5hLeftPct: 10,
   weeklyReservePct: 10,
+  weeklyPace: true,
   permissionMode: 'acceptEdits',
   permissionPrompts: 'none',
   allowedTools: [

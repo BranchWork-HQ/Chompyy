@@ -90,7 +90,8 @@ Each card in a git repo runs in its own worktree at `~/.chompyy/worktrees/<id>` 
 Before each card, `away` checks the snapshot and stops when:
 
 - the 5h window has less than `min5hLeftPct` left (default 10%),
-- weekly usage is over `100 − weeklyReservePct` (default: stop above 90%, keeping 10% of the week),
+- weekly usage is ahead of an even pace through the week (e.g. 2.5 days into the week, more than ~36% used): it spends only what you haven't used so far and never borrows from the days ahead (`weeklyPace`),
+- weekly usage is over `100 − weeklyReservePct` (hard stop, default above 90%, whatever the pace),
 - the 5h window is unknown: no snapshot, or its `resets_at` has passed. Running then would start a *new* window instead of using leftover capacity. Open Claude Code once to refresh it, or pass `--force`.
 
 An unknown weekly window doesn't close the gate (some plans don't report it); `away` says it wasn't checked. The snapshot doesn't move during an away run (no interactive session updates it), so in practice the gate stops the run when the window resets.
@@ -107,7 +108,8 @@ An unknown weekly window doesn't close the gate (some plans don't report it); `a
 | `cardTimeoutMin` | `30` | Wall-clock cap per card, in minutes; also capped by the time left in the away run |
 | `maxTurns` | `50` | Passed as `--max-turns`. `claude --help` (2.1.322) doesn't list it, but `claude -p` accepts it; set `null` if your version rejects it |
 | `min5hLeftPct` | `10` | Minimum % left in the 5h window to start a card |
-| `weeklyReservePct` | `10` | % of the weekly allowance to keep |
+| `weeklyPace` | `true` | Only run while weekly usage is behind an even pace through the week |
+| `weeklyReservePct` | `10` | Hard stop: never run above `100 − this` % weekly used |
 | `permissionMode` | `"acceptEdits"` | `--permission-mode` for away runs: file edits allowed, other tools only if allowed below |
 | `permissionPrompts` | `"none"` | `--permission-prompts`: anything that would ask for permission is denied, so a run never hangs waiting. Set `null` on Claude Code versions without this flag |
 | `allowedTools` | read/search tools, `git status/diff/log/add/commit`, `npm test`, `npm run`, `npx vitest`, `pytest` | `--allowedTools` |
