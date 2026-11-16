@@ -41,6 +41,12 @@ const ACTION: Record<string, { icon: string; rank: number; text: string }> = {
   ok: { icon: '✅', rank: 3, text: 'Check the change, then keep or undo' },
 };
 
+/** Finished, but its own checks didn't pass: say so instead of a plain ✅. */
+const UNCHECKED = {
+  failed: { icon: '⚠️', rank: 1, text: 'It finished, but its checks fail. See why before you keep it' },
+  notRun: { icon: '🔍', rank: 2, text: "It finished but couldn't check its work. Check it yourself, then keep or undo" },
+};
+
 /** Once you've kept or undone a card, the only thing left is the rating. */
 const DECIDED: Record<'kept' | 'undone', { icon: string; rank: number; text: string }> = {
   kept: { icon: '📥', rank: 4, text: 'Kept. Rate it so Chompyy learns your taste' },
@@ -56,15 +62,23 @@ function filesLine(files: string[]): string {
 /** Short and action-first; details come from `show`, `diff`, `keep`, `undo` on request. */
 export function formatReport(cards: Card[], since: string | null, facts: (card: Card) => CardFacts): string {
   if (cards.length === 0) return since ? 'Nothing new since your last report.' : 'Nothing has run yet.';
-  const rank = (c: Card) => (c.outcome ? DECIDED[c.outcome].rank : (ACTION[c.run!.status]?.rank ?? 9));
+  const actionOf = (c: Card) => {
+    if (c.outcome) return DECIDED[c.outcome];
+    if (c.run!.status === 'ok' && c.run!.checks && c.run!.checks.result !== 'passed') {
+      return c.run!.checks.result === 'failed' ? UNCHECKED.failed : UNCHECKED.notRun;
+    }
+    return ACTION[c.run!.status];
+  };
+  const rank = (c: Card) => actionOf(c)?.rank ?? 9;
   const sorted = [...cards].sort((a, b) => rank(a) - rank(b));
   const out = [`🍪 While you were away · ${cards.length} card${cards.length === 1 ? '' : 's'}`, ''];
   for (const c of sorted) {
     const decided = c.outcome ? DECIDED[c.outcome] : undefined;
-    const action = decided ?? ACTION[c.run!.status] ?? { icon: '•', text: 'Take a look' };
+    const action = actionOf(c) ?? { icon: '•', text: 'Take a look' };
     const { files, questions } = decided ? { files: [], questions: [] } : facts(c);
     out.push(`${action.icon} #${c.id}  ${c.title}`);
     out.push(`   → ${action.text}`);
+    if (!decided && action !== ACTION[c.run!.status] && c.run!.checks?.why) wrap(c.run!.checks.why, 70).forEach((part, i) => out.push(`     ${i === 0 ? '·' : ' '} ${part}`));
     for (const q of questions) wrap(q, 70).forEach((part, i) => out.push(`     ${i === 0 ? '·' : ' '} ${part}`));
     if (!decided) out.push(`   changed: ${filesLine(files)} · took ${formatDuration(c.run!.durationMs)}`);
     out.push('');
@@ -77,15 +91,16 @@ export function formatReport(cards: Card[], since: string | null, facts: (card: 
   return out.join('\n');
 }
 
-export function rateCard(board: BoardData, id: string, score: number, reason: string | undefined, now: Date): Card {
+export function rateCard(board: BoardData, id: string, score: number, reason: string | undefined, now: Date, toFive: string[] = []): Card {
   if (!Number.isInteger(score) || score < 1 || score > 5) throw new Error('Rating must be a whole number from 1 to 5.');
   const card = getCard(board, id);
   if (card.column !== 'review' && card.column !== 'done') {
     throw new Error(`Card #${card.id} is in ${card.column}; only cards that ran (review or done) can be rated.`);
   }
   const at = now.toISOString();
-  card.rating = { score, ...(reason ? { reason } : {}), at };
-  card.column = 'done';
+  card.rating = { score, ...(reason ? { reason } : {}), ...(toFive.length ? { toFive } : {}), at };
+  // A card is done once you've kept or undone it. Rating first keeps it in review, so Keep/Undo stay available.
+  if (card.outcome) card.column = 'done';
   card.updatedAt = at;
   // Raw material for taste distillation (spec §5.8). The distiller is not built yet.
   appendJsonl(homePath('signals.jsonl'), {
@@ -94,6 +109,7 @@ export function rateCard(board: BoardData, id: string, score: number, reason: st
     title: card.title,
     rating: score,
     reason: reason ?? null,
+    toFive: toFive.length ? toFive : null,
     blueprint: card.blueprint,
     status: card.run?.status ?? null,
   });

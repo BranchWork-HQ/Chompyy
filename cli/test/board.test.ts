@@ -78,7 +78,7 @@ describe('board', () => {
 describe('rating', () => {
   const home = useTempHome();
 
-  it('rates a reviewed card, moves it to done and appends a signal', () => {
+  it('rates a reviewed card and appends a signal; it stays in review until kept or undone', () => {
     const b = empty();
     const card = addCard(b, 'idea', '/r', NOW);
     card.blueprint = '## Goal\nthing';
@@ -86,9 +86,12 @@ describe('rating', () => {
     card.column = 'review';
     expect(() => rateCard(b, '1', 6, undefined, NOW)).toThrow(/1 to 5/);
     rateCard(b, '1', 4, 'close, too long', NOW);
+    expect(card.column).toBe('review'); // Keep/Undo must stay available (card #4, 2026-11-16)
+    card.outcome = 'kept';
+    rateCard(b, '1', 4, 'close, too long', NOW);
     expect(card.column).toBe('done');
     expect(card.rating).toEqual({ score: 4, reason: 'close, too long', at: NOW.toISOString() });
-    const signal = JSON.parse(readFileSync(join(home(), 'signals.jsonl'), 'utf8').trim());
+    const signal = JSON.parse(readFileSync(join(home(), 'signals.jsonl'), 'utf8').trim().split('\n')[0]!);
     expect(signal).toMatchObject({ card: '1', rating: 4, reason: 'close, too long', blueprint: '## Goal\nthing' });
   });
 

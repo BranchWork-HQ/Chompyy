@@ -17,6 +17,8 @@ export interface RunRequest {
   /** Passed as --settings (JSON), e.g. the sandbox for away runs. */
   settings?: Record<string, unknown>;
   extraArgs?: string[];
+  /** Extra environment variables for the agent and the commands it runs. */
+  env?: Record<string, string>;
 }
 
 export interface RunResult {
@@ -71,7 +73,7 @@ export class ClaudeRunner implements Runner {
     return new Promise((resolve) => {
       // The prompt goes in on stdin: no argument-length limits, nothing in `ps`.
       // Own process group, so a timeout also stops commands the agent started (tests, builds).
-      const child = spawn(this.bin, claudeArgs(req), { cwd: req.cwd, stdio: ['pipe', 'pipe', 'pipe'], detached: true });
+      const child = spawn(this.bin, claudeArgs(req), { cwd: req.cwd, stdio: ['pipe', 'pipe', 'pipe'], detached: true, env: { ...process.env, ...req.env } });
       stopActiveOnExit();
       if (child.pid) active.add(child.pid);
       const killAll = (signal: NodeJS.Signals) => {

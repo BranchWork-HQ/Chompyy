@@ -163,14 +163,15 @@ describe('away loop: recovery and questions', () => {
 
 describe('sandbox', () => {
   const home = useTempHome();
-  it('runs away cards sandboxed by default, allowing writes to the repo .git only', async () => {
+  it('runs away cards sandboxed by default, allowing writes to the repo .git and the tool cache only', async () => {
     const { deps, requests } = setup(home, { cards: 1 });
     deps.prepare = (card) => ({ kind: 'worktree', dir: join(home(), 'worktrees', card.id), branch: `chompyy/${card.id}`, gitDir: '/repo/.git' });
     mkdirSync(join(home(), 'worktrees', '1'), { recursive: true });
     await away(60 * MIN, deps);
     expect(requests[0]!.settings).toEqual({
-      sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, filesystem: { allowWrite: ['/repo/.git'] }, network: { allowedDomains: [] } },
+      sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, filesystem: { allowWrite: ['/repo/.git', join(home(), 'cache', 'tools')] }, network: { allowedDomains: [] }, autoAllowBashIfSandboxed: true },
     });
+    expect(requests[0]!.env?.GOCACHE).toBe(join(home(), 'cache', 'tools', 'go-build'));
   });
   it('can be turned off', async () => {
     const { deps, requests } = setup(home, { cards: 1 });

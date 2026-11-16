@@ -6,7 +6,7 @@ import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { Card, RunStatus } from '../src/board.js';
 import { formatReport } from '../src/report.js';
 import { changedFiles, firstQuestions, keepCard, questionsOf, undoCard, wrap } from '../src/review.js';
-import { prepareWorkspace } from '../src/workspace.js';
+import { commitLeftovers, prepareWorkspace, uncommittedWork } from '../src/workspace.js';
 import { NOW, useTempHome } from './helpers.js';
 
 const ranCard = (id: string, status: RunStatus, extra: Partial<Card> = {}): Card => ({
@@ -124,6 +124,26 @@ describe('keep and undo', () => {
     expect(() => keepCard(card)).toThrow(/conflicts with .*Nothing was changed/);
     expect(git(repo, 'rev-parse', 'HEAD')).toBe(before);
     expect(git(repo, 'status', '--porcelain')).toBe('');
+  });
+
+  it('keep never loses work the agent left uncommitted (card #1, 2026-11-16)', () => {
+    const { repo, card, git } = setup('10');
+    writeFileSync(join(card.run!.workdir, 'CONTRIBUTING.md'), 'rules\n'); // left untracked by the agent
+    keepCard(card);
+    expect(existsSync(join(repo, 'CONTRIBUTING.md'))).toBe(true);
+    expect(git(repo, 'log', '--all', '--format=%s').includes('Chompyy card #10')).toBe(true);
+  });
+
+  it('commitLeftovers commits the work but never QUESTIONS.md, .claude or .DS_Store', () => {
+    const { card, git } = setup('11');
+    const dir = card.run!.workdir;
+    writeFileSync(join(dir, 'LEFT.md'), 'x\n');
+    writeFileSync(join(dir, 'QUESTIONS.md'), '1. changed?\n');
+    writeFileSync(join(dir, '.DS_Store'), 'finder'); // appears when you open the copy in Finder
+    expect(commitLeftovers({ kind: 'worktree', dir }, card)).toBe(true);
+    expect(git(dir, 'show', '--name-only', '--format=', 'HEAD')).toBe('LEFT.md');
+    expect(uncommittedWork(dir)).toEqual([]);
+    expect(commitLeftovers({ kind: 'worktree', dir }, card)).toBe(false);
   });
 
   it('keep refuses when the repo has uncommitted changes', () => {

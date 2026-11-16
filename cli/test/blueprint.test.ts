@@ -22,11 +22,11 @@ describe('blueprint', () => {
     expect(p).toContain('Digest of caching papers');
   });
 
-  it('drafts with the configured cheap model and no tools', async () => {
+  it('drafts with the configured cheap model and read-only tools', async () => {
     const { runner, calls } = fake('Sure! Here it is:\n\n## Goal\nA digest.\n\n## Scope\n- 5 papers\n');
     const text = await draftBlueprint(card, runner, { model: 'haiku', cwd: '/tmp' });
     expect(text).toBe('## Goal\nA digest.\n\n## Scope\n- 5 papers');
-    expect(calls[0]).toMatchObject({ model: 'haiku', tools: '', cwd: '/tmp' });
+    expect(calls[0]).toMatchObject({ model: 'haiku', tools: 'Read,Glob,Grep', cwd: '/tmp' });
   });
 
   it('fails on a bad exit or a reply without a goal', async () => {
@@ -56,5 +56,15 @@ describe('claudeArgs', () => {
 
   it('leaves out what is not set', () => {
     expect(claudeArgs({ prompt: 'x', cwd: '/', timeoutMs: 1, model: null, maxTurns: null })).toEqual(['-p', '--output-format', 'text', '--no-session-persistence']);
+  });
+});
+
+describe('five-star options', () => {
+  it('cleans the model reply into up to 4 short options', async () => {
+    const { draftFiveStarOptions } = await import('../src/blueprint.js');
+    const runner = { run: async () => ({ exitCode: 0, output: '1. Put the answers in a separate file\n- Harder questions\n"Link each question to the Tour page"\n\nMore code snippets\nExtra', stderr: '', timedOut: false, durationMs: 1 }) };
+    expect(await draftFiveStarOptions({ idea: 'quiz', blueprint: 'bp' }, runner, { model: 'haiku', cwd: '/tmp' })).toEqual([
+      'Put the answers in a separate file', 'Harder questions', 'Link each question to the Tour page', 'More code snippets',
+    ]);
   });
 });
