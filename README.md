@@ -56,6 +56,10 @@ Token saving only, in every direction. Utilization comes first; the rest follow:
 | Path | What's there |
 |---|---|
 | [cli/](cli/README.md) | The Chompyy MVP CLI (TypeScript): quota snapshot from the status line, board, blueprints, away runs in worktrees, report and rating, plus `/later`, `/eat-tokens`, `/away`, `/taste` skills |
+| [FEATURES.md](FEATURES.md) | Every Chompyy feature, built and planned, with status and build order |
+| [research/foundation-codeburn-codexbar.md](research/foundation-codeburn-codexbar.md) | What codeburn and CodexBar do, feature by feature, and which language each part is in |
+| [research/boundary-test-2026-11-16.md](research/boundary-test-2026-11-16.md) | Ten cards pushing Chompyy's edges (network, outside folder, vague, conflicts): what worked, what broke, what changed |
+| [research/feature-inspiration.md](research/feature-inspiration.md) | 100 open-source projects, 10 per Chompyy feature area, with the ideas worth taking |
 | [research/spec-token-utilization.md](research/spec-token-utilization.md) | Chompyy spec draft: board, blueprints, taste, quota reader, away runs, architecture, risks |
 | [research/landscape-2026-11.md](research/landscape-2026-11.md) | The survey: 71 projects in 10 angles, their growth, independent evidence, and the open gaps |
 | [research/atomic-knowledge.md](research/atomic-knowledge.md) | One fact per card (fact → source → harness rule), from provider docs and papers, ending in a minimal-harness sketch and what's still open |
