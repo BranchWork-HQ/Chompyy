@@ -23,32 +23,67 @@ enum Brand {
     }
 }
 
-/// The cookie shape with `bites` (0...8) taken around the edge, clockwise from the top right.
-/// Each bite is a scalloped set of tooth marks, not a clean wedge (kept distinct from Pac-Man).
+/// The cookie, eaten from the middle outward. `eaten` (0...1) is the share of the 5-hour window used.
+/// The hole is a cluster of uneven bites that grows from near the centre; it is scaled so the bitten
+/// area is that share of the cookie's area, so the picture matches the number (the old version took
+/// 8 fixed bites around the edge, 12.5 % each, and showed 45 % left as half eaten).
 struct CookieShape: Shape {
-    var bites: Int
-    static let slots = 8
+    var eaten: Double
+
+    var animatableData: Double {
+        get { eaten }
+        set { eaten = newValue }
+    }
+
+    /// Bites at full size, in cookie radii: centre x, centre y, radius. Uneven on purpose.
+    static let bites: [(Double, Double, Double)] = [
+        (0.06, -0.04, 0.50), (0.44, 0.18, 0.36), (-0.36, 0.30, 0.38),
+        (-0.30, -0.40, 0.33), (0.30, -0.46, 0.31), (0.04, 0.54, 0.31), (-0.58, -0.04, 0.26),
+    ]
+
+    /// Share of the cookie's area inside the bites at scale `k` (grid estimate; the bites overlap).
+    static func bittenShare(_ k: Double) -> Double {
+        let n = 36
+        var inside = 0, total = 0
+        for yi in 0..<n {
+            for xi in 0..<n {
+                let x = (Double(xi) + 0.5) / Double(n) * 2 - 1, y = (Double(yi) + 0.5) / Double(n) * 2 - 1
+                guard x * x + y * y <= 1 else { continue }
+                total += 1
+                if bites.contains(where: { b in
+                    let dx = x - b.0 * k, dy = y - b.1 * k, rr = b.2 * k
+                    return dx * dx + dy * dy <= rr * rr
+                }) { inside += 1 }
+            }
+        }
+        return Double(inside) / Double(max(total, 1))
+    }
+
+    /// The scale whose bitten share is `e` (bisection; the share grows with the scale).
+    static func scale(for e: Double) -> Double {
+        var lo = 0.0, hi = 2.4
+        for _ in 0..<14 {
+            let mid = (lo + hi) / 2
+            if bittenShare(mid) < e { lo = mid } else { hi = mid }
+        }
+        return (lo + hi) / 2
+    }
 
     func path(in rect: CGRect) -> Path {
         let r = min(rect.width, rect.height) / 2
         let c = CGPoint(x: rect.midX, y: rect.midY)
-        var cookie = Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2))
-        guard bites > 0 else { return cookie }
-        var mouth = Path()
-        for i in 0..<min(bites, Self.slots) {
-            // Start at 1 o'clock and go clockwise.
-            let angle = -Double.pi / 2 + Double.pi / 5 + Double(i) * 2 * Double.pi / Double(Self.slots)
-            // Three overlapping tooth circles per bite make the scalloped edge.
-            for k in -1...1 {
-                let a = angle + Double(k) * 0.24
-                let toothR = r * (k == 0 ? 0.40 : 0.32)
-                let dist = r * (k == 0 ? 1.06 : 1.0)
-                let tc = CGPoint(x: c.x + CGFloat(cos(a)) * dist, y: c.y + CGFloat(sin(a)) * dist)
-                mouth.addEllipse(in: CGRect(x: tc.x - toothR, y: tc.y - toothR, width: toothR * 2, height: toothR * 2))
-            }
+        let cookie = Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2))
+        let e = max(0, min(1, eaten))
+        if e < 0.005 { return cookie }
+        if e > 0.995 { return Path() }
+        let k = CGFloat(Self.scale(for: e))
+        var hole = Path()
+        for b in Self.bites {
+            let rr = CGFloat(b.2) * k * r
+            let bc = CGPoint(x: c.x + CGFloat(b.0) * k * r, y: c.y + CGFloat(b.1) * k * r)
+            hole.addEllipse(in: CGRect(x: bc.x - rr, y: bc.y - rr, width: rr * 2, height: rr * 2))
         }
-        cookie = cookie.subtracting(mouth)
-        return cookie
+        return cookie.subtracting(hole)
     }
 }
 
@@ -58,10 +93,7 @@ struct CookieView: View {
     var left: Double?
     var size: CGFloat = 64
 
-    var bites: Int {
-        guard let left else { return 0 }
-        return Int(((1 - left) * Double(CookieShape.slots)).rounded())
-    }
+    var eaten: Double { left.map { 1 - max(0, min(1, $0)) } ?? 0 }
 
     // Chip positions as fractions of the radius (x, y, size).
     private let chips: [(CGFloat, CGFloat, CGFloat)] = [
@@ -70,7 +102,7 @@ struct CookieView: View {
     ]
 
     var body: some View {
-        let shape = CookieShape(bites: bites)
+        let shape = CookieShape(eaten: eaten)
         ZStack {
             shape.fill(
                 RadialGradient(colors: [Brand.dough, Brand.doughEdge], center: .center, startRadius: 0, endRadius: size * 0.6)
@@ -91,7 +123,7 @@ struct CookieView: View {
         }
         .frame(width: size, height: size)
         .opacity(left == nil ? 0.45 : 1)
-        .animation(.spring(duration: 0.5), value: bites)
+        .animation(.spring(duration: 0.6), value: eaten)
         .accessibilityLabel(left.map { "Cookie, \(Int($0 * 100)) percent of the 5-hour window left" } ?? "Cookie, quota unknown")
     }
 }

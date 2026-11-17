@@ -56,17 +56,26 @@ final class Store: ObservableObject {
         }
     }
 
-    /// Run a card action, show its message, then refresh.
-    func act(_ key: String, _ args: [String], stdin: String? = nil, cwd: String? = nil) async {
+    /// Run a card action, show its message, then refresh. Returns whether it worked.
+    @discardableResult
+    func act(_ key: String, _ args: [String], stdin: String? = nil, cwd: String? = nil) async -> Bool {
         busy.insert(key)
         defer { busy.remove(key) }
+        var ok = false
         do {
             let result = try await Task.detached { try CLI.run(args, stdin: stdin, cwd: cwd) }.value
+            ok = result.ok
             show(result.message)
         } catch {
             show(error.localizedDescription)
         }
         await refresh()
+        return ok
+    }
+
+    /// Keep, undo and run-again finish with the card: close it so you see it land in its new column.
+    func finish(_ key: String, _ args: [String], card id: String) async {
+        if await act(key, args), selectedCardID == id { selectedCardID = nil }
     }
 
     func show(_ message: String) {

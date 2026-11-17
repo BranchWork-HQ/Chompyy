@@ -101,6 +101,8 @@ struct Card: Decodable, Identifiable, Hashable {
     let title: String
     let idea: String
     let cwd: String
+    /// The branch your folder is on now, which Keep merges into (cards waiting for review only).
+    let folderBranch: String?
     let column: String
     let blueprint: String?
     let blueprintError: String?
