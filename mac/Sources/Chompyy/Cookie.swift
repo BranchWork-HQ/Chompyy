@@ -121,15 +121,15 @@ struct CookieShape: Shape {
 }
 
 /// How Chompyy feels: a frugal little cookie that hates waste. Happiest when the window is nearly
-/// used up before it resets; worried when a lot is left and the reset is close.
+/// used up before it resets; eager when a lot is left and the reset is close (eat it before it's gone).
 enum CookieMood: String {
-    case sleepy, worried, content, delighted, enlightened
+    case sleepy, eager, content, delighted, enlightened
 
     static func from(left: Double?, msLeft: Double?, fresh: Bool) -> CookieMood? {
         if fresh { return .sleepy }
         guard let left else { return nil }
         if left < 0.12 { return .enlightened }
-        if left > 0.5, let ms = msLeft, ms < 90 * 60_000 { return .worried }
+        if left > 0.5, let ms = msLeft, ms < 90 * 60_000 { return .eager }
         if left < 0.4 { return .delighted }
         return .content
     }
@@ -137,7 +137,7 @@ enum CookieMood: String {
     var label: String {
         switch self {
         case .sleepy: "sleepy, no window yet"
-        case .worried: "worried, a lot would go to waste"
+        case .eager: "eager, lots left and the reset is close"
         case .content: "content"
         case .delighted: "delighted"
         case .enlightened: "enlightened, almost nothing wasted"
@@ -195,6 +195,7 @@ struct CookieView: View {
             }
         }
         .frame(width: size, height: size)
+        .modifier(Bounce(on: showsFace, trigger: "\(mood?.rawValue ?? "-")·\(Int(eaten * 20))", size: size))
         .opacity(left == nil && mood != .sleepy ? 0.45 : 1)
         .animation(.spring(duration: 0.6), value: eaten)
         .animation(.easeInOut(duration: 0.4), value: mood)
@@ -202,110 +203,148 @@ struct CookieView: View {
     }
 }
 
-/// The face, drawn on the piece that's left. Blinks now and then; sparkles twinkle when enlightened.
+/// A springy hop and squash when the mood changes or a slice goes, plus a slow breath (sakuga-style
+/// springs). Off for the menu bar icon and when Reduce Motion is on.
+struct Bounce: ViewModifier {
+    let on: Bool
+    let trigger: String
+    let size: CGFloat
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    struct Hop { var lift: CGFloat = 0; var squash: CGFloat = 0 }
+
+    func body(content: Content) -> some View {
+        if !on || reduceMotion {
+            content
+        } else {
+            TimelineView(.animation(minimumInterval: 1.0 / 30)) { tl in
+                let breath = CGFloat(sin(tl.date.timeIntervalSinceReferenceDate * 2)) * 0.012
+                content
+                    .scaleEffect(x: 1 + breath, y: 1 - breath, anchor: .bottom)
+                    .keyframeAnimator(initialValue: Hop(), trigger: trigger) { view, v in
+                        view.scaleEffect(x: 1 + v.squash, y: 1 - v.squash, anchor: .bottom).offset(y: v.lift)
+                    } keyframes: { _ in
+                        KeyframeTrack(\.squash) {
+                            CubicKeyframe(0.14, duration: 0.08)     // crouch
+                            SpringKeyframe(-0.08, duration: 0.18)   // stretch on the way up
+                            SpringKeyframe(0, duration: 0.5, spring: .bouncy)
+                        }
+                        KeyframeTrack(\.lift) {
+                            CubicKeyframe(0, duration: 0.08)
+                            SpringKeyframe(-size * 0.14, duration: 0.2)
+                            SpringKeyframe(0, duration: 0.5, spring: .bouncy)
+                        }
+                    }
+            }
+        }
+    }
+}
+
+/// The face: hand-drawn doodle lines that "boil" (wobble at 8 frames a second, like a hand-drawn cartoon),
+/// on the piece that's left. Blinks now and then; sparkles when enlightened.
 struct CookieFace: View {
     let mood: CookieMood
     let left: Double
     let size: CGFloat
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 20)) { tl in
-            let t = tl.date.timeIntervalSinceReferenceDate
+        TimelineView(.animation(minimumInterval: 1.0 / 24, paused: reduceMotion)) { tl in
+            let t = reduceMotion ? 0 : tl.date.timeIntervalSinceReferenceDate
+            let boil = Int(t * 8) % 7 + 1
             Canvas { ctx, canvas in
                 let spot = CookieShape.faceSpot(left: left)
-                let u = size * 0.5 * CGFloat(spot.scale) // face unit
+                let u = size * 0.5 * 0.85 * CGFloat(spot.scale)
                 let c = CGPoint(x: canvas.width / 2 + CGFloat(spot.x) * size / 2, y: canvas.height / 2 + CGFloat(spot.y) * size / 2)
-                // On the cookie the face is chocolate; floating over the crumbs it's warm gold.
-                let ink = GraphicsContext.Shading.color(spot.onPiece ? Brand.chip : Color(red: 1, green: 0.84, blue: 0.5))
-                let line = StrokeStyle(lineWidth: max(1.2, u * 0.07), lineCap: .round, lineJoin: .round)
-                let eyeDX = u * 0.28, eyeY = c.y - u * 0.12
-                let blink = (mood == .content || mood == .worried || mood == .delighted) && t.truncatingRemainder(dividingBy: 4.3) < 0.14
-
-                func eyeDots() {
-                    for sx in [-1.0, 1.0] {
-                        let ec = CGPoint(x: c.x + CGFloat(sx) * eyeDX, y: eyeY)
-                        if blink {
-                            var p = Path(); p.move(to: CGPoint(x: ec.x - u * 0.07, y: ec.y)); p.addLine(to: CGPoint(x: ec.x + u * 0.07, y: ec.y))
-                            ctx.stroke(p, with: ink, style: line)
-                        } else {
-                            let er = u * 0.075
-                            ctx.fill(Path(ellipseIn: CGRect(x: ec.x - er, y: ec.y - er * 1.2, width: er * 2, height: er * 2.4)), with: ink)
-                            ctx.fill(Path(ellipseIn: CGRect(x: ec.x - er * 0.2, y: ec.y - er * 0.9, width: er * 0.7, height: er * 0.7)), with: .color(.white.opacity(0.8)))
-                        }
-                    }
+                let inkColor = spot.onPiece ? Brand.chip : Color(red: 1, green: 0.84, blue: 0.5)
+                let ink = GraphicsContext.Shading.color(inkColor)
+                let line = StrokeStyle(lineWidth: max(1.4, u * 0.075), lineCap: .round, lineJoin: .round)
+                let amp = u * 0.035
+                // Deterministic jitter per boil frame, so the lines wobble in steps like redrawn frames.
+                func jit(_ n: Int) -> CGFloat {
+                    let x = sin(Double(boil) * 999 + Double(n) * 77.7) * 10000
+                    return CGFloat(x - floor(x) - 0.5)
                 }
-                func arcEyes(up: Bool) {
-                    for sx in [-1.0, 1.0] {
-                        let ec = CGPoint(x: c.x + CGFloat(sx) * eyeDX, y: eyeY)
-                        var p = Path()
-                        p.addArc(center: CGPoint(x: ec.x, y: ec.y + (up ? u * 0.05 : -u * 0.05)), radius: u * 0.09,
-                                 startAngle: .degrees(up ? 200 : 20), endAngle: .degrees(up ? 340 : 160), clockwise: false)
-                        ctx.stroke(p, with: ink, style: line)
+                func wob(_ pts: [CGPoint], _ n0: Int, closed: Bool = false, fill: Bool = false) {
+                    var p = Path()
+                    for (i, q) in pts.enumerated() {
+                        let pt = CGPoint(x: c.x + q.x + jit(n0 + i) * amp, y: c.y + q.y + jit(n0 + i + 50) * amp)
+                        if i == 0 { p.move(to: pt) } else { p.addLine(to: pt) }
                     }
-                }
-                func mouth(_ build: (inout Path) -> Void, fill: Bool = false) {
-                    var p = Path(); build(&p)
+                    if closed { p.closeSubpath() }
                     if fill { ctx.fill(p, with: ink) } else { ctx.stroke(p, with: ink, style: line) }
                 }
-                func cheeks() {
-                    for sx in [-1.0, 1.0] {
-                        let cc = CGPoint(x: c.x + CGFloat(sx) * u * 0.42, y: c.y + u * 0.06)
-                        ctx.fill(Path(ellipseIn: CGRect(x: cc.x - u * 0.1, y: cc.y - u * 0.05, width: u * 0.2, height: u * 0.1)), with: .color(Color(red: 0.92, green: 0.45, blue: 0.40).opacity(0.45)))
+                func arc(_ cx: CGFloat, _ cy: CGFloat, _ r: CGFloat, _ a0: Double, _ a1: Double, _ n: Int = 7) -> [CGPoint] {
+                    (0...n).map { i in
+                        let a = a0 + (a1 - a0) * Double(i) / Double(n)
+                        return CGPoint(x: cx + CGFloat(cos(a)) * r, y: cy + CGFloat(sin(a)) * r)
                     }
                 }
+                func dot(_ x: CGFloat, _ y: CGFloat, _ r: CGFloat, _ n: Int, color: Color? = nil) {
+                    let p = CGPoint(x: c.x + x + jit(n) * amp, y: c.y + y + jit(n + 3) * amp)
+                    ctx.fill(Path(ellipseIn: CGRect(x: p.x - r, y: p.y - r, width: r * 2, height: r * 2)), with: .color(color ?? inkColor))
+                }
+                func blush() {
+                    for sx in [-1.0, 1.0] {
+                        let p = CGPoint(x: c.x + CGFloat(sx) * u * 0.55 + jit(Int(sx) + 60) * amp, y: c.y + u * 0.12)
+                        ctx.fill(Path(ellipseIn: CGRect(x: p.x - u * 0.12, y: p.y - u * 0.06, width: u * 0.24, height: u * 0.12)),
+                                 with: .color(Color(red: 0.92, green: 0.45, blue: 0.40).opacity(0.5)))
+                    }
+                }
+                let ex = u * 0.36, ey = -u * 0.1
+                let blinking = (mood == .content || mood == .eager) && t.truncatingRemainder(dividingBy: 4.1) < 0.12
 
                 switch mood {
+                case .sleepy:
+                    wob([CGPoint(x: -ex - u * 0.1, y: ey), CGPoint(x: -ex + u * 0.1, y: ey)], 1)
+                    wob([CGPoint(x: ex - u * 0.1, y: ey), CGPoint(x: ex + u * 0.1, y: ey)], 5)
+                    wob(arc(0, u * 0.18, u * 0.05, 0, 2 * .pi, 8), 9)
+                    for k in 0..<2 { // two z's drifting up
+                        let ph = (t * 0.5 + Double(k) * 0.5).truncatingRemainder(dividingBy: 1)
+                        ctx.opacity = sin(ph * .pi)
+                        ctx.draw(Text("z").font(.system(size: max(7, u * 0.34), weight: .bold, design: .rounded)).foregroundColor(inkColor),
+                                 at: CGPoint(x: c.x + u * (0.5 + CGFloat(ph) * 0.3) + CGFloat(k) * u * 0.15, y: c.y - u * (0.35 + CGFloat(ph) * 0.45)))
+                        ctx.opacity = 1
+                    }
+                case .eager: // "ooh": dot eyes, a small round mouth
+                    for (k, sx) in [-1.0, 1.0].enumerated() {
+                        if blinking {
+                            wob([CGPoint(x: CGFloat(sx) * ex - u * 0.08, y: ey), CGPoint(x: CGFloat(sx) * ex + u * 0.08, y: ey)], 90 + k)
+                        } else {
+                            dot(CGFloat(sx) * ex, ey, u * 0.075, k * 2)
+                        }
+                    }
+                    wob(arc(0, u * 0.17, u * 0.08, 0, 2 * .pi, 9), 22)
                 case .content:
-                    eyeDots()
-                    mouth { $0.addArc(center: CGPoint(x: c.x, y: c.y + u * 0.04), radius: u * 0.16, startAngle: .degrees(25), endAngle: .degrees(155), clockwise: false) }
+                    for (k, sx) in [-1.0, 1.0].enumerated() {
+                        if blinking {
+                            wob([CGPoint(x: CGFloat(sx) * ex - u * 0.08, y: ey), CGPoint(x: CGFloat(sx) * ex + u * 0.08, y: ey)], 95 + k)
+                        } else {
+                            dot(CGFloat(sx) * ex, ey, u * 0.07, k * 2)
+                        }
+                    }
+                    wob(arc(0, u * 0.02, u * 0.2, 0.2 * .pi, 0.8 * .pi), 30)
                 case .delighted:
-                    arcEyes(up: true)
-                    cheeks()
-                    mouth({ p in
-                        p.move(to: CGPoint(x: c.x - u * 0.2, y: c.y + u * 0.1))
-                        p.addQuadCurve(to: CGPoint(x: c.x + u * 0.2, y: c.y + u * 0.1), control: CGPoint(x: c.x, y: c.y + u * 0.42))
-                        p.closeSubpath()
-                    }, fill: true)
+                    for (k, sx) in [-1.0, 1.0].enumerated() {
+                        wob(arc(CGFloat(sx) * ex, ey + u * 0.06, u * 0.1, 1.15 * .pi, 1.85 * .pi, 5), 40 + k * 7)
+                    }
+                    blush()
+                    wob(arc(0, u * 0.08, u * 0.18, 0.1 * .pi, 0.9 * .pi) + [CGPoint(x: -u * 0.17, y: u * 0.13)], 70, closed: true, fill: true)
                 case .enlightened:
-                    arcEyes(up: false) // serene, closed
-                    cheeks()
-                    mouth { $0.addArc(center: CGPoint(x: c.x, y: c.y + u * 0.08), radius: u * 0.1, startAngle: .degrees(30), endAngle: .degrees(150), clockwise: false) }
-                    // Twinkling sparkles around the piece.
-                    for k in 0..<4 {
-                        let phase = t * 2.2 + Double(k) * 1.7
-                        let a = Double(k) * 1.6 + 0.4
-                        let sp = CGPoint(x: canvas.width / 2 + CGFloat(cos(a)) * size * 0.55, y: canvas.height / 2 + CGFloat(sin(a)) * size * 0.55)
-                        let sz = size * 0.07 * CGFloat(0.5 + 0.5 * sin(phase))
+                    for (k, sx) in [-1.0, 1.0].enumerated() {
+                        wob(arc(CGFloat(sx) * ex, ey - u * 0.05, u * 0.1, 0.15 * .pi, 0.85 * .pi, 5), 40 + k * 7)
+                    }
+                    blush()
+                    wob(arc(0, u * 0.08, u * 0.1, 0.2 * .pi, 0.8 * .pi), 80)
+                    for k in 0..<5 { // twinkling sparkles around the cookie
+                        let a = Double(k) * 1.3 + 0.5
+                        let sp = CGPoint(x: canvas.width / 2 + CGFloat(cos(a)) * size * 0.56, y: canvas.height / 2 + CGFloat(sin(a)) * size * 0.56)
+                        let sz = size * 0.07 * CGFloat(0.5 + 0.5 * sin(t * 2.4 + Double(k) * 1.9))
                         var star = Path()
                         star.move(to: CGPoint(x: sp.x, y: sp.y - sz)); star.addLine(to: CGPoint(x: sp.x, y: sp.y + sz))
                         star.move(to: CGPoint(x: sp.x - sz, y: sp.y)); star.addLine(to: CGPoint(x: sp.x + sz, y: sp.y))
-                        ctx.stroke(star, with: .color(Color(red: 1, green: 0.82, blue: 0.4)), style: StrokeStyle(lineWidth: max(1, size / 50), lineCap: .round))
+                        ctx.stroke(star, with: .color(Color(red: 1, green: 0.84, blue: 0.48)), style: StrokeStyle(lineWidth: max(1, size / 50), lineCap: .round))
                     }
-                case .worried:
-                    eyeDots()
-                    for sx in [-1.0, 1.0] { // brows tilted up in the middle
-                        var p = Path()
-                        p.move(to: CGPoint(x: c.x + CGFloat(sx) * u * 0.40, y: eyeY - u * 0.16))
-                        p.addLine(to: CGPoint(x: c.x + CGFloat(sx) * u * 0.18, y: eyeY - u * 0.24))
-                        ctx.stroke(p, with: ink, style: line)
-                    }
-                    mouth { p in
-                        p.move(to: CGPoint(x: c.x - u * 0.16, y: c.y + u * 0.16))
-                        p.addCurve(to: CGPoint(x: c.x + u * 0.16, y: c.y + u * 0.16),
-                                   control1: CGPoint(x: c.x - u * 0.05, y: c.y + u * 0.06), control2: CGPoint(x: c.x + u * 0.05, y: c.y + u * 0.26))
-                    }
-                case .sleepy:
-                    for sx in [-1.0, 1.0] {
-                        var p = Path()
-                        p.move(to: CGPoint(x: c.x + CGFloat(sx) * eyeDX - u * 0.08, y: eyeY))
-                        p.addLine(to: CGPoint(x: c.x + CGFloat(sx) * eyeDX + u * 0.08, y: eyeY))
-                        ctx.stroke(p, with: ink, style: line)
-                    }
-                    let mr = u * 0.05
-                    ctx.stroke(Path(ellipseIn: CGRect(x: c.x - mr, y: c.y + u * 0.12, width: mr * 2, height: mr * 2.2)), with: ink, style: line)
-                    let bob = CGFloat(sin(t * 1.5)) * u * 0.05
-                    ctx.draw(Text("z").font(.system(size: max(7, u * 0.32), weight: .bold, design: .rounded)).foregroundColor(Brand.chocolate.opacity(0.8)),
-                             at: CGPoint(x: c.x + u * 0.55, y: c.y - u * 0.5 + bob))
                 }
             }
         }
