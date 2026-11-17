@@ -52,14 +52,15 @@ export function loadColdStart(): ColdStart | null {
   return readJson<ColdStart | null>(coldStartPath(), null);
 }
 
-export function coldStartPrompt(digest: string): string {
+export function coldStartPrompt(digest: string, existing: string[] = []): string {
   return `Below is a digest of one developer's Claude Code sessions: their own words ("> " lines), newest
 session first, and the last thing Claude said in each session. Do two jobs.
 
 1. TASTE: how this person likes work done. Only preferences visible in at least ${MIN_TASTE_SESSIONS} DIFFERENT sessions
    (corrections like "no, ..." or "don't ..." are the strongest evidence). Write each as an instruction to
    an agent, at most 20 words, e.g. "Explain in plain words, one step at a time". Scope is "Everywhere" or a
-   project name from the digest. Only about how work should be done: nothing about their health,
+   project name from the digest. Write it as the instruction itself, never about the person ("they
+   often ask…"). Only about how work should be done: nothing about their health,
    relationships, money, identity or private life.
 
 2. CARDS: small tasks they would likely want an agent to do unattended while they're away, grounded in
@@ -69,12 +70,15 @@ session first, and the last thing Claude said in each session. Do two jobs.
    folder, with no installs, no network services, no decision only the person can make, and nothing
    outward (no push, publish, send or post). Skip anything a later session shows was already done.
 
-Fewer, stronger proposals beat many weak ones: at most 8 taste lines and 6 cards; empty lists are fine.
+${existing.length ? `Already on their board (don't propose these again, or anything that is the same task in other words):
+${existing.map((t) => `- ${t}`).join('\n')}
+
+` : ''}Fewer, stronger proposals beat many weak ones: at most 8 taste lines and 6 cards; empty lists are fine.
 
 Reply with ONLY this JSON, no prose:
 {"taste":[{"scope":"Everywhere","text":"...","sessions":["S3","S9","S12"]}],
  "cards":[{"title":"at most 8 words","idea":"2-4 sentences, as they would write it to park the idea",
-   "project":"the exact folder path from the session header","why":"one sentence pointing at what they said",
+   "project":"the exact folder path from the session header","why":"one sentence to them, saying 'you' (e.g. 'You said you'd add a changelog later.')",
    "sessions":["S4"],"quote":"3-15 words copied exactly from that session's lines in the digest"}]}
 
 Digest:
@@ -143,13 +147,21 @@ export function validateProposals(raw: { taste?: unknown[]; cards?: unknown[] },
 }
 
 /** Read the digest with the model and save the proposals to coldstart.json. */
-export async function runColdStart(scan: HistoryScan, runner: Runner, opts: { model: string; cwd: string; now: Date; maxChars?: number }): Promise<ColdStart> {
+export async function runColdStart(
+  scan: HistoryScan,
+  runner: Runner,
+  opts: { model: string; cwd: string; now: Date; maxChars?: number; existing?: string[] },
+): Promise<ColdStart> {
   if (!scan.sessions.length) throw new Error('No Claude Code sessions found to learn from yet. Use Claude Code for a while, then try again.');
   const { text, included } = buildDigest(scan.sessions, opts.maxChars);
-  const result = await runner.run({ prompt: coldStartPrompt(text), cwd: opts.cwd, model: opts.model, tools: '', timeoutMs: 240_000 });
+  const result = await runner.run({ prompt: coldStartPrompt(text, opts.existing), cwd: opts.cwd, model: opts.model, tools: '', timeoutMs: 240_000 });
   if (result.timedOut) throw new Error('Reading your history timed out. Try again.');
   if (result.exitCode !== 0) throw new Error(`claude exited with ${result.exitCode}: ${result.stderr.trim().slice(0, 300)}`);
-  const { taste, cards, dropped } = validateProposals(parseJson(result.output), included);
+  const { taste, cards: proposed, dropped } = validateProposals(parseJson(result.output), included);
+  // Same title as a card you already have: drop it even if the model ignored the list.
+  const have = new Set((opts.existing ?? []).map(norm));
+  const cards = proposed.filter((c) => !have.has(norm(c.title))).map((c, i) => ({ ...c, id: `c${i + 1}` }));
+  dropped.cards += proposed.length - cards.length;
   const cs: ColdStart = {
     generatedAt: opts.now.toISOString(),
     model: opts.model,

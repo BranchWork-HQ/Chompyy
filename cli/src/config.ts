@@ -8,6 +8,10 @@ export interface Config {
   blueprintModel: string;
   /** Model that reads your history once for the cold start. */
   coldStartModel: string;
+  /** Draw a picture (diagram) for every card after its blueprint. */
+  pictures: boolean;
+  /** Model that draws card pictures with the diagram-design skill. */
+  pictureModel: string;
   /** Model for away runs; null = Claude Code's default. */
   runModel: string | null;
   /** Hard wall-clock limit per card, in minutes (also capped by the time left in the away run). */
@@ -40,6 +44,8 @@ export const DEFAULT_CONFIG: Config = {
   claudeBin: 'claude',
   blueprintModel: 'haiku',
   coldStartModel: 'sonnet',
+  pictures: true,
+  pictureModel: 'sonnet',
   runModel: null,
   cardTimeoutMin: 30,
   maxTurns: 50,

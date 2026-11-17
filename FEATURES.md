@@ -131,7 +131,7 @@ Licence duty for anything copied: keep the MIT notices (a `THIRD_PARTY_NOTICES` 
 | **File boundary**: the blueprint lists the files and folders it may change; the sandbox only allows writes there | 📋 | cc-sdd |
 | **Project principles** ("constitution") fed into every blueprint, from the project section of taste.md | 📋 | spec-kit (MIT) |
 | Blueprint as a small change proposal; finished ones archived as history for cost ranges | 📋 | OpenSpec (MIT, TypeScript) |
-| **Diagram-first blueprints and reports** (flowchart or mind map) for people who understand scope through a picture | 📋 | diagram-design (MIT, 45 diagram types as self-contained HTML + SVG, works in Claude Code, Codex, Cursor) for rich diagrams; Mermaid (MIT) where plain text must render on GitHub; markmap (MIT) for mind maps. On or off is a taste preference, learned or set |
+| **Diagram-first blueprints and reports** (flowchart or mind map) for people who understand scope through a picture | ◐ blueprints ✅ (2026-11-17), reports 📋 | Every card opens with a picture drawn by an agent following the vendored diagram-design skill (`cli/vendor/diagram-design`, Chompyy skin, light + dark by token swap, self-check run), redrawn when the blueprint changes. Before that: diagram-design (MIT, 45 diagram types as self-contained HTML + SVG, works in Claude Code, Codex, Cursor) for rich diagrams; Mermaid (MIT) where plain text must render on GitHub; markmap (MIT) for mind maps. On or off is a taste preference, learned or set |
 
 ## 5. Away runs
 

@@ -1,5 +1,6 @@
 // The board (spec §5.3): cards in columns, stored in ~/.chompyy/board.json.
 import { appendJsonl, homePath, readJson, writeJson } from './home.js';
+import type { PictureInfo } from './picture.js';
 
 export const COLUMNS = ['suggested', 'later', 'approved', 'running', 'review', 'done'] as const;
 export type Column = (typeof COLUMNS)[number];
@@ -80,6 +81,11 @@ export interface Card {
   source?: 'history';
   /** Why it was suggested, in one sentence. */
   why?: string;
+  /** The card's picture (diagram-design HTML), drawn from its blueprint. */
+  picture?: PictureInfo;
+  pictureError?: string;
+  /** When a background drawing started. */
+  drawingAt?: string;
 }
 
 export interface BoardData {

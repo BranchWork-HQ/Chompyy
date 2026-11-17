@@ -10,11 +10,14 @@ import { loadLiveState } from './livequota.js';
 import { windowView, type Snapshot } from './quota.js';
 import { changedFiles } from './review.js';
 import { loadColdStart } from './coldstart.js';
+import { blueprintHash } from './picture.js';
 
 export interface CardView extends Card {
   files: string[];
   /** Full QUESTIONS.md from the run, if any. */
   questionsText: string | null;
+  /** The picture was drawn from an older blueprint. */
+  pictureStale: boolean;
 }
 
 export function cardView(card: Card): CardView {
@@ -23,6 +26,7 @@ export function cardView(card: Card): CardView {
     ...card,
     files: card.run ? changedFiles(card) : [],
     questionsText: qPath && existsSync(qPath) ? readFileSync(qPath, 'utf8') : null,
+    pictureStale: Boolean(card.picture && card.picture.blueprintHash !== blueprintHash(card.blueprint)),
   };
 }
 

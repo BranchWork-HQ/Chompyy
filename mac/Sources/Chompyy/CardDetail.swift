@@ -19,9 +19,11 @@ struct CardDetail: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     header
+                    // Picture first: what this card will do, before any text.
+                    if card.blueprint != nil && !editing { picture }
                     if card.needsYou { reviewSection }
-                    WhereItWorks(card: card)
                     blueprintSection(proxy)
+                    WhereItWorks(card: card)
                     if card.run != nil && !card.needsYou { runFacts }
                     if card.column == "review" || card.column == "done" { ratingSection }
                 }
@@ -186,6 +188,38 @@ struct CardDetail: View {
 
     // MARK: Blueprint (picture first)
 
+    /// The picture of what this card will do (diagram-design), with its state and a redraw.
+    @ViewBuilder private var picture: some View {
+        let drawing = card.drawingAt != nil || store.busy.contains("picture\(card.id)")
+        if let pic = card.picture {
+            PictureView(picture: pic)
+        }
+        HStack(spacing: 10) {
+            if drawing {
+                ProgressView().controlSize(.small)
+                Text(card.picture == nil ? "Drawing the picture…" : "Redrawing the picture…").font(.caption).foregroundStyle(.secondary)
+            } else if let err = card.pictureError {
+                Label("Couldn't draw the picture: \(err)", systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(Brand.warn).lineLimit(2)
+            } else if card.pictureStale == true {
+                Label("The blueprint changed since this was drawn", systemImage: "clock.arrow.circlepath").font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            if !drawing && card.column != "running" {
+                Button {
+                    Task { await store.act("picture\(card.id)", ["picture", card.id, "--quiet"]) }
+                } label: { Label(card.picture == nil ? "Draw the picture" : "Redraw picture", systemImage: "scribble.variable") }
+                .buttonStyle(.borderless)
+                .font(.caption)
+                .help("Draw a diagram of what this card will do (diagram-design)")
+            }
+            if let pic = card.picture {
+                Button { NSWorkspace.shared.open(URL(fileURLWithPath: pic.path)) } label: { Label("Open", systemImage: "arrow.up.forward.square") }
+                    .buttonStyle(.borderless).font(.caption)
+                    .help("Open the picture in your browser")
+            }
+        }
+    }
+
     @ViewBuilder private func blueprintSection(_ proxy: ScrollViewProxy) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
@@ -223,9 +257,18 @@ struct CardDetail: View {
                 }
             } else if let bp = card.blueprint {
                 let doc = BlueprintDoc(bp)
-                BlueprintMap(doc: doc) { target in withAnimation { proxy.scrollTo(target, anchor: .top) } }
+                if card.picture == nil {
+                    // Until the picture is drawn, the blueprint at a glance stands in for it.
+                    BlueprintMap(doc: doc) { target in withAnimation { proxy.scrollTo(target, anchor: .top) } }
+                }
                 DisclosureGroup("Details") {
-                    BlueprintBody(doc: doc).padding(.top, 8)
+                    VStack(alignment: .leading, spacing: 12) {
+                        if card.picture != nil {
+                            BlueprintMap(doc: doc) { target in withAnimation { proxy.scrollTo(target, anchor: .top) } }
+                        }
+                        BlueprintBody(doc: doc)
+                    }
+                    .padding(.top, 8)
                 }
             } else if let err = card.blueprintError {
                 Label("Drafting failed: \(err)", systemImage: "exclamationmark.triangle").foregroundStyle(Brand.warn)

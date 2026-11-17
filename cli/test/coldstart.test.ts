@@ -85,6 +85,19 @@ describe('cold start', () => {
     expect(req.tools).toBe('');
     expect(r.prompts[0]).toContain('### S1 · repo (/repo)');
     expect(r.prompts[0]).toContain('at least 3 DIFFERENT sessions');
+    expect(r.prompts[0]).toContain("saying 'you'");
+    expect(r.prompts[0]).toContain('never about the person');
+  });
+
+  it("tells the model what's already on the board and drops exact repeats", async () => {
+    const home = process.env.CHOMPYY_HOME!;
+    const scanHere = { ...scan, sessions: sessions.map((s) => ({ ...s, project: home, cwd: home })) };
+    const r = runner(JSON.stringify({ cards: good.cards.slice(0, 2).map((c) => ({ ...c, project: home })) }));
+    const cs = await runColdStart(scanHere, r, { model: 'm', cwd: home, now: NOW, existing: ['Add a Changelog'] });
+    expect(r.prompts[0]).toContain("Already on their board (don't propose these again");
+    expect(r.prompts[0]).toContain('- Add a Changelog');
+    expect(cs.cards.map((c) => [c.id, c.title])).toEqual([['c1', 'Parser tests']]);
+    expect(cs.dropped.cards).toBe(1);
   });
 
   it('refuses with no history', async () => {

@@ -22,6 +22,7 @@ import { cliVersion, installApp } from './macapp.js';
 import { buildDigest, historyRetention, scanHistory } from './history.js';
 import { acceptColdStart, forgetColdStart, formatColdStart, loadColdStart, runColdStart } from './coldstart.js';
 import { keepHistory } from './claudesettings.js';
+import { blueprintHash, drawPicture } from './picture.js';
 
 const HELP = `chompyy: use the 5-hour window capacity that would reset unused
 
@@ -37,6 +38,7 @@ Board
   chompyy board [--column c]    cards by column (suggested later approved running review done)
   chompyy show <id>             one card: blueprint, last run, what the agent said
   chompyy blueprint <id>        (re)draft the blueprint with a cheap model  [--model haiku]
+  chompyy picture <id>          (re)draw the card's picture: a diagram of what it will do (diagram-design skill)
   chompyy approve <id>          later → approved (needs a blueprint)
   chompyy edit-blueprint <id>   replace the blueprint with text from stdin
   chompyy drop <id>             remove a card (kept in archive.jsonl)
@@ -100,6 +102,7 @@ async function blueprintCard(id: string, model?: string): Promise<string> {
       delete c.draftingAt;
       c.updatedAt = new Date().toISOString();
     });
+    if (config.pictures && windowActive(new Date())) await pictureCard(id).catch(() => {});
     return text;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -107,6 +110,33 @@ async function blueprintCard(id: string, model?: string): Promise<string> {
       const c = getCard(b, id);
       c.blueprintError = message;
       delete c.draftingAt;
+    });
+    throw err;
+  }
+}
+
+/** Draw (or redraw) a card's picture with the diagram-design skill. Errors are kept on the card. */
+async function pictureCard(id: string, model?: string): Promise<string> {
+  const config = loadConfig();
+  const card = getCard(loadBoard(), id);
+  updateBoard((b) => {
+    getCard(b, id).drawingAt = new Date().toISOString();
+  });
+  try {
+    const info = await drawPicture(card, new ClaudeRunner(config.claudeBin), { model: model ?? config.pictureModel, now: new Date() });
+    updateBoard((b) => {
+      const c = getCard(b, id);
+      c.picture = info;
+      delete c.pictureError;
+      delete c.drawingAt;
+    });
+    return info.path;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    updateBoard((b) => {
+      const c = getCard(b, id);
+      c.pictureError = message;
+      delete c.drawingAt;
     });
     throw err;
   }
@@ -139,6 +169,26 @@ function draftPending(now: Date): void {
     return due.map((c) => c.id);
   });
   for (const id of ids) blueprintInBackground(id);
+
+  // Pictures for cards whose blueprint is ready but not drawn yet, or changed since (an edit or a redraw).
+  if (!loadConfig().pictures) return;
+  const toDraw = updateBoard((b) => {
+    const due = b.cards.filter(
+      (c) =>
+        ['suggested', 'later', 'approved'].includes(c.column) &&
+        c.blueprint && !c.draftingAt && !c.pictureError &&
+        (!c.picture || c.picture.blueprintHash !== blueprintHash(c.blueprint)) &&
+        (!c.drawingAt || Date.parse(c.drawingAt) < now.getTime() - 6 * 60_000),
+    );
+    for (const c of due) c.drawingAt = now.toISOString();
+    return due.map((c) => c.id);
+  });
+  for (const id of toDraw) inBackground(['picture', id, '--quiet']);
+}
+
+function inBackground(args: string[]): void {
+  const child = spawn(process.execPath, [process.argv[1]!, ...args], { detached: true, stdio: 'ignore', env: process.env });
+  child.unref();
 }
 
 /** Draft the blueprint in a detached child so `later` returns at once. */
@@ -269,7 +319,7 @@ async function main(argv: string[]): Promise<void> {
       if (!values.force && !windowActive(now)) throw new Error('No active 5-hour window: reading your history would start one. Try again while you are using Claude Code, or add --force.');
       const config = loadConfig();
       if (!claudeAvailable(config.claudeBin)) throw new Error(`Can't find Claude Code (\`${config.claudeBin}\`).`);
-      const cs = await runColdStart(scanHistory(), new ClaudeRunner(config.claudeBin), { model: config.coldStartModel, cwd: chompyyHome(), now });
+      const cs = await runColdStart(scanHistory(), new ClaudeRunner(config.claudeBin), { model: config.coldStartModel, cwd: chompyyHome(), now, existing: loadBoard().cards.map((c) => c.title) });
       if (values.json) return json(cs);
       console.log(formatColdStart(cs));
       return;
@@ -416,6 +466,14 @@ async function main(argv: string[]): Promise<void> {
       const card = getCard(loadBoard(), need(args[0], 'chompyy show <id>'));
       if (values.json) return json(cardView(card));
       console.log(formatCard(card));
+      return;
+    }
+    case 'picture': {
+      const id = need(args[0], 'chompyy picture <id> [--model sonnet]');
+      await freshQuota();
+      if (!values.force && !windowActive(now)) throw new Error('No active 5-hour window: drawing would start one. Add --force to draw anyway.');
+      const path = await pictureCard(id, values.model);
+      if (!values.quiet) console.log(`Drew the picture for #${id}: ${path}`);
       return;
     }
     case 'blueprint': {
