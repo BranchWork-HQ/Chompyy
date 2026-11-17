@@ -5,13 +5,13 @@ import { existsSync, readFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 import { away } from './away.js';
 import { draftBlueprint, draftFiveStarOptions, GENERIC_FIVE_STAR } from './blueprint.js';
-import { addCard, COLUMNS, dropCard, formatBoard, formatCard, getCard, loadBoard, moveCard, updateBoard, type Column } from './board.js';
-import { loadConfig } from './config.js';
+import { addCard, awayQueue, COLUMNS, dropCard, formatBoard, formatCard, getCard, loadBoard, moveCard, updateBoard, type Column } from './board.js';
+import { loadConfig, setConfig } from './config.js';
 import { formatDuration, parseDuration } from './duration.js';
 import { budgetGate } from './gate.js';
 import { chompyyHome, homePath } from './home.js';
 import { loadSnapshot, mergeSnapshot, parseStatusline, saveSnapshot, statusLineText, statusText, windowView } from './quota.js';
-import { cardsSince, formatReport, lastReportAt, markReported, rateCard, readTaste } from './report.js';
+import { cardsSince, formatReport, lastReportAt, markReported, morningLine, rateCard, readTaste } from './report.js';
 import { changedFiles, diffCard, keepCard, questionsOf, undoCard } from './review.js';
 import { ClaudeRunner, claudeAvailable } from './runner.js';
 import { commitLeftovers, planWorkspace, prepareWorkspace } from './workspace.js';
@@ -23,6 +23,12 @@ import { buildDigest, historyRetention, scanHistory } from './history.js';
 import { acceptColdStart, forgetColdStart, formatColdStart, loadColdStart, runColdStart } from './coldstart.js';
 import { keepHistory } from './claudesettings.js';
 import { blueprintHash, drawPicture } from './picture.js';
+import { costRange, formatCostRange, readRuns, trendLines } from './costs.js';
+import {
+  answerPreference, distill, distillDue, formatPrefs, formatQuestion, formatWhy, getPref, loadStore, nextQuestion,
+  readSignals, recordOutcome, retirePreference, syncTasteFile, tasteChangesSince, type Answer,
+} from './taste.js';
+import { agentInstalled, awayRunning, bedtimeKey, decideTrigger, installAgent, loadTriggerState, markFired, noteTick, parseClock, takeAwayLock, uninstallAgent } from './triggers.js';
 
 const HELP = `chompyy: use the 5-hour window capacity that would reset unused
 
@@ -57,8 +63,23 @@ Back
   chompyy redo <id>             throw this attempt away and run it again from your latest code
   chompyy rate <id> <1-5> ["why"] [--to-five "change" ...]   rate a result; --to-five = what would have made it a 5
   chompyy five-star <id>        options for "what would have made it a 5?" (JSON)
-  chompyy taste                 show taste.md
   chompyy signals [--json]      everything Chompyy has recorded from you: ratings, edits, answers
+  chompyy trends                last 7 days vs the 7 before: cost per card, keep rate, rating, blueprint edits
+
+Taste (learned from what you keep, undo, edit and rate)
+  chompyy taste                 show taste.md
+  chompyy taste list            every preference: to ask, in taste.md, candidates, declined, retired
+  chompyy taste why <id>        the cards, edits and quotes behind a preference
+  chompyy taste yes|not-now|never <id>   answer a question (yes writes it to taste.md)
+  chompyy taste retire <id>     stop using a preference (kept, with the reason)
+  chompyy distill [--force]     read new signals and update preferences now (one model call; runs after away too)
+
+Triggers (start away runs on their own; the budget gate still decides every card)
+  chompyy triggers on|off       install or remove the macOS LaunchAgent that runs \`chompyy tick\` every 5 minutes
+  chompyy triggers              what is set, and what the last tick decided
+  chompyy bedtime <23:30|off>   run approved cards at bedtime (with the window that is left)
+  chompyy last-hour <on|off>    run approved cards in the last hour before a 5-hour reset
+  chompyy tick                  check the triggers once (what the LaunchAgent runs)
 
 Get to know you (cold start)
   chompyy history [--digest]    what Chompyy would read from your Claude Code history (local; --digest = the exact text it would send)
@@ -199,6 +220,52 @@ function blueprintInBackground(id: string): void {
     env: process.env,
   });
   child.unref();
+}
+
+/** Distil taste from new signals, but only inside an active window (a model call would otherwise start one). */
+async function distillNow(now: Date, force = false): Promise<string> {
+  const config = loadConfig();
+  if (!force && !windowActive(now)) return 'No active 5-hour window: distilling now would start one. It runs after your next away, or add --force.';
+  if (!claudeAvailable(config.claudeBin)) return `Can't find Claude Code (\`${config.claudeBin}\`).`;
+  const r = await distill(loadBoard(), new ClaudeRunner(config.claudeBin), { model: config.distillModel, cwd: chompyyHome(), now });
+  if (!r.read) return 'No new signals to learn from.';
+  const c = r.changes;
+  const parts = [`${c.added.length} new`, `${c.extended.length} with more evidence`, `${c.ready.length} ready to ask`, `${c.retired.length} retired`];
+  return `Read ${r.read} new signal(s): ${parts.join(', ')}${c.dropped ? ` (${c.dropped} thrown out for weak evidence)` : ''}. See \`chompyy taste list\`.`;
+}
+
+/** An away run: one at a time (lock), then distil what the run taught, if anything. */
+async function runAway(ms: number, opts: { dryRun?: boolean; force?: boolean; trigger?: string }, now: Date, freshQuota: (force?: boolean) => Promise<unknown>): Promise<void> {
+  const config = loadConfig();
+  const release = opts.dryRun ? () => {} : takeAwayLock(now, opts.trigger ?? 'away');
+  try {
+    await away(
+      ms,
+      {
+        runner: new ClaudeRunner(config.claudeBin),
+        config,
+        now: () => Date.now(),
+        snapshot: loadSnapshot,
+        plan: planWorkspace,
+        prepare: prepareWorkspace,
+        commitLeftovers,
+        refreshQuota: async () => {
+          await freshQuota(true);
+        },
+        out: (line) => console.log(line),
+      },
+      opts,
+    );
+  } finally {
+    release();
+  }
+  if (!opts.dryRun && config.distillAfterAway && distillDue(loadBoard(), new Date(), 0)) {
+    try {
+      console.log(`Taste: ${await distillNow(new Date())}`);
+    } catch (err) {
+      console.log(`Taste: couldn't distil (${err instanceof Error ? err.message : err})`);
+    }
+  }
 }
 
 async function main(argv: string[]): Promise<void> {
@@ -407,6 +474,7 @@ async function main(argv: string[]): Promise<void> {
         return;
       }
       const eligible = loadBoard().cards.filter((card) => card.column === 'approved' || card.column === 'later');
+      const runs = readRuns();
       if (!eligible.length) {
         console.log('\nNo cards to consider. Park an idea with `chompyy later "<idea>"`.');
         return;
@@ -416,6 +484,7 @@ async function main(argv: string[]): Promise<void> {
         const state = card.column === 'approved' ? 'approved · ready' : 'later · approve to run';
         console.log(`  #${card.id} ${card.title} [${state}]`);
         if (card.column === 'later' && !card.blueprint?.trim()) console.log('      blueprint needed before approval');
+        console.log(`      ${formatCostRange(costRange(card, runs))}`);
       }
       console.log('\nThis is a read-only list. Start selected work with `chompyy away <duration>`.');
       return;
@@ -466,6 +535,8 @@ async function main(argv: string[]): Promise<void> {
       const card = getCard(loadBoard(), need(args[0], 'chompyy show <id>'));
       if (values.json) return json(cardView(card));
       console.log(formatCard(card));
+      if (!card.run) console.log(`\n${formatCostRange(costRange(card, readRuns()))}`);
+      else if (card.run.cost?.fiveHourPct != null) console.log(`used ${card.run.cost.fiveHourPct}% of the 5h window${card.run.trigger ? ` · started by the ${card.run.trigger} trigger` : ''}`);
       return;
     }
     case 'picture': {
@@ -499,28 +570,86 @@ async function main(argv: string[]): Promise<void> {
       const gate = budgetGate(loadSnapshot(), config, now);
       console.log(statusText(loadSnapshot(), now));
       console.log(`gate       ${gate.ok ? 'open' : values.force ? 'closed, forced open' : 'closed'}${[...gate.reasons, ...gate.notes].map((r) => `\n           · ${r}`).join('')}\n`);
-      await away(
-        ms,
-        {
-          runner: new ClaudeRunner(config.claudeBin),
-          config,
-          now: () => Date.now(),
-          snapshot: loadSnapshot,
-          plan: planWorkspace,
-          prepare: prepareWorkspace,
-          commitLeftovers,
-          refreshQuota: async () => {
-            await freshQuota(true);
-          },
-          out: (line) => console.log(line),
-        },
-        { dryRun: values['dry-run'], force: values.force },
-      );
+      await runAway(ms, { dryRun: values['dry-run'], force: values.force }, now, freshQuota);
+      return;
+    }
+    case 'tick': {
+      // Run by the LaunchAgent every 5 minutes. Prints one line per tick to tick.log.
+      await freshQuota();
+      const config = loadConfig();
+      const board = loadBoard();
+      const d = decideTrigger(now, loadSnapshot(), config, loadTriggerState().fired, awayQueue(board).length, Boolean(awayRunning()));
+      const stamp = now.toISOString().slice(0, 16);
+      if (!d.fire) {
+        noteTick(now, d.why);
+        // Nightly consolidation: at bedtime, distil taste even when no card runs.
+        if (config.bedtime && bedtimeKey(now, config.bedtime, config.bedtimeWindowMin) && !awayRunning() && windowActive(now) && distillDue(board, now, 12 * 3600_000)) {
+          console.log(`${stamp} bedtime · taste: ${await distillNow(now).catch((e) => String(e))}`);
+        } else if (values.json || process.stdout.isTTY) console.log(`${stamp} ${d.why}`);
+        return;
+      }
+      markFired(d.key, now, d.why);
+      console.log(`${stamp} ▶ ${d.why}: away for ${formatDuration(d.durationMs)}`);
+      await runAway(d.durationMs, { trigger: d.kind }, now, freshQuota);
+      return;
+    }
+    case 'triggers': {
+      const sub = args[0];
+      if (sub === 'on') {
+        const path = installAgent();
+        const c = loadConfig();
+        console.log(`Triggers on: ${path} runs \`chompyy tick\` every 5 minutes.`);
+        console.log(`  last hour before a reset: ${c.lastHourTrigger ? `on (with ≥${c.lastHourMinLeftPct}% left)` : 'off'} · bedtime: ${c.bedtime ?? 'not set (chompyy bedtime 23:30)'}`);
+        return;
+      }
+      if (sub === 'off') return console.log(uninstallAgent() ? 'Triggers off: removed the LaunchAgent.' : 'Triggers were already off.');
+      if (sub) throw new Error('Usage: chompyy triggers [on|off]');
+      const c = loadConfig();
+      const st = loadTriggerState();
+      if (values.json) return json({ installed: agentInstalled(), lastHour: c.lastHourTrigger, lastHourMinLeftPct: c.lastHourMinLeftPct, bedtime: c.bedtime, ...st });
+      console.log(`LaunchAgent  ${agentInstalled() ? 'on (every 5 minutes)' : 'off (turn on: chompyy triggers on)'}`);
+      console.log(`last hour    ${c.lastHourTrigger ? `on, with ≥${c.lastHourMinLeftPct}% of the window left` : 'off'}`);
+      console.log(`bedtime      ${c.bedtime ?? 'not set'}`);
+      if (st.lastTickAt) console.log(`last tick    ${st.lastTickAt.slice(0, 16).replace('T', ' ')}: ${st.lastDecision ?? ''}`);
+      return;
+    }
+    case 'bedtime': {
+      const v = need(args[0], 'chompyy bedtime <23:30|off>');
+      if (v === 'off') {
+        setConfig('bedtime', null);
+        return console.log('Bedtime trigger off.');
+      }
+      parseClock(v);
+      setConfig('bedtime', v);
+      console.log(`Bedtime set to ${v}: approved cards run then, with the window that is left.${agentInstalled() ? '' : ' Turn triggers on with `chompyy triggers on`.'}`);
+      return;
+    }
+    case 'last-hour': {
+      const v = need(args[0], 'chompyy last-hour <on|off>');
+      if (v !== 'on' && v !== 'off') throw new Error('Usage: chompyy last-hour <on|off>');
+      setConfig('lastHourTrigger', v === 'on');
+      console.log(`Last-hour trigger ${v}.${v === 'on' && !agentInstalled() ? ' Turn triggers on with `chompyy triggers on`.' : ''}`);
+      return;
+    }
+    case 'distill': {
+      console.log(await distillNow(now, Boolean(values.force)));
+      return;
+    }
+    case 'trends': {
+      const lines = trendLines(readRuns(), readSignals(), now);
+      console.log(lines.length ? lines.join('\n') : 'Not enough runs yet for trends (needs 3).');
       return;
     }
     case 'report': {
       const since = values.all ? null : lastReportAt();
-      console.log(formatReport(cardsSince(loadBoard(), since), since, (c) => ({ files: changedFiles(c), questions: questionsOf(c) })));
+      syncTasteFile(now);
+      const cards = cardsSince(loadBoard(), since);
+      const store = loadStore();
+      const signals = readSignals();
+      const morning = morningLine(cards, tasteChangesSince(store, since));
+      const question = nextQuestion(store, signals);
+      const footer = [...(question ? formatQuestion(question, signals) : []), ...trendLines(readRuns(), signals, now)];
+      console.log(formatReport(cards, since, (c) => ({ files: changedFiles(c), questions: questionsOf(c) }), { header: morning ? [morning] : [], footer }));
       markReported(now);
       return;
     }
@@ -536,6 +665,7 @@ async function main(argv: string[]): Promise<void> {
         card.outcome = 'kept';
         card.column = 'done';
         card.updatedAt = now.toISOString();
+        recordOutcome(card, 'kept', now);
         return card;
       });
       return;
@@ -548,6 +678,7 @@ async function main(argv: string[]): Promise<void> {
         card.outcome = 'undone';
         card.column = 'done';
         card.updatedAt = now.toISOString();
+        recordOutcome(card, 'undone', now);
         return card;
       });
       return;
@@ -580,6 +711,24 @@ async function main(argv: string[]): Promise<void> {
       return;
     }
     case 'taste': {
+      const sub = args[0];
+      const removed = syncTasteFile(now);
+      if (removed.length) console.log(`Retired ${removed.join(', ')}: you removed ${removed.length === 1 ? 'it' : 'them'} from taste.md.\n`);
+      if (sub === 'list') {
+        if (values.json) return json(loadStore());
+        return console.log(formatPrefs(loadStore(), readSignals()));
+      }
+      if (sub === 'why') return console.log(formatWhy(getPref(loadStore(), need(args[1], 'chompyy taste why <id>')), readSignals()));
+      if (sub === 'yes' || sub === 'not-now' || sub === 'never') {
+        const p = answerPreference(need(args[1], `chompyy taste ${sub} <id>`), sub as Answer, now);
+        const said = { yes: `✓ Added to taste.md: "${p.text}". Agents follow it from now on.`, 'not-now': `Okay, not now. Chompyy asks again only when there's more evidence.`, never: `🔕 Won't ask about "${p.text}" again.` };
+        return console.log(said[sub as Answer]);
+      }
+      if (sub === 'retire') {
+        const p = retirePreference(need(args[1], 'chompyy taste retire <id>'), now);
+        return console.log(`Retired ${p.id}: "${p.text}". It's kept in \`chompyy taste list\` with the reason.`);
+      }
+      if (sub) throw new Error('Usage: chompyy taste [list | why <id> | yes|not-now|never <id> | retire <id>]');
       const { path, text, created } = readTaste();
       if (created) console.log(`(created ${path})\n`);
       console.log(text);

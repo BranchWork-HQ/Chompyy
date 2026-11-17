@@ -1,5 +1,5 @@
 // User settings: ~/.chompyy/config.json, merged over these defaults.
-import { homePath, readJson } from './home.js';
+import { homePath, readJson, writeJson } from './home.js';
 
 export interface Config {
   /** Path or name of the Claude Code binary. */
@@ -38,6 +38,18 @@ export interface Config {
   quotaSource: 'api' | 'statusline';
   /** Appended verbatim to every away-run `claude -p` call. */
   extraArgs: string[];
+  /** Model that distils taste from your signals (a stronger model: it runs rarely and decides what gets asked). */
+  distillModel: string;
+  /** Distil taste after an away run when there are new signals (uses the window that is already active). */
+  distillAfterAway: boolean;
+  /** Trigger: run approved cards in the last hour before a 5-hour reset (needs `chompyy triggers on`). */
+  lastHourTrigger: boolean;
+  /** Last-hour trigger fires only with at least this % of the window left. */
+  lastHourMinLeftPct: number;
+  /** Trigger: your bedtime as "23:30" local time; null = off (needs `chompyy triggers on`). */
+  bedtime: string | null;
+  /** How long after bedtime the trigger may still start, in minutes. */
+  bedtimeWindowMin: number;
 }
 
 export const DEFAULT_CONFIG: Config = {
@@ -88,6 +100,12 @@ export const DEFAULT_CONFIG: Config = {
   sandboxAllowedDomains: [],
   quotaSource: 'api',
   extraArgs: [],
+  distillModel: 'sonnet',
+  distillAfterAway: true,
+  lastHourTrigger: true,
+  lastHourMinLeftPct: 25,
+  bedtime: null,
+  bedtimeWindowMin: 60,
 };
 
 export function configPath(): string {
@@ -96,4 +114,9 @@ export function configPath(): string {
 
 export function loadConfig(): Config {
   return { ...DEFAULT_CONFIG, ...readJson<Partial<Config>>(configPath(), {}) };
+}
+
+/** Change one setting in config.json, keeping the rest of what you set. */
+export function setConfig<K extends keyof Config>(key: K, value: Config[K]): void {
+  writeJson(configPath(), { ...readJson<Partial<Config>>(configPath(), {}), [key]: value });
 }

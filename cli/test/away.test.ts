@@ -180,3 +180,39 @@ describe('sandbox', () => {
     expect(requests[0]!.settings).toBeUndefined();
   });
 });
+
+describe('cost and taste', () => {
+  const home = useTempHome();
+
+  it('records what each card used of the windows, from quota before and after', async () => {
+    let used = 40;
+    const resetsAt = Math.floor(NOW.getTime() / 1000) + 4 * 3600;
+    const { deps } = setup(home, { cards: 2, onRun: () => (used += 6) });
+    deps.snapshot = () => ({ capturedAt: NOW.toISOString(), fiveHour: { usedPct: used, resetsAt }, sevenDay: { usedPct: 20, resetsAt: resetsAt + 86_400 } });
+    let reads = 0;
+    deps.refreshQuota = async () => {
+      reads++;
+    };
+    await away(60 * MIN, deps, { trigger: 'last-hour' });
+    const cards = loadBoard().cards;
+    expect(cards[0]!.run).toMatchObject({ cost: { fiveHourPct: 6, weeklyPct: 0 }, trigger: 'last-hour' });
+    const { readRuns } = await import('../src/costs.js');
+    expect(readRuns().map((r) => [r.card, r.fiveHourPct])).toEqual([['1', 6], ['2', 6]]);
+    expect(reads).toBe(3); // before the first card, then after each (not again right before the second)
+  });
+
+  it('gives the agent your taste.md, without Chompyy\'s bookkeeping', async () => {
+    const { deps, requests } = setup(home, { cards: 1 });
+    deps.taste = () => '## Everywhere\n- Explain in plain words';
+    await away(60 * MIN, deps);
+    expect(requests[0]!.prompt).toContain('# How this user likes work done');
+    expect(requests[0]!.prompt).toContain('- Explain in plain words');
+  });
+
+  it('leaves the taste section out when nothing is learned', async () => {
+    const { deps, requests } = setup(home, { cards: 1 });
+    deps.taste = () => '';
+    await away(60 * MIN, deps);
+    expect(requests[0]!.prompt).not.toContain('How this user likes work done');
+  });
+});

@@ -9,6 +9,8 @@ import { homePath } from './home.js';
 import type { Snapshot } from './quota.js';
 import type { Runner } from './runner.js';
 import type { Workspace } from './workspace.js';
+import { recordRun, usedBetween } from './costs.js';
+import { tasteForPrompt } from './taste.js';
 
 /** Don't start a card with less than this much time left in the away run. */
 export const MIN_CARD_MS = 2 * 60_000;
@@ -63,9 +65,13 @@ export function sandboxSettings(ws: Workspace, allowedDomains: string[], cacheDi
   };
 }
 
-export function taskPrompt(card: Card, workdir: string): string {
+export function taskPrompt(card: Card, workdir: string, taste = ''): string {
   return `${safetyRules(workdir)}
+${taste ? `
+# How this user likes work done (their taste.md; follow it unless the blueprint says otherwise)
 
+${taste}
+` : ''}
 # Task #${card.id}: ${card.title}
 
 Original idea: ${card.idea}
@@ -97,12 +103,16 @@ export interface AwayDeps {
   commitLeftovers?: (ws: Workspace, card: Card) => boolean;
   /** Before each card: read fresh quota, so the gate sees what earlier cards used. */
   refreshQuota?: () => Promise<void>;
+  /** taste.md as agents should read it; defaults to the real one. */
+  taste?: () => string;
 }
 
 export interface AwayOptions {
   dryRun?: boolean;
   /** Skip the budget gate (still respects the duration). */
   force?: boolean;
+  /** What started the run, e.g. "last-hour" or "bedtime"; recorded on each card's run. */
+  trigger?: string;
 }
 
 export interface AwaySummary {
@@ -132,10 +142,14 @@ function stamp(ms: number): string {
   return new Date(ms).toISOString().replace(/[:.]/g, '-');
 }
 
+/** When quota was last read after a card (module state: one away run per process). */
+let lastRefreshMs = -Infinity;
+
 export async function away(durationMs: number, deps: AwayDeps, opts: AwayOptions = {}): Promise<AwaySummary> {
   const { config, out } = deps;
   const start = deps.now();
   const deadline = start + durationMs;
+  lastRefreshMs = -Infinity;
   if (!opts.dryRun) {
     const recovered = updateBoard((b) => recoverRunning(b, new Date(deps.now())));
     if (recovered.length) out(`Put back in approved after an interrupted run: ${recovered.map((id) => `#${id}`).join(', ')}`);
@@ -155,7 +169,8 @@ export async function away(durationMs: number, deps: AwayDeps, opts: AwayOptions
       summary.stoppedBecause = 'time is up';
       break;
     }
-    if (!opts.dryRun && deps.refreshQuota) await deps.refreshQuota();
+    // The previous card already read quota when it finished; don't ask twice in a row.
+    if (!opts.dryRun && deps.refreshQuota && deps.now() - lastRefreshMs > 60_000) await deps.refreshQuota();
     const gate = budgetGate(deps.snapshot(), config, new Date(deps.now()));
     if (!gate.ok && !opts.force) {
       summary.stoppedBecause = gate.reasons.join('; ');
@@ -170,7 +185,7 @@ export async function away(durationMs: number, deps: AwayDeps, opts: AwayOptions
       continue;
     }
 
-    summary.ran.push(await runCard(queued.id, Math.min(config.cardTimeoutMin * 60_000, remaining), deps));
+    summary.ran.push(await runCard(queued.id, Math.min(config.cardTimeoutMin * 60_000, remaining), deps, opts.trigger));
   }
 
   const notRun = queue.map((c) => c.id).filter((id) => !summary.ran.includes(id));
@@ -182,9 +197,10 @@ export async function away(durationMs: number, deps: AwayDeps, opts: AwayOptions
   return summary;
 }
 
-async function runCard(id: string, timeoutMs: number, deps: AwayDeps): Promise<string> {
+async function runCard(id: string, timeoutMs: number, deps: AwayDeps, trigger?: string): Promise<string> {
   const { config, out } = deps;
   const startedMs = deps.now();
+  const quotaBefore = deps.snapshot();
   const card = updateBoard((b) => {
     const c = getCard(b, id);
     c.column = 'running';
@@ -203,7 +219,7 @@ async function runCard(id: string, timeoutMs: number, deps: AwayDeps): Promise<s
 
   try {
     ws = deps.prepare(card);
-    const prompt = taskPrompt(card, ws.dir);
+    const prompt = taskPrompt(card, ws.dir, (deps.taste ?? tasteForPrompt)());
     const cacheDir = homePath('cache', 'tools');
     mkdirSync(cacheDir, { recursive: true });
     const questionsPath = join(ws.dir, 'QUESTIONS.md');
@@ -240,6 +256,16 @@ async function runCard(id: string, timeoutMs: number, deps: AwayDeps): Promise<s
   }
 
   const finishedMs = deps.now();
+  // What the card cost, in points of your windows: quota after minus before (an upper bound if you were busy too).
+  if (deps.refreshQuota) {
+    await deps.refreshQuota().catch(() => {});
+    lastRefreshMs = deps.now();
+  }
+  const quotaAfter = deps.snapshot();
+  const cost = {
+    fiveHourPct: usedBetween(quotaBefore?.fiveHour, quotaAfter?.fiveHour),
+    weeklyPct: usedBetween(quotaBefore?.sevenDay, quotaAfter?.sevenDay),
+  };
   const header = `card #${card.id} · ${status} · exit ${exitCode} · ${formatDuration(finishedMs - startedMs)}\nworkdir: ${ws?.dir ?? '-'}${ws?.branch ? `\nbranch: ${ws.branch}` : ''}\n\n`;
   writeFileSync(logPath, header + log);
 
@@ -258,8 +284,20 @@ async function runCard(id: string, timeoutMs: number, deps: AwayDeps): Promise<s
       ...(ws?.branch ? { branch: ws.branch } : {}),
       summary: summaryText,
       ...(checks ? { checks } : {}),
+      cost,
+      ...(trigger ? { trigger } : {}),
     };
   });
-  out(`  → ${status} · ${formatDuration(finishedMs - startedMs)} · log ${logPath}`);
+  recordRun({
+    at: new Date(finishedMs).toISOString(),
+    card: card.id,
+    title: card.title,
+    idea: card.idea,
+    cwd: card.cwd,
+    status,
+    durationMs: finishedMs - startedMs,
+    ...cost,
+  });
+  out(`  → ${status} · ${formatDuration(finishedMs - startedMs)}${cost.fiveHourPct !== null ? ` · used ${cost.fiveHourPct}% of the 5h window` : ''} · log ${logPath}`);
   return card.id;
 }

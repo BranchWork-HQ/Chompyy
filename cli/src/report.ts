@@ -1,5 +1,4 @@
 // "While you were away" report and rating (spec §5.7).
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { getCard, type BoardData, type Card } from './board.js';
 import { formatDuration } from './duration.js';
 import { wrap } from './review.js';
@@ -60,8 +59,31 @@ function filesLine(files: string[]): string {
 }
 
 /** Short and action-first; details come from `show`, `diff`, `keep`, `undo` on request. */
-export function formatReport(cards: Card[], since: string | null, facts: (card: Card) => CardFacts): string {
-  if (cards.length === 0) return since ? 'Nothing new since your last report.' : 'Nothing has run yet.';
+/** Extra lines around the cards: the morning line on top; the one taste question and trends below. */
+export interface ReportExtras {
+  header?: string[];
+  footer?: string[];
+}
+
+/** "Last night: 3 cards ran, 1 kept · taste: 1 learned, 1 retired, 1 question". Shows the system evolving. */
+export function morningLine(cards: Card[], taste: { learned: number; retired: number; toAsk: number }): string | null {
+  const bits: string[] = [];
+  if (cards.length) {
+    const kept = cards.filter((c) => c.outcome === 'kept').length;
+    const used = cards.map((c) => c.run?.cost?.fiveHourPct).filter((n): n is number => typeof n === 'number');
+    const total = Math.round(used.reduce((a, b) => a + b, 0));
+    bits.push(`${cards.length} card${cards.length === 1 ? '' : 's'} ran${kept ? `, ${kept} kept` : ''}${used.length ? `, using ${total}% of 5h windows` : ''}`);
+  }
+  const t: string[] = [];
+  if (taste.learned) t.push(`${taste.learned} learned`);
+  if (taste.retired) t.push(`${taste.retired} retired`);
+  if (t.length) bits.push(`taste: ${t.join(', ')}`);
+  return bits.length ? `Since last time: ${bits.join(' · ')}` : null;
+}
+
+export function formatReport(cards: Card[], since: string | null, facts: (card: Card) => CardFacts, extras: ReportExtras = {}): string {
+  const footer = extras.footer?.length ? ['', ...extras.footer] : [];
+  if (cards.length === 0) return [since ? 'Nothing new since your last report.' : 'Nothing has run yet.', ...footer].join('\n');
   const actionOf = (c: Card) => {
     if (c.outcome) return DECIDED[c.outcome];
     if (c.run!.status === 'ok' && c.run!.checks && c.run!.checks.result !== 'passed') {
@@ -71,7 +93,7 @@ export function formatReport(cards: Card[], since: string | null, facts: (card: 
   };
   const rank = (c: Card) => actionOf(c)?.rank ?? 9;
   const sorted = [...cards].sort((a, b) => rank(a) - rank(b));
-  const out = [`🍪 While you were away · ${cards.length} card${cards.length === 1 ? '' : 's'}`, ''];
+  const out = [`🍪 While you were away · ${cards.length} card${cards.length === 1 ? '' : 's'}`, ...(extras.header ?? []), ''];
   for (const c of sorted) {
     const decided = c.outcome ? DECIDED[c.outcome] : undefined;
     const action = actionOf(c) ?? { icon: '•', text: 'Take a look' };
@@ -88,6 +110,7 @@ export function formatReport(cards: Card[], since: string | null, facts: (card: 
   out.push(top.outcome
     ? `More on a card: chompyy show ${id} · rate ${id} <1-5>`
     : `More on a card: chompyy show ${id} · diff ${id} · keep ${id} · undo ${id} · rate ${id} <1-5>`);
+  out.push(...footer);
   return out.join('\n');
 }
 
@@ -102,7 +125,7 @@ export function rateCard(board: BoardData, id: string, score: number, reason: st
   // A card is done once you've kept or undone it. Rating first keeps it in review, so Keep/Undo stay available.
   if (card.outcome) card.column = 'done';
   card.updatedAt = at;
-  // Raw material for taste distillation (spec §5.8). The distiller is not built yet.
+  // Raw material for taste distillation (spec §5.8, taste.ts).
   appendJsonl(homePath('signals.jsonl'), {
     at,
     card: card.id,
@@ -116,17 +139,4 @@ export function rateCard(board: BoardData, id: string, score: number, reason: st
   return card;
 }
 
-export const TASTE_STUB = `# taste.md
-
-What Chompyy has learned about how you like work done. Plain text: edit it freely, your edits win.
-Nothing is distilled yet; ratings collect in signals.jsonl until the distiller exists.
-
-## Everywhere
-`;
-
-export function readTaste(): { path: string; text: string; created: boolean } {
-  const path = homePath('taste.md');
-  if (existsSync(path)) return { path, text: readFileSync(path, 'utf8'), created: false };
-  writeFileSync(path, TASTE_STUB);
-  return { path, text: TASTE_STUB, created: true };
-}
+export { readTaste, TASTE_STUB } from './taste.js';
