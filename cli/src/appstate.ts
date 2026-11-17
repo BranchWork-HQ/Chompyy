@@ -8,6 +8,7 @@ import { budgetGate } from './gate.js';
 import { appendJsonl, homePath, readJson, writeJson } from './home.js';
 import { loadLiveState } from './livequota.js';
 import { windowView, type Snapshot } from './quota.js';
+import { loadSamples, pacing } from './pacing.js';
 import { changedFiles } from './review.js';
 import { loadColdStart } from './coldstart.js';
 import { blueprintHash } from './picture.js';
@@ -48,6 +49,7 @@ export function appState(board: BoardData, snap: Snapshot | null, config: Config
       note: live.note ?? null,
       fiveHour: windowView(snap?.fiveHour, now),
       sevenDay: windowView(snap?.sevenDay, now),
+      pacing: pacing(snap, loadSamples(), now, config.bedtime),
     },
     gate: budgetGate(snap, config, now),
     cards: board.cards.map((c) => cardView(c, runs)),

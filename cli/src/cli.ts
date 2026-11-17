@@ -11,7 +11,8 @@ import { loadConfig, setConfig } from './config.js';
 import { formatDuration, parseDuration } from './duration.js';
 import { budgetGate } from './gate.js';
 import { chompyyHome, homePath } from './home.js';
-import { loadSnapshot, mergeSnapshot, parseStatusline, saveSnapshot, statusLineText, statusText, windowView } from './quota.js';
+import { loadSnapshot, mergeSnapshot, parseStatusline, saveSnapshot, statusLineText, statusText as baseStatusText, windowView, type Snapshot } from './quota.js';
+import { loadSamples } from './pacing.js';
 import { cardsSince, formatReport, lastReportAt, markReported, morningLine, rateCard, readTaste } from './report.js';
 import { changedFiles, diffCard, keepCard, overlaps, questionsOf, undoCard } from './review.js';
 import { ClaudeRunner, claudeAvailable } from './runner.js';
@@ -96,6 +97,11 @@ App
   chompyy state --json          everything the Mac app shows, in one JSON (board, show, status also take --json)
 
 State lives in ${chompyyHome()} (override with CHOMPYY_HOME).`;
+
+/** `chompyy status` text with pacing: burn-rate history and your bedtime. */
+function statusText(snap: Snapshot | null, now: Date): string {
+  return baseStatusText(snap, now, { samples: loadSamples(), bedtime: loadConfig().bedtime });
+}
 
 async function readStdin(): Promise<string> {
   if (process.stdin.isTTY) return '';
@@ -335,7 +341,7 @@ async function main(argv: string[]): Promise<void> {
         const parsed = parseStatusline(await readStdin(), now);
         const snap = mergeSnapshot(loadSnapshot(), { ...parsed, ...(parsed.fiveHour || parsed.sevenDay ? { source: 'statusline' as const } : {}) });
         saveSnapshot(snap);
-        console.log(statusLineText(snap, now));
+        console.log(statusLineText(snap, now, { samples: loadSamples(), color: true }));
       } catch {
         console.log('🍪');
       }
