@@ -28,6 +28,12 @@ final class Store: ObservableObject {
     var needsYou: [Card] { cards.filter(\.needsYou) }
     var selectedCard: Card? { cards.first { $0.id == selectedCardID } }
 
+    /// How Chompyy feels right now (drives the cookie's face).
+    var cookieMood: CookieMood? {
+        guard let q = state?.quota.fiveHour else { return nil }
+        return CookieMood.from(left: fiveHourLeft, msLeft: q.msLeft, fresh: q.isFresh)
+    }
+
     /// Fraction of the 5-hour window left, 0...1 (nil when unknown).
     var fiveHourLeft: Double? {
         guard let q = state?.quota.fiveHour else { return nil }

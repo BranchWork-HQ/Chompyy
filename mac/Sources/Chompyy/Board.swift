@@ -58,7 +58,7 @@ struct QuotaHeader: View {
     var body: some View {
         let q = store.state?.quota
         HStack(spacing: 18) {
-            CookieView(left: store.fiveHourLeft, size: 54)
+            CookieView(left: store.fiveHourLeft, size: 54, mood: store.cookieMood)
             VStack(alignment: .leading, spacing: 4) {
                 if let five = q?.fiveHour, five.known, let left = five.leftPct {
                     Text("\(Int(left.rounded()))% of this window left")

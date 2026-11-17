@@ -44,7 +44,7 @@ struct MenuPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 14) {
-                CookieView(left: store.fiveHourLeft, size: 64)
+                CookieView(left: store.fiveHourLeft, size: 64, mood: store.cookieMood)
                 VStack(alignment: .leading, spacing: 3) {
                     if let five = store.state?.quota.fiveHour, five.known, let left = five.leftPct {
                         Text("\(Int(left.rounded()))% left").font(.title2.weight(.semibold))
