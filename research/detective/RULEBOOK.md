@@ -321,7 +321,7 @@ How to recognise each tool:
 - Measured to save on the API (caveman), but on a plan "a ping uses plan limits" and is automated use; token-optimizer paused theirs for that reason. Chompyy reports cold resumes (C1) and suggests habits; it never pings.
 
 ### T3 · Chompyy's own headless calls
-- Every `claude -p` Chompyy runs must not pick up other plugins' hooks or MCP servers: add `--strict-mcp-config` and `--settings '{"disableAllHooks":true}'` (alongside `--tools ""` where no tools are needed). Otherwise a SessionStart hook inflates every Chompyy call and a blocking Stop hook can replace the answer. (headroom `learn/analyzer.py` `_CLI_BACKENDS`.) **Status: not yet in `cli/src/runner.ts`.**
+- Every `claude -p` Chompyy runs must not pick up other plugins' hooks or MCP servers: add `--strict-mcp-config` and `--settings '{"disableAllHooks":true}'` (alongside `--tools ""` where no tools are needed). Otherwise a SessionStart hook inflates every Chompyy call and a blocking Stop hook can replace the answer. (headroom `learn/analyzer.py` `_CLI_BACKENDS`.) **Status: done** (`cli/src/runner.ts` `ISOLATION_ARGS`; measured: agent runs start 2,224 tokens smaller on this machine).
 
 ### T4 · Safe reads of repos
 - Running `git` in a repo Chompyy didn't create: pass `-c core.fsmonitor= -c core.hooksPath=/dev/null` and friends, and strip inherited `GIT_*`; a hostile `.git/config` can run code on `git status`. (caveman `gitsafe`)

@@ -33,8 +33,15 @@ export interface Runner {
   run(req: RunRequest): Promise<RunResult>;
 }
 
+// Chompyy's runs never pick up other tools' hooks or MCP servers: a SessionStart hook would add its rules to
+// every call, and a blocking Stop hook can force an extra turn whose reply replaces ours (headroom hit this;
+// research/detective/RULEBOOK.md rule T3). Your login, settings, permissions and CLAUDE.md still load.
+// (--bare would skip hooks too, but it also skips the subscription login.)
+export const ISOLATION_ARGS = ['--strict-mcp-config'];
+export const ISOLATION_SETTINGS = { disableAllHooks: true };
+
 export function claudeArgs(req: RunRequest): string[] {
-  const args = ['-p', '--output-format', 'text', '--no-session-persistence'];
+  const args = ['-p', '--output-format', 'text', '--no-session-persistence', ...ISOLATION_ARGS];
   if (req.model) args.push('--model', req.model);
   if (req.maxTurns) args.push('--max-turns', String(req.maxTurns));
   if (req.tools !== undefined) args.push('--tools', req.tools);
@@ -42,7 +49,7 @@ export function claudeArgs(req: RunRequest): string[] {
   if (req.permissionPrompts) args.push('--permission-prompts', req.permissionPrompts);
   if (req.allowedTools?.length) args.push('--allowedTools', ...req.allowedTools);
   if (req.disallowedTools?.length) args.push('--disallowedTools', ...req.disallowedTools);
-  if (req.settings) args.push('--settings', JSON.stringify(req.settings));
+  args.push('--settings', JSON.stringify({ ...req.settings, ...ISOLATION_SETTINGS }));
   if (req.extraArgs?.length) args.push(...req.extraArgs);
   return args;
 }
