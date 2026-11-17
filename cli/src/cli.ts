@@ -2,19 +2,21 @@
 // chompyy: park ideas, blueprint them, run approved cards while you're away.
 import { spawn } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
+import { join, relative } from 'node:path';
 import { parseArgs } from 'node:util';
-import { away } from './away.js';
+import { away, cacheEnv } from './away.js';
 import { draftBlueprint, draftFiveStarOptions, GENERIC_FIVE_STAR } from './blueprint.js';
-import { addCard, awayQueue, COLUMNS, dropCard, formatBoard, formatCard, getCard, loadBoard, moveCard, updateBoard, type Column } from './board.js';
+import { addCard, awayQueue, COLUMNS, dropCard, expireSuggested, formatBoard, formatCard, getCard, loadBoard, moveCard, updateBoard, type Column } from './board.js';
 import { loadConfig, setConfig } from './config.js';
 import { formatDuration, parseDuration } from './duration.js';
 import { budgetGate } from './gate.js';
 import { chompyyHome, homePath } from './home.js';
 import { loadSnapshot, mergeSnapshot, parseStatusline, saveSnapshot, statusLineText, statusText, windowView } from './quota.js';
 import { cardsSince, formatReport, lastReportAt, markReported, morningLine, rateCard, readTaste } from './report.js';
-import { changedFiles, diffCard, keepCard, questionsOf, undoCard } from './review.js';
+import { changedFiles, diffCard, keepCard, overlaps, questionsOf, undoCard } from './review.js';
 import { ClaudeRunner, claudeAvailable } from './runner.js';
-import { commitLeftovers, planWorkspace, prepareWorkspace } from './workspace.js';
+import { commitLeftovers, gitRoot, planWorkspace, prepareWorkspace } from './workspace.js';
+import { verifyRun } from './verify.js';
 import { answerCard, appState, cardView, editBlueprint, recordCliLocation } from './appstate.js';
 import { refreshLiveQuota } from './livequota.js';
 import { recentProjects } from './projects.js';
@@ -180,6 +182,8 @@ function windowActive(now: Date): boolean {
  * with no active window it would start a new 5-hour window. Called whenever quota is fresh.
  */
 function draftPending(now: Date): void {
+  const days = loadConfig().suggestedExpiryDays;
+  if (days > 0 && loadBoard().cards.some((c) => c.column === 'suggested')) updateBoard((b) => expireSuggested(b, now, days));
   if (!windowActive(now) || !claudeAvailable(loadConfig().claudeBin)) return;
   const stale = now.getTime() - 3 * 60_000;
   const ids = updateBoard((b) => {
@@ -252,6 +256,26 @@ async function runAway(ms: number, opts: { dryRun?: boolean; force?: boolean; tr
         refreshQuota: async () => {
           await freshQuota(true);
         },
+        ...(config.independentCheck
+          ? {
+              verify: (ws, card) => {
+                const root = gitRoot(card.cwd);
+                const cacheDir = homePath('cache', 'tools');
+                // A card made in a subfolder (e.g. cli/ of a repo) is checked there, with that folder's node_modules.
+                const sub = root ? relative(root, card.cwd) : '';
+                return verifyRun({
+                  dir: sub && !sub.startsWith('..') ? join(ws.dir, sub) : ws.dir,
+                  repoRoot: sub && !sub.startsWith('..') ? card.cwd : root,
+                  cacheDir,
+                  env: cacheEnv(cacheDir),
+                  denyRead: config.denyReadPaths,
+                  timeoutMs: config.checkTimeoutMin * 60_000,
+                  override: root ? config.checkCommands[root] : undefined,
+                  now: () => new Date(),
+                });
+              },
+            }
+          : {}),
         out: (line) => console.log(line),
       },
       opts,
@@ -556,6 +580,9 @@ async function main(argv: string[]): Promise<void> {
     case 'approve': {
       const card = updateBoard((b) => moveCard(b, need(args[0], 'chompyy approve <id>'), 'approved', now));
       console.log(`✅ #${card.id} approved: ${card.title}`);
+      for (const o of overlaps(card, loadBoard().cards)) {
+        console.log(`   ⚠️  #${o.id} "${o.title}" may touch the same files (${o.files.slice(0, 3).join(', ')}). Keeping both can conflict; Run again fixes that.`);
+      }
       return;
     }
     case 'drop': {

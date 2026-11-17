@@ -35,6 +35,9 @@ export function budgetGate(snap: Snapshot | null, cfg: GateConfig, now: Date): G
         ? '5h window unknown: the snapshot is from a window that has reset'
         : '5h window unknown: no quota snapshot (set up `chompyy statusline`)',
     );
+  } else if (five.usedPct >= 100) {
+    // Whatever the settings say: past 100% a plan with extra usage turned on starts billing.
+    reasons.push('5h window is used up: running now would spill into paid extra usage');
   } else if (five.leftPct < cfg.min5hLeftPct) {
     reasons.push(`5h window has ${Math.round(five.leftPct)}% left, under the ${cfg.min5hLeftPct}% minimum`);
   }
@@ -43,6 +46,8 @@ export function budgetGate(snap: Snapshot | null, cfg: GateConfig, now: Date): G
   const maxWeeklyUsed = 100 - cfg.weeklyReservePct;
   if (!week.known) {
     notes.push('weekly usage unknown; reserve not checked');
+  } else if (week.usedPct >= 100) {
+    reasons.push('weekly limit is used up: running now would spill into paid extra usage');
   } else if (week.usedPct > maxWeeklyUsed) {
     reasons.push(`weekly usage is ${Math.round(week.usedPct)}%, over the ${maxWeeklyUsed}% hard stop`);
   } else if (cfg.weeklyPace) {

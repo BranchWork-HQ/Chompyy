@@ -11,6 +11,7 @@ import type { Runner } from './runner.js';
 import type { Workspace } from './workspace.js';
 import { recordRun, usedBetween } from './costs.js';
 import { tasteForPrompt } from './taste.js';
+import type { Verified } from './verify.js';
 
 /** Don't start a card with less than this much time left in the away run. */
 export const MIN_CARD_MS = 2 * 60_000;
@@ -50,19 +51,24 @@ export function cacheEnv(dir: string): Record<string, string> {
   };
 }
 
-export function sandboxSettings(ws: Workspace, allowedDomains: string[], cacheDir?: string): Record<string, unknown> {
+export function sandboxSettings(ws: Workspace, allowedDomains: string[], cacheDir?: string, denyRead: string[] = []): Record<string, unknown> {
   return {
     sandbox: {
       enabled: true,
       failIfUnavailable: true, // refuse to run rather than run unprotected
       allowUnsandboxedCommands: false, // no retrying outside the sandbox
-      filesystem: { allowWrite: [...(ws.gitDir ? [ws.gitDir] : []), ...(cacheDir ? [cacheDir] : [])] },
+      filesystem: { allowWrite: [...(ws.gitDir ? [ws.gitDir] : []), ...(cacheDir ? [cacheDir] : [])], ...(denyRead.length ? { denyRead } : {}) },
       network: { allowedDomains },
       // Commands are confined by the sandbox, so local ones (tests, scripts) run without a prompt.
       // The deny list still blocks outward commands (push, publish, curl, …).
       autoAllowBashIfSandboxed: true,
     },
   };
+}
+
+/** Read rules for the file tools: the sandbox's denyRead only covers shell commands. */
+export function denyReadRules(paths: string[]): string[] {
+  return paths.flatMap((p) => [`Read(${p})`, `Read(${p}/**)`]);
 }
 
 export function taskPrompt(card: Card, workdir: string, taste = ''): string {
@@ -105,6 +111,8 @@ export interface AwayDeps {
   refreshQuota?: () => Promise<void>;
   /** taste.md as agents should read it; defaults to the real one. */
   taste?: () => string;
+  /** After a run: Chompyy runs the repo's tests itself (worktrees only). */
+  verify?: (ws: Workspace, card: Card) => Promise<Verified | undefined>;
 }
 
 export interface AwayOptions {
@@ -215,6 +223,7 @@ async function runCard(id: string, timeoutMs: number, deps: AwayDeps, trigger?: 
   let exitCode: number | null = null;
   let summaryText = '';
   let checks: Checks | undefined;
+  let verified: Verified | undefined;
   let log = '';
 
   try {
@@ -233,10 +242,11 @@ async function runCard(id: string, timeoutMs: number, deps: AwayDeps, trigger?: 
       permissionMode: config.permissionMode,
       permissionPrompts: config.permissionPrompts,
       allowedTools: config.allowedTools,
-      disallowedTools: config.disallowedTools,
-      ...(config.sandbox ? { settings: sandboxSettings(ws, config.sandboxAllowedDomains, cacheDir) } : {}),
+      disallowedTools: [...config.disallowedTools, ...denyReadRules(config.denyReadPaths)],
+      ...(config.sandbox ? { settings: sandboxSettings(ws, config.sandboxAllowedDomains, cacheDir, config.denyReadPaths) } : {}),
       env: cacheEnv(cacheDir),
       extraArgs: config.extraArgs,
+      ...(config.loopRepeat > 0 ? { loopRepeat: config.loopRepeat } : {}),
     });
     exitCode = result.exitCode;
     try {
@@ -245,9 +255,17 @@ async function runCard(id: string, timeoutMs: number, deps: AwayDeps, trigger?: 
       out(`  couldn't commit leftover changes: ${err instanceof Error ? err.message : err}`);
     }
     const hasQuestions = existsSync(questionsPath) && readFileSync(questionsPath, 'utf8') !== questionsBefore;
-    status = result.timedOut ? 'timeout' : result.exitCode !== 0 ? 'failed' : hasQuestions ? 'questions' : 'ok';
+    status = result.stuck ? 'stuck' : result.timedOut ? 'timeout' : result.exitCode !== 0 ? 'failed' : hasQuestions ? 'questions' : 'ok';
+    if (result.stuck) out(`  ⛔ stopped: it was going in circles (${result.stuck})`);
     checks = parseChecks(result.output);
-    summaryText = firstLines(result.output.replace(/^\s*CHECKS:.*$/gim, '')) || firstLines(result.stderr);
+    if (deps.verify && ws.kind === 'worktree' && !result.stuck && !result.timedOut && result.exitCode === 0) {
+      out('  checking it independently (running the repo\'s tests, sandboxed)…');
+      verified = await deps.verify(ws, card).catch(() => undefined);
+      if (verified) out(`  ${verified.result === 'passed' ? '✓' : verified.result === 'failed' ? '✗' : '·'} ${verified.why}`);
+    }
+    summaryText = result.stuck
+      ? `Stopped by Chompyy: it was going in circles (${result.stuck}).`
+      : firstLines(result.output.replace(/^\s*CHECKS:.*$/gim, '')) || firstLines(result.stderr);
     log = `# prompt\n\n${prompt}\n\n# output\n\n${result.output}\n\n# stderr\n\n${result.stderr}\n`;
   } catch (err) {
     status = 'error';
@@ -285,6 +303,7 @@ async function runCard(id: string, timeoutMs: number, deps: AwayDeps, trigger?: 
       summary: summaryText,
       ...(checks ? { checks } : {}),
       cost,
+      ...(verified ? { verified } : {}),
       ...(trigger ? { trigger } : {}),
     };
   });

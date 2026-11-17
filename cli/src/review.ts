@@ -70,6 +70,34 @@ export function changedFiles(card: Card): string[] {
   }
 }
 
+/** File paths a blueprint names: `src/x.ts`, docs/README.md, … (a guess at what a card will touch). */
+export function blueprintFiles(blueprint: string | null): string[] {
+  if (!blueprint) return [];
+  const found = new Set<string>();
+  for (const m of blueprint.matchAll(/`([^`\s]+)`|(?:^|[\s(])((?:[\w.-]+\/)*[\w-]+\.[a-z]{1,6})(?=[\s),.:;]|$)/gim)) {
+    const p = (m[1] ?? m[2] ?? '').replace(/^\.\//, '');
+    if (/\.[a-z]{1,6}$/i.test(p) && !/^https?:/.test(p) && !/^\d+(\.\d+)+$/.test(p) && !/^(e\.g|i\.e|etc)\.?$/i.test(p)) found.add(p);
+  }
+  return [...found];
+}
+
+/**
+ * Cards already queued, running or waiting for review that look like they touch the same files as `card`:
+ * from what a run really changed, else the files its blueprint names. A warning, not a block: overlaps only
+ * conflict at keep time, and Run again recovers.
+ */
+export function overlaps(card: Card, others: Card[], changed: (c: Card) => string[] = changedFiles): { id: string; title: string; files: string[] }[] {
+  const mine = new Set(blueprintFiles(card.blueprint));
+  if (!mine.size) return [];
+  return others
+    .filter((o) => o.id !== card.id && o.cwd === card.cwd && (['approved', 'running'].includes(o.column) || (o.column === 'review' && !o.outcome)))
+    .map((o) => {
+      const theirs = o.run ? changed(o) : blueprintFiles(o.blueprint);
+      return { id: o.id, title: o.title, files: theirs.filter((f) => mine.has(f)) };
+    })
+    .filter((o) => o.files.length);
+}
+
 export function diffCard(card: Card): string {
   const run = ran(card);
   if (!run.branch) return `Card #${card.id} ran in a draft folder, not a git repo. Its files are in ${run.workdir}`;

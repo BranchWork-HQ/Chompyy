@@ -169,9 +169,10 @@ describe('sandbox', () => {
     mkdirSync(join(home(), 'worktrees', '1'), { recursive: true });
     await away(60 * MIN, deps);
     expect(requests[0]!.settings).toEqual({
-      sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, filesystem: { allowWrite: ['/repo/.git', join(home(), 'cache', 'tools')] }, network: { allowedDomains: [] }, autoAllowBashIfSandboxed: true },
+      sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, filesystem: { allowWrite: ['/repo/.git', join(home(), 'cache', 'tools')], denyRead: DEFAULT_CONFIG.denyReadPaths }, network: { allowedDomains: [] }, autoAllowBashIfSandboxed: true },
     });
     expect(requests[0]!.env?.GOCACHE).toBe(join(home(), 'cache', 'tools', 'go-build'));
+    expect(requests[0]!.disallowedTools).toEqual(expect.arrayContaining(['Bash(git push *)', 'Read(~/.ssh)', 'Read(~/.ssh/**)', 'Read(~/.aws/**)']));
   });
   it('can be turned off', async () => {
     const { deps, requests } = setup(home, { cards: 1 });
@@ -214,5 +215,36 @@ describe('cost and taste', () => {
     deps.taste = () => '';
     await away(60 * MIN, deps);
     expect(requests[0]!.prompt).not.toContain('How this user likes work done');
+  });
+});
+
+describe('circuit breaker and independent check', () => {
+  const home = useTempHome();
+
+  it('asks the runner to watch for loops, and marks a stopped run as stuck', async () => {
+    const { deps, requests, lines } = setup(home, { cards: 1, result: { exitCode: null, stuck: 'called Bash({"command":"npm test"}) 5 times' } });
+    await away(60 * MIN, deps);
+    expect(requests[0]!.loopRepeat).toBe(5);
+    const run = loadBoard().cards[0]!.run!;
+    expect(run.status).toBe('stuck');
+    expect(run.summary).toMatch(/going in circles/);
+    expect(lines.join('\n')).toMatch(/⛔ stopped/);
+  });
+
+  it('runs the independent check on worktree runs and keeps its verdict', async () => {
+    const { deps } = setup(home, { cards: 2 });
+    deps.prepare = (card) => {
+      const dir = join(home(), 'worktrees', card.id);
+      mkdirSync(dir, { recursive: true });
+      return card.id === '1' ? { kind: 'worktree', dir, branch: `chompyy/${card.id}` } : { kind: 'draft', dir };
+    };
+    const checked: string[] = [];
+    deps.verify = async (_ws, card) => {
+      checked.push(card.id);
+      return { result: 'failed', command: 'npm test', why: 'npm test exited with 1', at: NOW.toISOString() };
+    };
+    await away(60 * MIN, deps);
+    expect(checked).toEqual(['1']); // draft folders aren't checked
+    expect(loadBoard().cards[0]!.run!.verified).toMatchObject({ result: 'failed' });
   });
 });
