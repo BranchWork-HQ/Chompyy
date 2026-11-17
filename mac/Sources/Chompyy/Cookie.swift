@@ -166,7 +166,7 @@ struct CookieView: View {
         ZStack {
             if mood == .enlightened && showsFace {
                 Circle()
-                    .fill(RadialGradient(colors: [Color(red: 1, green: 0.85, blue: 0.45).opacity(0.55), .clear], center: .center, startRadius: size * 0.2, endRadius: size * 0.75))
+                    .fill(RadialGradient(colors: [Color(red: 1, green: 0.86, blue: 0.5).opacity(0.85), Color(red: 1, green: 0.85, blue: 0.45).opacity(0.4), .clear], center: .center, startRadius: 0, endRadius: size * 0.6))
                     .frame(width: size * 1.15, height: size * 1.15)
             }
             // Where the eaten slices were: a faint outline, so how much is gone reads at a glance.
@@ -256,7 +256,7 @@ struct CookieFace: View {
                 let spot = CookieShape.faceSpot(left: left)
                 let u = size * 0.5 * 0.85 * CGFloat(spot.scale)
                 let c = CGPoint(x: canvas.width / 2 + CGFloat(spot.x) * size / 2, y: canvas.height / 2 + CGFloat(spot.y) * size / 2)
-                let inkColor = spot.onPiece ? Brand.chip : Color(red: 1, green: 0.84, blue: 0.5)
+                let inkColor = Brand.chip // dark lines in every mood; the glow behind the floating face keeps them readable
                 let ink = GraphicsContext.Shading.color(inkColor)
                 let line = StrokeStyle(lineWidth: max(1.4, u * 0.075), lineCap: .round, lineJoin: .round)
                 let amp = u * 0.035
