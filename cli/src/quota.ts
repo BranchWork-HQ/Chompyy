@@ -11,6 +11,8 @@ export interface QuotaWindow {
 
 export interface Snapshot {
   capturedAt: string;
+  /** Where it came from: Anthropic's usage endpoint, or Claude Code's status line (default). */
+  source?: 'api' | 'statusline';
   fiveHour?: QuotaWindow;
   sevenDay?: QuotaWindow;
 }
@@ -64,6 +66,7 @@ export function parseStatusline(input: string, now: Date): Snapshot {
 export function mergeSnapshot(prev: Snapshot | null, next: Snapshot): Snapshot {
   return {
     capturedAt: next.capturedAt,
+    ...(next.source ? { source: next.source } : {}),
     fiveHour: next.fiveHour ?? prev?.fiveHour,
     sevenDay: next.sevenDay ?? prev?.sevenDay,
   };

@@ -1,7 +1,7 @@
 // Away run (spec §5.2, §5.5, §5.6): approved cards, one at a time, headless, inside the window.
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { awayQueue, loadBoard, recoverRunning, updateBoard, getCard, type Card, type RunStatus } from './board.js';
+import { awayQueue, loadBoard, recoverRunning, updateBoard, getCard, type Card, type Checks, type RunStatus } from './board.js';
 import type { Config } from './config.js';
 import { formatDuration } from './duration.js';
 import { budgetGate } from './gate.js';
@@ -20,19 +20,45 @@ export function safetyRules(workdir: string): string {
    no publishing packages, no purchases, no changes to remote services.
 3. If you need a decision only the user can make, stop and write the question(s) to QUESTIONS.md in this
    directory, with the options you see and your recommendation. Don't guess on anything irreversible.
-4. Stay inside the blueprint's scope. Commit your work to the current branch if this is a git repo.
-5. End with a short summary: what you made, where it is, and how to check it.`;
+4. Stay inside the blueprint's scope. If this is a git repo, commit your work to the current branch: that is
+   always allowed, even if the blueprint says otherwise, because the branch is how the user reviews and undoes it.
+   Don't commit QUESTIONS.md.
+5. Check your work the way the blueprint says (run the tests if there are any). Shell commands run in a
+   sandbox, so local commands like tests and scripts are fine.
+6. End with a short summary: what you made, where it is, and how to check it. The very last line must be
+   exactly one of:
+   CHECKS: passed — <what you ran>
+   CHECKS: failed — <what fails, and whether it failed before your change>
+   CHECKS: not run — <why you couldn't check>`;
 }
 
 /** Claude Code sandbox settings for an away run: writes only in the card's folder (+ its repo's .git), no network. */
-export function sandboxSettings(ws: Workspace, allowedDomains: string[]): Record<string, unknown> {
+/**
+ * Build tools keep caches in your home folder (Go in ~/Library/Caches/go-build, npm in ~/.npm), which the
+ * sandbox blocks. Point them at one Chompyy cache folder the sandbox allows, so tests and builds work.
+ */
+export function cacheEnv(dir: string): Record<string, string> {
+  return {
+    GOCACHE: `${dir}/go-build`,
+    GOMODCACHE: `${dir}/go-mod`,
+    GOFLAGS: '-modcacherw',
+    npm_config_cache: `${dir}/npm`,
+    PIP_CACHE_DIR: `${dir}/pip`,
+    XDG_CACHE_HOME: dir,
+  };
+}
+
+export function sandboxSettings(ws: Workspace, allowedDomains: string[], cacheDir?: string): Record<string, unknown> {
   return {
     sandbox: {
       enabled: true,
       failIfUnavailable: true, // refuse to run rather than run unprotected
       allowUnsandboxedCommands: false, // no retrying outside the sandbox
-      filesystem: { allowWrite: ws.gitDir ? [ws.gitDir] : [] },
+      filesystem: { allowWrite: [...(ws.gitDir ? [ws.gitDir] : []), ...(cacheDir ? [cacheDir] : [])] },
       network: { allowedDomains },
+      // Commands are confined by the sandbox, so local ones (tests, scripts) run without a prompt.
+      // The deny list still blocks outward commands (push, publish, curl, …).
+      autoAllowBashIfSandboxed: true,
     },
   };
 }
@@ -47,7 +73,15 @@ Original idea: ${card.idea}
 # Blueprint (agreed scope)
 
 ${card.blueprint ?? ''}
-`;
+${card.answers?.length ? `
+# Your earlier questions have been answered
+
+The previous run left QUESTIONS.md. The user's answers:
+
+${card.answers.map((a) => a.text).join('\n\n')}
+
+Continue from the work already in this folder. Delete QUESTIONS.md once it's resolved.
+` : ''}`;
 }
 
 export interface AwayDeps {
@@ -59,6 +93,10 @@ export interface AwayDeps {
   plan: (card: Card) => Workspace;
   prepare: (card: Card) => Workspace;
   out: (line: string) => void;
+  /** After a run: commit what the agent left uncommitted (worktrees only). */
+  commitLeftovers?: (ws: Workspace, card: Card) => boolean;
+  /** Before each card: read fresh quota, so the gate sees what earlier cards used. */
+  refreshQuota?: () => Promise<void>;
 }
 
 export interface AwayOptions {
@@ -71,6 +109,14 @@ export interface AwaySummary {
   ran: string[];
   skipped: string[];
   stoppedBecause: string | null;
+}
+
+/** The agent's own verdict on its checks: the last "CHECKS: passed|failed|not run — why" line. */
+export function parseChecks(output: string): Checks | undefined {
+  const matches = [...output.matchAll(/^\s*\**CHECKS:\**\s*(passed|failed|not run)\s*[—–:-]*\s*(.*)$/gim)];
+  const last = matches.at(-1);
+  if (!last) return undefined;
+  return { result: last[1]!.toLowerCase() as Checks['result'], why: last[2]!.trim() };
 }
 
 function firstLines(text: string, n = 5): string {
@@ -109,6 +155,7 @@ export async function away(durationMs: number, deps: AwayDeps, opts: AwayOptions
       summary.stoppedBecause = 'time is up';
       break;
     }
+    if (!opts.dryRun && deps.refreshQuota) await deps.refreshQuota();
     const gate = budgetGate(deps.snapshot(), config, new Date(deps.now()));
     if (!gate.ok && !opts.force) {
       summary.stoppedBecause = gate.reasons.join('; ');
@@ -151,11 +198,14 @@ async function runCard(id: string, timeoutMs: number, deps: AwayDeps): Promise<s
   let status: RunStatus;
   let exitCode: number | null = null;
   let summaryText = '';
+  let checks: Checks | undefined;
   let log = '';
 
   try {
     ws = deps.prepare(card);
     const prompt = taskPrompt(card, ws.dir);
+    const cacheDir = homePath('cache', 'tools');
+    mkdirSync(cacheDir, { recursive: true });
     const questionsPath = join(ws.dir, 'QUESTIONS.md');
     const questionsBefore = existsSync(questionsPath) ? readFileSync(questionsPath, 'utf8') : null;
     const result = await deps.runner.run({
@@ -168,13 +218,20 @@ async function runCard(id: string, timeoutMs: number, deps: AwayDeps): Promise<s
       permissionPrompts: config.permissionPrompts,
       allowedTools: config.allowedTools,
       disallowedTools: config.disallowedTools,
-      ...(config.sandbox ? { settings: sandboxSettings(ws, config.sandboxAllowedDomains) } : {}),
+      ...(config.sandbox ? { settings: sandboxSettings(ws, config.sandboxAllowedDomains, cacheDir) } : {}),
+      env: cacheEnv(cacheDir),
       extraArgs: config.extraArgs,
     });
     exitCode = result.exitCode;
+    try {
+      if (deps.commitLeftovers?.(ws, card)) out('  (committed changes the agent left uncommitted)');
+    } catch (err) {
+      out(`  couldn't commit leftover changes: ${err instanceof Error ? err.message : err}`);
+    }
     const hasQuestions = existsSync(questionsPath) && readFileSync(questionsPath, 'utf8') !== questionsBefore;
     status = result.timedOut ? 'timeout' : result.exitCode !== 0 ? 'failed' : hasQuestions ? 'questions' : 'ok';
-    summaryText = firstLines(result.output) || firstLines(result.stderr);
+    checks = parseChecks(result.output);
+    summaryText = firstLines(result.output.replace(/^\s*CHECKS:.*$/gim, '')) || firstLines(result.stderr);
     log = `# prompt\n\n${prompt}\n\n# output\n\n${result.output}\n\n# stderr\n\n${result.stderr}\n`;
   } catch (err) {
     status = 'error';
@@ -200,6 +257,7 @@ async function runCard(id: string, timeoutMs: number, deps: AwayDeps): Promise<s
       workdir: ws?.dir ?? '',
       ...(ws?.branch ? { branch: ws.branch } : {}),
       summary: summaryText,
+      ...(checks ? { checks } : {}),
     };
   });
   out(`  → ${status} · ${formatDuration(finishedMs - startedMs)} · log ${logPath}`);

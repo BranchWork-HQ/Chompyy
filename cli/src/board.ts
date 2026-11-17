@@ -23,6 +23,11 @@ const TRANSITIONS: Record<Column, Column[]> = {
   done: [],
 };
 
+export interface Checks {
+  result: 'passed' | 'failed' | 'not run';
+  why: string;
+}
+
 export type RunStatus = 'ok' | 'failed' | 'timeout' | 'questions' | 'error';
 
 export interface RunInfo {
@@ -35,11 +40,15 @@ export interface RunInfo {
   branch?: string;
   /** First non-empty lines of the agent's final output. */
   summary: string;
+  /** What the agent said about its own checks (its last "CHECKS:" line). */
+  checks?: Checks;
 }
 
 export interface Rating {
   score: number;
   reason?: string;
+  /** Your picks for "what would have made it a 5?": concrete changes, the best raw material for taste. */
+  toFive?: string[];
   at: string;
 }
 
@@ -51,6 +60,10 @@ export interface Card {
   column: Column;
   blueprint: string | null;
   blueprintError?: string;
+  /** When a background draft started (so the app doesn't start a second one). */
+  draftingAt?: string;
+  /** Parked with --no-blueprint: don't draft it automatically. */
+  noAutoDraft?: boolean;
   createdAt: string;
   updatedAt: string;
   approvedAt?: string;
@@ -59,6 +72,10 @@ export interface Card {
   /** What the user decided after the run. */
   outcome?: 'kept' | 'undone';
   rating?: Rating;
+  /** Your answers to the run's QUESTIONS.md; added to the task prompt on the next run. */
+  answers?: { at: string; text: string }[];
+  /** Options offered for "what would have made it a 5?", written for this card. */
+  fiveStarOptions?: string[];
 }
 
 export interface BoardData {

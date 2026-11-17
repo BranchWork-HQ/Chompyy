@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Card } from './board.js';
-import { gitRoot } from './workspace.js';
+import { commitLeftovers, gitRoot, uncommittedWork } from './workspace.js';
 
 function git(cwd: string, args: string[]): string {
   return execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
@@ -92,6 +92,11 @@ export function keepCard(card: Card): string {
   if (git(root, ['status', '--porcelain'])) {
     throw new Error(`${root} has uncommitted changes. Commit or set them aside first, then run keep again.`);
   }
+  commitLeftovers({ kind: 'worktree', dir: run.workdir }, card); // older runs may have left work uncommitted
+  const loose = uncommittedWork(run.workdir);
+  if (loose.length) {
+    throw new Error(`The card's folder has uncommitted work that keep would lose: ${loose.slice(0, 5).join(', ')}. Commit it in ${run.workdir} first.`);
+  }
   const into = git(root, ['rev-parse', '--abbrev-ref', 'HEAD']);
   try {
     git(root, ['merge', '--no-ff', '-m', `Keep Chompyy card #${card.id}: ${card.title}`, run.branch]);
@@ -99,7 +104,7 @@ export function keepCard(card: Card): string {
     try {
       git(root, ['merge', '--abort']);
     } catch {}
-    throw new Error(`${run.branch} conflicts with ${into}. Nothing was changed. Merge it by hand: git -C ${root} merge ${run.branch}`);
+    throw new Error(`${run.branch} conflicts with ${into}: another card or your own work changed the same lines. Nothing was changed. Run it again on top of the latest with \`chompyy redo ${card.id}\` (or merge by hand: git -C ${root} merge ${run.branch}).`);
   }
   removeWorktree(root, card);
   git(root, ['branch', '-d', run.branch]);

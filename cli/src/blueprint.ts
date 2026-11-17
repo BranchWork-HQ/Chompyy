@@ -15,7 +15,7 @@ Turn the idea below into a blueprint. Reply with ONLY this Markdown, no preamble
 - <3 to 5 bullets of what the result will contain>
 
 ## Out of scope
-- <1 to 3 bullets of what will NOT be done, especially anything outward: no push, merge, PR, sending or posting. Committing to its own chompyy branch is fine: that's how the user reviews and undoes it>
+- <1 to 3 bullets of what will NOT be done, especially anything outward: no push, merge, PR, sending or posting. Committing is fine: the run commits to the card's own branch, which Chompyy creates; don't name a branch>
 
 ## Shape
 <a short outline of the artifact: files, sections or steps>
@@ -23,8 +23,21 @@ Turn the idea below into a blueprint. Reply with ONLY this Markdown, no preamble
 ## How it's checked
 - <how someone can verify the result without the author: tests, files that exist, cited sources>
 
-Keep it under 200 words. Pick the smallest useful version of the idea. If the idea needs a decision only
-the user can make, say so in Out of scope and plan to write the open questions to QUESTIONS.md.
+Look at the working directory first (read-only) so the blueprint fits what is really there: its files,
+languages, test command and tooling. Don't plan steps for tools the repo doesn't have.
+
+The run can only change files inside the working directory. Its shell has no network, but the agent CAN
+read public web pages with its web tools (WebFetch, WebSearch), so reading docs or a linked page is fine.
+If the idea needs anything outside that (global or user config, other folders or repos, accounts,
+installing packages, calling APIs or downloading from the shell),
+start Out of scope with "Can't run unattended: <why>" and plan only what can be done inside the directory,
+such as a script or written steps the user can run themselves.
+
+Keep it under 200 words. Pick the smallest useful version of the idea.
+Never write "no commits" or "leave files untracked": the run always commits to the card's own branch (Chompyy
+creates and names it, so don't name one), and that branch is how the user reviews, keeps or undoes the work.
+Don't plan a QUESTIONS.md by default. Only if the idea truly can't be done without a decision only the user
+can make, say so in Out of scope and plan to write that question to QUESTIONS.md.
 
 Working directory: ${card.cwd}
 Idea: ${card.idea}`;
@@ -47,10 +60,45 @@ export async function draftBlueprint(
     prompt: blueprintPrompt(card),
     cwd: opts.cwd,
     model: opts.model,
-    tools: '',
+    tools: 'Read,Glob,Grep',
     timeoutMs: opts.timeoutMs ?? 120_000,
   });
   if (result.timedOut) throw new Error('Blueprint model timed out.');
   if (result.exitCode !== 0) throw new Error(`claude exited with ${result.exitCode}: ${result.stderr.trim().slice(0, 300)}`);
   return cleanBlueprint(result.output);
+}
+
+/** Generic options when a card-specific list can't be made (e.g. no active window). */
+export const GENERIC_FIVE_STAR = ['Closer to what I asked for', 'Shorter and simpler', 'More thorough', 'A different format'];
+
+export function fiveStarPrompt(card: Pick<Card, 'idea' | 'blueprint'> & { summary?: string; files?: string[] }): string {
+  return `A coding agent finished a task and the user rated it below 5 stars. Suggest what would most likely
+have made it a 5 for this user. Reply with ONLY 4 lines, one option per line, no numbering, no bullets.
+Each option: a concrete, specific change to the result, at most 9 words, written as the user would say it
+(e.g. "Put the answers in a separate file"). Make them different from each other.
+
+Task: ${card.idea}
+
+Blueprint:
+${card.blueprint ?? '(none)'}
+
+What the agent said it did:
+${card.summary ?? '(nothing)'}
+
+Files changed: ${(card.files ?? []).join(', ') || '(unknown)'}`;
+}
+
+export async function draftFiveStarOptions(
+  card: Pick<Card, 'idea' | 'blueprint'> & { summary?: string; files?: string[] },
+  runner: Runner,
+  opts: { model: string; cwd: string },
+): Promise<string[]> {
+  const result = await runner.run({ prompt: fiveStarPrompt(card), cwd: opts.cwd, model: opts.model, tools: '', timeoutMs: 60_000 });
+  if (result.exitCode !== 0 || result.timedOut) throw new Error('could not draft options');
+  const lines = result.output
+    .split('\n')
+    .map((l) => l.replace(/^\s*([-*•]|\d+[.)])\s*/, '').replace(/^"|"$/g, '').trim())
+    .filter((l) => l.length > 2 && l.length < 90);
+  if (lines.length < 2) throw new Error('could not draft options');
+  return lines.slice(0, 4);
 }

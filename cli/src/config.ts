@@ -28,6 +28,8 @@ export interface Config {
   sandbox: boolean;
   /** Domains sandboxed commands may reach (e.g. "registry.npmjs.org"). Empty = no network. */
   sandboxAllowedDomains: string[];
+  /** Where quota comes from: Anthropic's usage endpoint with Claude Code's saved login ("api"), or only the status line. */
+  quotaSource: 'api' | 'statusline';
   /** Appended verbatim to every away-run `claude -p` call. */
   extraArgs: string[];
 }
@@ -75,6 +77,7 @@ export const DEFAULT_CONFIG: Config = {
   ],
   sandbox: true,
   sandboxAllowedDomains: [],
+  quotaSource: 'api',
   extraArgs: [],
 };
 
