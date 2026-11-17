@@ -18,6 +18,7 @@ import { commitLeftovers, planWorkspace, prepareWorkspace } from './workspace.js
 import { answerCard, appState, cardView, editBlueprint, recordCliLocation } from './appstate.js';
 import { refreshLiveQuota } from './livequota.js';
 import { recentProjects } from './projects.js';
+import { cliVersion, installApp } from './macapp.js';
 
 const HELP = `chompyy: use the 5-hour window capacity that would reset unused
 
@@ -55,6 +56,8 @@ Back
   chompyy signals [--json]      everything Chompyy has recorded from you: ratings, edits, answers
 
 App
+  chompyy app                   install (or update) the Mac app in ~/Applications and open it
+  chompyy version               this CLI's version
   chompyy projects [--json]     recent project folders (from Claude Code history and past cards)
   chompyy state --json          everything the Mac app shows, in one JSON (board, show, status also take --json)
 
@@ -204,6 +207,15 @@ async function main(argv: string[]): Promise<void> {
       draftPending(now);
       return json(appState(loadBoard(), loadSnapshot(), loadConfig(), now));
     }
+    case 'app': {
+      console.log(`Downloading Chompyy ${cliVersion()} for Mac…`);
+      const at = await installApp();
+      console.log(`Installed ${at} and opened it. Look for the cookie in your menu bar.`);
+      return;
+    }
+    case 'version':
+      console.log(cliVersion());
+      return;
     case 'projects': {
       const list = recentProjects(loadBoard());
       if (values.json) return json(list);

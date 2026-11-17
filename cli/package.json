@@ -2,13 +2,33 @@
   "name": "chompyy",
   "version": "0.1.0",
   "description": "Use Claude Code 5-hour window capacity that would reset unused: park ideas, blueprint them, run approved cards while you're away.",
+  "keywords": [
+    "claude-code",
+    "claude",
+    "tokens",
+    "quota",
+    "agent",
+    "kanban"
+  ],
+  "homepage": "https://github.com/BranchWork-HQ/Chompyy#readme",
+  "bugs": {
+    "url": "https://github.com/BranchWork-HQ/Chompyy/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/BranchWork-HQ/Chompyy.git",
+    "directory": "cli"
+  },
+  "license": "MIT",
   "type": "module",
   "bin": {
     "chompyy": "dist/cli.js"
   },
   "files": [
     "dist",
-    "skills"
+    "skills",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md"
   ],
   "engines": {
     "node": ">=20"
@@ -17,9 +37,10 @@
     "build": "tsc -p tsconfig.json && chmod +x dist/cli.js",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "prepare": "npm run build"
+    "prepare": "npm run build",
+    "prepack": "npm run build && cp ../LICENSE ../THIRD_PARTY_NOTICES.md .",
+    "postpack": "rm -f LICENSE THIRD_PARTY_NOTICES.md"
   },
-  "license": "MIT",
   "devDependencies": {
     "@types/node": "^20.19.43",
     "typescript": "^5.9.3",

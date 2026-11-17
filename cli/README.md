@@ -7,6 +7,14 @@ This is the MVP from [the spec](../research/spec-token-utilization.md) §10, CLI
 ## Install
 
 ```bash
+npm install -g chompyy
+chompyy help
+chompyy app          # macOS: install the menu bar app too
+```
+
+From source:
+
+```bash
 cd cli
 npm install          # also builds dist/
 npm link             # puts `chompyy` on your PATH
@@ -17,9 +25,13 @@ Without linking: `npx chompyy help` from inside `cli/`, or `node cli/dist/cli.js
 
 You also need [Claude Code](https://code.claude.com) (`claude` on your PATH) for blueprints and away runs, on a Pro, Max or Ultra plan for the quota numbers.
 
-## Set up the quota snapshot
+## Quota
 
-Chompyy reads quota from Claude Code's status line, never by sending a message (if no window is active, the first message would start a new 5-hour window). Add this to `~/.claude/settings.json`:
+By default Chompyy reads live quota with Claude Code's saved login (macOS Keychain or `~/.claude/.credentials.json`), from the same usage endpoint Claude Code's `/usage` shows. It sends no message, so it never starts a window, and it checks at most every 5 minutes. Nothing to set up. To use only the status line instead, set `"quotaSource": "statusline"` in `~/.chompyy/config.json`.
+
+## Set up the quota snapshot (fallback)
+
+Chompyy can also read quota from Claude Code's status line, never by sending a message (if no window is active, the first message would start a new 5-hour window). Add this to `~/.claude/settings.json`:
 
 ```json
 {
