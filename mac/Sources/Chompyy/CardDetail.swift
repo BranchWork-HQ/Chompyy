@@ -193,6 +193,12 @@ struct CardDetail: View {
         let drawing = card.drawingAt != nil || store.busy.contains("picture\(card.id)")
         if let pic = card.picture {
             PictureView(picture: pic)
+            if let line = pic.typeLine {
+                Label(line, systemImage: "square.on.circle")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .help(pic.suggested.map { s in s.map { "\($0.type): \($0.evidence.joined(separator: ", "))" }.joined(separator: "\n") } ?? "")
+            }
         }
         HStack(spacing: 10) {
             if drawing {
