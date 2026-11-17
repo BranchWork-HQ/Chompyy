@@ -23,10 +23,10 @@ enum Brand {
     }
 }
 
-/// The cookie, eaten from the middle outward. `eaten` (0...1) is the share of the 5-hour window used.
-/// The hole is a cluster of uneven bites that grows from near the centre; it is scaled so the bitten
-/// area is that share of the cookie's area, so the picture matches the number (the old version took
-/// 8 fixed bites around the edge, 12.5 % each, and showed 45 % left as half eaten).
+/// The cookie, eaten slice by slice like a cake. `eaten` (0...1) is the share of the 5-hour window used.
+/// What's left is a wedge from 12 o'clock, clockwise, whose angle (and so its area) is the share left,
+/// so the picture matches the number (the old version took 8 fixed edge bites of 12.5 % each). The cut
+/// edge has a few small crumb notches so it reads as a broken cookie rather than a pie chart.
 struct CookieShape: Shape {
     var eaten: Double
 
@@ -35,55 +35,32 @@ struct CookieShape: Shape {
         set { eaten = newValue }
     }
 
-    /// Bites at full size, in cookie radii: centre x, centre y, radius. Uneven on purpose.
-    static let bites: [(Double, Double, Double)] = [
-        (0.06, -0.04, 0.50), (0.44, 0.18, 0.36), (-0.36, 0.30, 0.38),
-        (-0.30, -0.40, 0.33), (0.30, -0.46, 0.31), (0.04, 0.54, 0.31), (-0.58, -0.04, 0.26),
-    ]
-
-    /// Share of the cookie's area inside the bites at scale `k` (grid estimate; the bites overlap).
-    static func bittenShare(_ k: Double) -> Double {
-        let n = 36
-        var inside = 0, total = 0
-        for yi in 0..<n {
-            for xi in 0..<n {
-                let x = (Double(xi) + 0.5) / Double(n) * 2 - 1, y = (Double(yi) + 0.5) / Double(n) * 2 - 1
-                guard x * x + y * y <= 1 else { continue }
-                total += 1
-                if bites.contains(where: { b in
-                    let dx = x - b.0 * k, dy = y - b.1 * k, rr = b.2 * k
-                    return dx * dx + dy * dy <= rr * rr
-                }) { inside += 1 }
-            }
-        }
-        return Double(inside) / Double(max(total, 1))
-    }
-
-    /// The scale whose bitten share is `e` (bisection; the share grows with the scale).
-    static func scale(for e: Double) -> Double {
-        var lo = 0.0, hi = 2.4
-        for _ in 0..<14 {
-            let mid = (lo + hi) / 2
-            if bittenShare(mid) < e { lo = mid } else { hi = mid }
-        }
-        return (lo + hi) / 2
-    }
-
     func path(in rect: CGRect) -> Path {
         let r = min(rect.width, rect.height) / 2
         let c = CGPoint(x: rect.midX, y: rect.midY)
         let cookie = Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2))
-        let e = max(0, min(1, eaten))
-        if e < 0.005 { return cookie }
-        if e > 0.995 { return Path() }
-        let k = CGFloat(Self.scale(for: e))
-        var hole = Path()
-        for b in Self.bites {
-            let rr = CGFloat(b.2) * k * r
-            let bc = CGPoint(x: c.x + CGFloat(b.0) * k * r, y: c.y + CGFloat(b.1) * k * r)
-            hole.addEllipse(in: CGRect(x: bc.x - rr, y: bc.y - rr, width: rr * 2, height: rr * 2))
+        let left = 1 - max(0, min(1, eaten))
+        if left > 0.995 { return cookie }
+        if left < 0.005 { return Path() }
+        let start = Angle.degrees(-90)
+        let end = Angle.degrees(-90 + 360 * left)
+        var wedge = Path()
+        wedge.move(to: c)
+        wedge.addArc(center: c, radius: r * 1.02, startAngle: start, endAngle: end, clockwise: false)
+        wedge.closeSubpath()
+        var piece = cookie.intersection(wedge)
+        // Crumb notches along both cut edges, just inside the piece (tiny, so the area stays true).
+        var crumbs = Path()
+        for (edge, side) in [(end.radians, -1.0), (start.radians, 1.0)] {
+            for (d, size) in (side < 0 ? [(0.52, 0.055), (0.84, 0.075)] : [(0.7, 0.05)]) {
+                let a = edge + side * 0.035
+                let p = CGPoint(x: c.x + CGFloat(cos(a) * d) * r, y: c.y + CGFloat(sin(a) * d) * r)
+                let cr = CGFloat(size) * r
+                crumbs.addEllipse(in: CGRect(x: p.x - cr, y: p.y - cr, width: cr * 2, height: cr * 2))
+            }
         }
-        return cookie.subtracting(hole)
+        if left < 0.97 { piece = piece.subtracting(crumbs) }
+        return piece
     }
 }
 
@@ -104,6 +81,10 @@ struct CookieView: View {
     var body: some View {
         let shape = CookieShape(eaten: eaten)
         ZStack {
+            // Where the eaten slices were: a faint outline, so how much is gone reads at a glance.
+            Circle()
+                .strokeBorder(Brand.doughEdge.opacity(0.35), style: StrokeStyle(lineWidth: max(0.75, size / 48), dash: [max(1.5, size / 22), max(1.5, size / 26)]))
+                .opacity(eaten > 0.005 ? 1 : 0)
             shape.fill(
                 RadialGradient(colors: [Brand.dough, Brand.doughEdge], center: .center, startRadius: 0, endRadius: size * 0.6)
             )
