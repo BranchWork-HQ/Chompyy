@@ -30,7 +30,9 @@ final class Store: ObservableObject {
 
     /// Fraction of the 5-hour window left, 0...1 (nil when unknown).
     var fiveHourLeft: Double? {
-        guard let q = state?.quota.fiveHour, q.known, let left = q.leftPct else { return nil }
+        guard let q = state?.quota.fiveHour else { return nil }
+        if q.isFresh { return 1 }
+        guard q.known, let left = q.leftPct else { return nil }
         return max(0, min(1, left / 100))
     }
 

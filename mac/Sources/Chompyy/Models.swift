@@ -51,6 +51,16 @@ struct WindowView: Decodable {
     let resetsAt: Double?
 
     var resetDate: Date? { resetsAt.map { Date(timeIntervalSince1970: $0) } }
+
+    /// The last window has reset and no new one has started: all of it is left, and the next
+    /// Claude Code message starts the clock. (Chompyy never sends one just to check.)
+    var isFresh: Bool { !known && reason == "stale" }
+
+    /// One line under the % for a fresh window.
+    var freshHint: String {
+        let at = resetDate.map { " · the last one reset at \($0.formatted(date: .omitted, time: .shortened))" } ?? ""
+        return "A new window starts with your next Claude Code message\(at)"
+    }
 }
 
 struct Gate: Decodable {

@@ -68,6 +68,12 @@ struct QuotaHeader: View {
                     if let age = q?.age() {
                         Text("Checked \(age)").font(.caption).foregroundStyle(.tertiary)
                     }
+                } else if let five = q?.fiveHour, five.isFresh {
+                    Text("100% of a fresh window").font(.title3.weight(.semibold))
+                    Text(five.freshHint).foregroundStyle(.secondary)
+                    if let age = q?.age() {
+                        Text("Checked \(age)").font(.caption).foregroundStyle(.tertiary)
+                    }
                 } else {
                     Text("Window unknown").font(.title3.weight(.semibold))
                     Text(q?.note ?? "Refresh to read live quota from Anthropic.").foregroundStyle(.secondary)

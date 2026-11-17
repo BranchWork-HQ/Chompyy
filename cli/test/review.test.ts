@@ -149,7 +149,7 @@ describe('keep and undo', () => {
   it('keep refuses when the repo has uncommitted changes', () => {
     const { repo, card } = setup('7');
     writeFileSync(join(repo, 'README.md'), '# edited\n');
-    expect(() => keepCard(card)).toThrow(/uncommitted changes/);
+    expect(() => keepCard(card)).toThrow(/Can't keep #7 yet: .* has 1 uncommitted change \(README.md\)\. Keep merges the card into branch \S+ there.*press Undo/);
   });
 
   it('undo removes the branch and leaves your branch untouched', () => {

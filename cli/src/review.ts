@@ -117,8 +117,17 @@ export function keepCard(card: Card): string {
   if (!run.branch) return `Card #${card.id} ran in a draft folder; copy what you want from ${run.workdir}`;
   const root = gitRoot(card.cwd);
   if (!root) throw new Error(`${card.cwd} is no longer a git repo.`);
-  if (git(root, ['status', '--porcelain'])) {
-    throw new Error(`${root} has uncommitted changes. Commit or set them aside first, then run keep again.`);
+  const dirty = git(root, ['status', '--porcelain']);
+  if (dirty) {
+    // Say what's in the way and where Keep would merge, so the choice is clear (commit, set aside, or Undo).
+    const files = dirty.split('\n').filter(Boolean).map((l) => l.trim().replace(/^\S+\s+/, ''));
+    const branch = git(root, ['rev-parse', '--abbrev-ref', 'HEAD']);
+    const sample = files.slice(0, 3).join(', ') + (files.length > 3 ? ` and ${files.length - 3} more` : '');
+    throw new Error(
+      `Can't keep #${card.id} yet: ${root} has ${files.length} uncommitted change${files.length === 1 ? '' : 's'} (${sample}). ` +
+        `Keep merges the card into branch ${branch} there, so commit or set those changes aside first. ` +
+        `To drop the card's work instead, press Undo.`,
+    );
   }
   commitLeftovers({ kind: 'worktree', dir: run.workdir }, card); // older runs may have left work uncommitted
   const loose = uncommittedWork(run.workdir);
