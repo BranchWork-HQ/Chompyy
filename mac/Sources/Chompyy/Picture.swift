@@ -8,6 +8,23 @@ struct PictureInfo: Decodable, Hashable {
     let at: String
     let blueprintHash: String
     let check: String?
+    /// The visual type drawn and the drawing agent's reason; what the card's text suggested.
+    let type: String?
+    let why: String?
+    let suggested: [TypeSuggestion]?
+
+    /// "State machine · the card is about statuses" (and the suggestion, when the agent chose differently).
+    var typeLine: String? {
+        guard let type else { return nil }
+        var line = type + (why.map { " · \($0)" } ?? "")
+        if let top = suggested?.first, top.type.lowercased() != type.lowercased() { line += " (suggested: \(top.type))" }
+        return line
+    }
+}
+
+struct TypeSuggestion: Decodable, Hashable {
+    let type: String
+    let evidence: [String]
 }
 
 /// The card's picture: a diagram-design HTML file drawn for this card, shown light or dark to match the app.
