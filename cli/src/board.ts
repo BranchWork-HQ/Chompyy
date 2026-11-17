@@ -1,6 +1,7 @@
 // The board (spec §5.3): cards in columns, stored in ~/.chompyy/board.json.
 import { appendJsonl, homePath, readJson, writeJson } from './home.js';
 import type { PictureInfo } from './picture.js';
+import type { Verified } from './verify.js';
 
 export const COLUMNS = ['suggested', 'later', 'approved', 'running', 'review', 'done'] as const;
 export type Column = (typeof COLUMNS)[number];
@@ -29,7 +30,7 @@ export interface Checks {
   why: string;
 }
 
-export type RunStatus = 'ok' | 'failed' | 'timeout' | 'questions' | 'error';
+export type RunStatus = 'ok' | 'failed' | 'timeout' | 'questions' | 'error' | 'stuck';
 
 export interface RunInfo {
   status: RunStatus;
@@ -45,6 +46,8 @@ export interface RunInfo {
   checks?: Checks;
   /** Points of the 5-hour window and the week used during the run (null = window reset or quota unknown). */
   cost?: { fiveHourPct: number | null; weeklyPct: number | null };
+  /** Chompyy ran the repo's tests itself after the run (sandboxed), instead of trusting the agent's word. */
+  verified?: Verified;
   /** What started it: you (away) or a trigger. */
   trigger?: string;
 }
@@ -169,6 +172,19 @@ export function dropCard(board: BoardData, id: string, now: Date): Card {
   board.cards = board.cards.filter((c) => c !== card);
   appendJsonl(homePath('archive.jsonl'), { ...card, droppedAt: now.toISOString() });
   return card;
+}
+
+/**
+ * Suggested cards (Chompyy's ideas, not yours) that sat untouched for `days` are archived, so the column
+ * doesn't fill with stale guesses. Your own parked ideas never expire. Returns the archived cards.
+ */
+export function expireSuggested(board: BoardData, now: Date, days: number): Card[] {
+  if (days <= 0) return [];
+  const cutoff = now.getTime() - days * 24 * 3600_000;
+  const stale = board.cards.filter((c) => c.column === 'suggested' && Date.parse(c.updatedAt) < cutoff && !c.draftingAt && !c.drawingAt);
+  for (const c of stale) appendJsonl(homePath('archive.jsonl'), { ...c, droppedAt: now.toISOString(), expired: true });
+  board.cards = board.cards.filter((c) => !stale.includes(c));
+  return stale;
 }
 
 export function cardsIn(board: BoardData, column: Column): Card[] {

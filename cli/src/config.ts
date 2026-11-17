@@ -32,6 +32,18 @@ export interface Config {
   disallowedTools: string[];
   /** Run away cards in Claude Code's OS sandbox: shell writes only in the card's folder, network off. */
   sandbox: boolean;
+  /** Never readable by away runs: blocked for shell commands (sandbox) and for the Read, Grep and Glob tools. */
+  denyReadPaths: string[];
+  /** Run the repo's own tests after each card, outside the agent, in a sandbox (macOS). */
+  independentCheck: boolean;
+  /** Time limit for the independent check, in minutes. */
+  checkTimeoutMin: number;
+  /** Test command per repo, when the detected one is wrong: { "/path/to/repo": "npm run test:unit" }. */
+  checkCommands: Record<string, string>;
+  /** Stop a card that repeats the same tool call this many times (circuit breaker); 0 = off. */
+  loopRepeat: number;
+  /** Suggested cards you haven't touched for this many days are archived; 0 = never. */
+  suggestedExpiryDays: number;
   /** Domains sandboxed commands may reach (e.g. "registry.npmjs.org"). Empty = no network. */
   sandboxAllowedDomains: string[];
   /** Where quota comes from: Anthropic's usage endpoint with Claude Code's saved login ("api"), or only the status line. */
@@ -98,6 +110,27 @@ export const DEFAULT_CONFIG: Config = {
   ],
   sandbox: true,
   sandboxAllowedDomains: [],
+  denyReadPaths: [
+    '~/.ssh',
+    '~/.aws',
+    '~/.gnupg',
+    '~/.config/gh',
+    '~/.config/gcloud',
+    '~/.azure',
+    '~/.kube',
+    '~/.docker',
+    '~/.netrc',
+    '~/.npmrc',
+    '~/.pypirc',
+    '~/.git-credentials',
+    '~/.claude/.credentials.json',
+    '~/Library/Keychains',
+  ],
+  independentCheck: true,
+  checkTimeoutMin: 10,
+  checkCommands: {},
+  loopRepeat: 5,
+  suggestedExpiryDays: 14,
   quotaSource: 'api',
   extraArgs: [],
   distillModel: 'sonnet',

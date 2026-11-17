@@ -93,7 +93,7 @@ Licence duty for anything copied: keep the MIT notices (a `THIRD_PARTY_NOTICES` 
 | **Signed pace delta** in the status line: `⇣15%` green = headroom, `⇡15%` red = burning fast | 📋 | claude-pace (MIT, one Bash file); readable at a glance |
 | **Forecast unused at reset**: "~40% of this window will reset unused at 18:20", the moment to offer cards | 📋 | Claude-Code-Usage-Monitor (MIT) forecasts run-out; we flip it. CodexBar's unused-quota reset warning is the same trigger |
 | Freeze the forecast once a limit is hit (no fake projections) | 📋 | Claude-Code-Usage-Monitor |
-| **Never spill into paid extra usage**: close the gate at 100% even if extra credits would allow more | 📋 | cship |
+| **Never spill into paid extra usage**: close the gate at 100% even if extra credits would allow more | ✅ | 2026-11-17: closes at 100% of the 5h or weekly window whatever the settings say; checked before each card (a card already running isn't stopped mid-way). cship |
 | **Per-model weekly limits** (e.g. Opus 7-day vs all models) in the gate | 📋 | Usage4Claude |
 | **Learn your away times** from a weekday × hour usage heatmap and propose away windows | 📋 | AgentLimits |
 | **Prompt-cache countdown** (`❄ 4m23s` until the next turn pays full price) | 💭 | claude-code-usage-bar (MIT). Display only; no automatic keep-alive pings without checking provider terms |
@@ -111,7 +111,7 @@ Licence duty for anything copied: keep the MIT notices (a `THIRD_PARTY_NOTICES` 
 | Suggestions from history: unfinished ideas, "let's do that later", TODOs the agent left, abandoned tasks, routines repeated 3+ times | ✅ | Cold start; each card must quote what you said, checked against the digest |
 | Suggestions related to what you're working on now | 📋 | |
 | Review cards while waiting: during a long run, show 1–2 cards to approve instead of scrolling | 📋 | Only during waits over ~1 minute, never while typing |
-| Stale-card expiry | 📋 | |
+| Stale-card expiry | ✅ | 2026-11-17: suggested cards untouched for `suggestedExpiryDays` (14) are archived; your own parked ideas never expire |
 | **Cards as plain `.md` files** with acceptance criteria, editable in any editor | 📋 | Backlog.md; `board.json` becomes an index |
 | **Urgency score** to order cards: due date, priority, age, tags | 📋 | Taskwarrior's proven formula; simpler start than the token-value formula in §5 |
 | Each card is an unsolved ticket with a structured result (type, summary, walkthrough) | 📋 | pr-agent (MIT) |
@@ -149,17 +149,17 @@ Licence duty for anything copied: keep the MIT notices (a `THIRD_PARTY_NOTICES` 
 | **Runs report their own checks** (`CHECKS: passed / failed / not run`), shown as Checks pass / Checks fail / Not checked | ✅ | "ok" used to mean only "exited cleanly" |
 | Sandboxed local commands auto-allowed (tests, scripts); outward commands still denied | ✅ | |
 | Quota re-read before each card in an away run | ✅ | |
-| Warn at approval when two cards touch the same files | 📋 | Overlaps conflict at keep time today; Run again recovers |
-| Independent check (run the repo's tests outside the agent) | 📋 | Today the agent grades itself |
+| Warn at approval when two cards touch the same files | ✅ | 2026-11-17: compares the files a blueprint names with queued cards' blueprints and unreviewed runs' real changes; a warning, not a block. Run again recovers |
+| Independent check (run the repo's tests outside the agent) | ✅ | 2026-11-17: after each worktree run Chompyy detects the test command (npm/pnpm/yarn, go, cargo, pytest, make; `checkCommands` overrides) and runs it in a macOS `sandbox-exec` box (writes in the card's folder only, no network, no credential reads), borrowing your `node_modules`. Its verdict outranks the agent's; failures that look sandbox-caused say so. Skipped off macOS |
 | **Triggers**: last hour before a reset, bedtime (set once), `/away` | ✅ | `/away` ✅; last-hour and bedtime ✅ (2026-11-17): `chompyy triggers on` installs a LaunchAgent running `chompyy tick` every 5 min; once per window / per night; the gate still decides each card; `away.lock` keeps it to one run at a time |
 | Token-value priority to order cards: `(impact × P(success) × urgency) ÷ (tokens × price now)`, where price depends on whether you're present, budget scarcity and an imminent reset | 💭 | From the design conversation; start simple |
-| **Circuit breaker**: stop a card that loops (same tool call or failing command repeated) and a two-condition "done" check | 📋 | ralph-claude-code; codeburn `guard` has the loop detection to copy |
+| **Circuit breaker**: stop a card that loops (same tool call or failing command repeated) and a two-condition "done" check | ◐ | Loop stop ✅ (2026-11-17): away runs stream (`stream-json`) and stop on the same tool call 5× in the last 20, or the same command failing 4× in a row → status ⛔ stuck. The two-condition done check is the independent check above. | ralph-claude-code; codeburn `guard` has the loop detection to copy |
 | **Contact the human as a step**: the card pauses on `QUESTIONS.md` and resumes after you answer | 📋 | 12-factor-agents (licence unclear: ideas only) |
 | **Auto-detect away** from screen lock, sleep or idle, instead of waiting for `/away` | 📋 | Hammerspoon; asks once before the first auto run |
 | **Run with the laptop closed**: on your own GitHub Actions or a cloud sandbox | 📋 | claude-code-action, E2B; check provider terms first |
 | **Container isolation** option: each card in a container plus git branch, any agent | 📋 | container-use (Apache-2.0); needs Docker, so opt-in. Also solves credential reads |
-| Block reads of credential folders (`~/.ssh`, `~/.aws`) in the sandbox | 📋 | Known limit |
-| Board lock so two away runs can't pick the same card | 📋 | Known limit |
+| Block reads of credential folders (`~/.ssh`, `~/.aws`) in the sandbox | ✅ | 2026-11-17: `denyReadPaths` (~/.ssh, ~/.aws, ~/.gnupg, gh/gcloud/azure/kube/docker config, .netrc, .npmrc, Keychains, …) go to the sandbox's `denyRead` for shell commands and to `Read(...)` deny rules for the file tools |
+| Board lock so two away runs can't pick the same card | ✅ | `away.lock` (with the triggers, 2026-11-17): one away run at a time; a lock left by a dead process doesn't count |
 | Runners for other agents (`codex exec`, `cursor-agent`, …) | 📋 | |
 | **Hand off through a card**: turn a stopped session into a card (goal, what's done, what's left, branch, open questions) that any agent can pick up, e.g. Claude → Codex | ❌ | Not a focus (2026-11-15): agent-to-agent handoff is a different product |
 

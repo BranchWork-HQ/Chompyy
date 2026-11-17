@@ -37,12 +37,14 @@ const ACTION: Record<string, { icon: string; rank: number; text: string }> = {
   failed: { icon: '❌', rank: 1, text: "It didn't finish. Look at what happened, then undo or run it again" },
   error: { icon: '⚠️', rank: 1, text: "It couldn't start. Look at what happened" },
   timeout: { icon: '⏱', rank: 2, text: 'It ran out of time. Check what it got done, then keep or undo' },
+  stuck: { icon: '⛔', rank: 1, text: 'Chompyy stopped it: it was going in circles. Look at what happened, then undo or run it again' },
   ok: { icon: '✅', rank: 3, text: 'Check the change, then keep or undo' },
 };
 
 /** Finished, but its own checks didn't pass: say so instead of a plain ✅. */
 const UNCHECKED = {
   failed: { icon: '⚠️', rank: 1, text: 'It finished, but its checks fail. See why before you keep it' },
+  failedIndependently: { icon: '⚠️', rank: 1, text: "It says it's done, but the tests fail when Chompyy runs them. See why before you keep it" },
   notRun: { icon: '🔍', rank: 2, text: "It finished but couldn't check its work. Check it yourself, then keep or undo" },
 };
 
@@ -86,6 +88,10 @@ export function formatReport(cards: Card[], since: string | null, facts: (card: 
   if (cards.length === 0) return [since ? 'Nothing new since your last report.' : 'Nothing has run yet.', ...footer].join('\n');
   const actionOf = (c: Card) => {
     if (c.outcome) return DECIDED[c.outcome];
+    // Chompyy's own test run outranks what the agent says about itself.
+    if (c.run!.status === 'ok' && c.run!.verified?.result === 'failed' && !c.run!.verified.sandboxBlocked) return UNCHECKED.failedIndependently;
+    if (c.run!.status === 'ok' && c.run!.verified?.sandboxBlocked) return UNCHECKED.notRun;
+    if (c.run!.status === 'ok' && c.run!.verified?.result === 'passed') return ACTION.ok;
     if (c.run!.status === 'ok' && c.run!.checks && c.run!.checks.result !== 'passed') {
       return c.run!.checks.result === 'failed' ? UNCHECKED.failed : UNCHECKED.notRun;
     }
@@ -100,7 +106,9 @@ export function formatReport(cards: Card[], since: string | null, facts: (card: 
     const { files, questions } = decided ? { files: [], questions: [] } : facts(c);
     out.push(`${action.icon} #${c.id}  ${c.title}`);
     out.push(`   → ${action.text}`);
-    if (!decided && action !== ACTION[c.run!.status] && c.run!.checks?.why) wrap(c.run!.checks.why, 70).forEach((part, i) => out.push(`     ${i === 0 ? '·' : ' '} ${part}`));
+    const v = c.run!.verified;
+    if (!decided && v && v.result !== 'not run') wrap(`${v.result === 'passed' ? '✓' : '✗'} ${v.why} (run by Chompyy, not the agent)`, 70).forEach((part, i) => out.push(`     ${i === 0 ? '·' : ' '} ${part}`));
+    else if (!decided && action !== ACTION[c.run!.status] && c.run!.checks?.why) wrap(c.run!.checks.why, 70).forEach((part, i) => out.push(`     ${i === 0 ? '·' : ' '} ${part}`));
     for (const q of questions) wrap(q, 70).forEach((part, i) => out.push(`     ${i === 0 ? '·' : ' '} ${part}`));
     if (!decided) out.push(`   changed: ${filesLine(files)} · took ${formatDuration(c.run!.durationMs)}`);
     out.push('');

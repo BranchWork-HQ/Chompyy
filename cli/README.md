@@ -171,6 +171,12 @@ An unknown weekly window doesn't close the gate (some plans don't report it); `a
 | `sandbox` | `true` | Run away cards in Claude Code's OS sandbox (macOS, Linux, WSL2) |
 | `sandboxAllowedDomains` | `[]` | Domains sandboxed commands may reach, e.g. `["registry.npmjs.org"]` |
 | `extraArgs` | `[]` | Appended to every away-run `claude -p` call, e.g. `["--max-budget-usd", "2"]` for API-key users |
+| `denyReadPaths` | `~/.ssh`, `~/.aws`, `~/.gnupg`, … | Never readable by away runs (sandbox `denyRead` + `Read(...)` deny rules) |
+| `loopRepeat` | `5` | Circuit breaker: stop a card that repeats the same tool call this often; `0` = off |
+| `independentCheck` | `true` | Run the repo's tests after each card, sandboxed (macOS) |
+| `checkTimeoutMin` | `10` | Time limit for that check |
+| `checkCommands` | `{}` | Test command per repo when the detected one is wrong, e.g. `{"/Users/me/app": "npm run test:unit"}` |
+| `suggestedExpiryDays` | `14` | Archive suggested cards untouched this long; `0` = never |
 | `distillModel` | `"sonnet"` | Model that distils taste from your signals |
 | `distillAfterAway` | `true` | Distil after each away run when there are new signals |
 | `lastHourTrigger` | `true` | Last-hour trigger (only fires once `chompyy triggers on`) |
@@ -186,9 +192,12 @@ A card runs unattended only inside a box (spec §5.5):
 
 - **Its own place**: a fresh git worktree on `chompyy/<id>`, or a draft folder under `~/.chompyy/runs/<id>/`. Your checkout is never touched; nothing is merged.
 - **Rules in the prompt**, before the blueprint: work only inside this directory; no git push, merge, rebase or PR; no sending, posting, publishing or purchases; if a decision is needed, stop and write `QUESTIONS.md` (the report flags those cards as ❓).
-- **Enforced by the OS** (default, `sandbox: true`): cards run in Claude Code's sandbox. Shell commands can write only inside the card's folder (plus its repo's `.git`, so commits work) and have **no network** unless you list domains in `sandboxAllowedDomains`. So a `git push` fails even if a test script tries it. If the sandbox can't start, the card refuses to run rather than run unprotected. Checked on macOS with a real headless run: network and outside writes were blocked, the commit worked. File reads are not restricted.
+- **Enforced by the OS** (default, `sandbox: true`): cards run in Claude Code's sandbox. Shell commands can write only inside the card's folder (plus its repo's `.git`, so commits work) and have **no network** unless you list domains in `sandboxAllowedDomains`. So a `git push` fails even if a test script tries it. If the sandbox can't start, the card refuses to run rather than run unprotected. Checked on macOS with a real headless run: network and outside writes were blocked, the commit worked. Credential folders (`denyReadPaths`: `~/.ssh`, `~/.aws`, `~/.gnupg`, cloud CLI configs, `.netrc`, `.npmrc`, Keychains, …) can't be read, by shell commands or by the file tools; other reads are allowed.
 - **Rules in the tools**: `acceptEdits` plus an allow list, a deny list for push/merge/`gh`/publish, and `--permission-prompts none` so anything outside the lists is refused instead of waiting for you.
-- **Caps**: a wall-clock timeout per card, a turn cap, the away duration, and the budget gate above.
+- **Caps**: a wall-clock timeout per card, a turn cap, the away duration, and the budget gate above. The gate never lets a card start past 100% of a window, so a plan with extra usage turned on is never billed by Chompyy.
+- **Circuit breaker**: away runs are watched as they happen. The same tool call 5 times in the last 20, or the same shell command failing 4 times in a row, stops the card (⛔ *stuck* in the report). `loopRepeat` sets the number; `0` turns it off.
+- **Independent check**: after a run, Chompyy runs the repo's own tests itself (`npm test`, `go test`, `cargo test --offline`, `pytest`, `make test`; set your own per repo in `checkCommands`). They run in a macOS sandbox: writes only in the card's folder, no network, no credential reads. A fresh worktree has no `node_modules`, so your checkout's is linked in for the check. The report trusts this result over what the agent says. If a failure looks like the sandbox blocked something (a write outside the folder, the network), the report says so instead of calling the change broken. Skipped on other systems; `independentCheck: false` turns it off.
+- **Overlaps**: approving a card warns when a queued or unreviewed card looks like it touches the same files.
 - **Blueprint first**: a card can't be approved without one.
 
 These lower the risk; they don't make it zero. Read the result (and its branch) before you merge anything.
