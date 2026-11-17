@@ -36,11 +36,18 @@ final class Store: ObservableObject {
 
     func refresh(forceQuota: Bool = false) async {
         let args = forceQuota ? ["state", "--refresh"] : ["state"]
+        if forceQuota { busy.insert("refresh") }
+        defer { if forceQuota { busy.remove("refresh") } }
         do {
             let result = try await Task.detached { try CLI.run(args) }.value
-            guard result.ok else { error = result.message; return }
+            guard result.ok else { error = result.message; if forceQuota { show(result.message) }; return }
             state = try JSONDecoder().decode(AppState.self, from: Data(result.out.utf8))
             error = nil
+            // Say what the button did; when the check failed, also say how old the numbers on screen are.
+            if forceQuota, let r = state?.quotaRefresh {
+                let age = state?.quota.age().map { " Showing numbers from \($0)." } ?? ""
+                show(r.ok ? "Quota updated from Anthropic just now." : r.message + age)
+            }
             if let p = awayProcess, !p.isRunning { awayProcess = nil }
         } catch {
             self.error = error.localizedDescription

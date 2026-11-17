@@ -7,6 +7,13 @@ struct AppState: Decodable {
     let gate: Gate
     let cards: [Card]
     let coldStart: ColdStartState?
+    /// Set only after a forced refresh: what the live quota check did.
+    let quotaRefresh: QuotaRefresh?
+}
+
+struct QuotaRefresh: Decodable {
+    let ok: Bool
+    let message: String
 }
 
 struct Quota: Decodable {
@@ -16,6 +23,22 @@ struct Quota: Decodable {
     let note: String?
     let fiveHour: WindowView
     let sevenDay: WindowView
+
+    var capturedDate: Date? {
+        guard let capturedAt else { return nil }
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f.date(from: capturedAt) ?? ISO8601DateFormatter().date(from: capturedAt)
+    }
+
+    /// "just now", "4 min ago", "2 h ago": how old the numbers on screen are.
+    func age(now: Date = Date()) -> String? {
+        guard let d = capturedDate else { return nil }
+        let s = max(0, now.timeIntervalSince(d))
+        if s < 90 { return "just now" }
+        if s < 3600 { return "\(Int(s / 60)) min ago" }
+        return "\(Int(s / 3600)) h ago"
+    }
 }
 
 struct WindowView: Decodable {

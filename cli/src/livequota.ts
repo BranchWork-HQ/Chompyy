@@ -55,7 +55,7 @@ export async function refreshLiveQuota(
   const state = loadLiveState();
   const current = loadSnapshot();
   if (state.retryAfterAt && Date.parse(state.retryAfterAt) > now.getTime()) {
-    return { ok: false, snapshot: current, message: `Anthropic asked us to wait until ${new Date(state.retryAfterAt).toLocaleTimeString()}.` };
+    return { ok: false, snapshot: current, message: `Anthropic limits how often quota can be checked; next check after ${hhmm(state.retryAfterAt)}.` };
   }
   if (!opts.force && state.lastTryAt && now.getTime() - Date.parse(state.lastTryAt) < MIN_INTERVAL_MS && current?.source === 'api') {
     return { ok: true, snapshot: current, message: 'Fresh enough.' };
@@ -72,6 +72,8 @@ export async function refreshLiveQuota(
   if (!snap) {
     next.note = result.quota.footerLines.join(' ') || result.quota.connection;
     writeJson(statePath(), next);
+    // A 429: other tools signed in with the same Claude login (or a recent check) used up the allowance.
+    if (next.retryAfterAt) return { ok: false, snapshot: current, message: `Anthropic limits how often quota can be checked; next check after ${hhmm(next.retryAfterAt)}.` };
     return { ok: false, snapshot: current, message: explain(result.quota) };
   }
   const merged = mergeSnapshot(current, snap);
@@ -79,6 +81,8 @@ export async function refreshLiveQuota(
   writeJson(statePath(), next);
   return { ok: true, snapshot: merged, message: `Updated from Anthropic${result.quota.planLabel ? ` (${result.quota.planLabel})` : ''}.` };
 }
+
+const hhmm = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
 function explain(p: QuotaProvider): string {
   const extra = p.footerLines.length ? ` ${p.footerLines.join(' ')}` : '';

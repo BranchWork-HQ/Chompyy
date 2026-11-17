@@ -356,9 +356,11 @@ async function main(argv: string[]): Promise<void> {
       return;
     }
     case 'state': {
-      await freshQuota(Boolean(values.refresh));
+      const refreshed = await freshQuota(Boolean(values.refresh));
       draftPending(now);
-      return json(appState(loadBoard(), loadSnapshot(), loadConfig(), now));
+      // What the quota check just did, so the app's Refresh button can say it instead of looking dead.
+      const quotaRefresh = values.refresh ? (refreshed ? { ok: refreshed.ok, message: refreshed.message } : { ok: false, message: 'Live quota reading is off (quotaSource in config.json).' }) : null;
+      return json({ ...appState(loadBoard(), loadSnapshot(), loadConfig(), now), quotaRefresh });
     }
     case 'app': {
       console.log(`Downloading Chompyy ${cliVersion()} for Mac…`);
