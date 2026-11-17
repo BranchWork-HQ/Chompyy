@@ -88,13 +88,13 @@ Licence duty for anything copied: keep the MIT notices (a `THIRD_PARTY_NOTICES` 
 | **Weekly stay-on-pace gate**: run only while behind an even pace through the week | ✅ | Decided 2026-11-14; never borrows from later days |
 | Weekly hard stop at 90% used | ✅ | Whatever the pace |
 | 5-hour minimum left before starting a card | ✅ | Default 10% |
-| **Rolling daily allowance** shown as an "on pace / ahead / behind" bar: `today = remaining weekly ÷ days left` | 📋 | Approved design; day ends at your bedtime; unspent allowance funds the night |
+| **Rolling daily allowance** shown as an "on pace / ahead / behind" bar: `today = remaining weekly ÷ days left` | ◐ | Shown ✅ (2026-11-17) in `chompyy status` and the app JSON; day ends at your bedtime; no verdict until a reading from before today exists. The gate still uses the weekly even pace; "unspent allowance funds the night" in the gate 📋 |
 | Weighting days by your own usage pattern (e.g. light weekends) | 💭 | Deferred as an advanced feature |
-| **Signed pace delta** in the status line: `⇣15%` green = headroom, `⇡15%` red = burning fast | 📋 | claude-pace (MIT, one Bash file); readable at a glance |
-| **Forecast unused at reset**: "~40% of this window will reset unused at 18:20", the moment to offer cards | 📋 | Claude-Code-Usage-Monitor (MIT) forecasts run-out; we flip it. CodexBar's unused-quota reset warning is the same trigger |
-| Freeze the forecast once a limit is hit (no fake projections) | 📋 | Claude-Code-Usage-Monitor |
+| **Signed pace delta** in the status line: `⇣15%` green = headroom, `⇡15%` red = burning fast | ✅ | 2026-11-17, 5h and 7d. claude-pace (MIT, one Bash file); readable at a glance |
+| **Forecast unused at reset**: "~40% of this window will reset unused at 18:20", the moment to offer cards | ✅ | 2026-11-17: from the last hour of quota readings (`quota-history.json`), else the window's average; or "limit ~20:24" when the limit comes first. Offering cards at that moment 📋. Claude-Code-Usage-Monitor (MIT) forecasts run-out; we flip it. CodexBar's unused-quota reset warning is the same trigger |
+| Freeze the forecast once a limit is hit (no fake projections) | ✅ | "limit hit, resets 18:20". Claude-Code-Usage-Monitor |
 | **Never spill into paid extra usage**: close the gate at 100% even if extra credits would allow more | ✅ | 2026-11-17: closes at 100% of the 5h or weekly window whatever the settings say; checked before each card (a card already running isn't stopped mid-way). cship |
-| **Per-model weekly limits** (e.g. Opus 7-day vs all models) in the gate | 📋 | Usage4Claude |
+| **Per-model weekly limits** (e.g. Opus 7-day vs all models) in the gate | ✅ | 2026-11-17: read from the usage endpoint, shown in `status`; the gate checks the run's model (with `runModel` unset: closes at 100% of any, notes the rest). Usage4Claude |
 | **Learn your away times** from a weekday × hour usage heatmap and propose away windows | 📋 | AgentLimits |
 | **Prompt-cache countdown** (`❄ 4m23s` until the next turn pays full price) | 💭 | claude-code-usage-bar (MIT). Display only; no automatic keep-alive pings without checking provider terms |
 | Limits for other agents and providers | 📋 | Via CodexBar (Foundation) |

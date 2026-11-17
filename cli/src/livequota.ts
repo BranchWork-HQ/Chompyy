@@ -35,6 +35,14 @@ export function snapshotFromProvider(provider: QuotaProvider, now: Date): Snapsh
   const week = windowFrom(provider, 'Weekly');
   if (five) snap.fiveHour = five;
   if (week) snap.sevenDay = week;
+  // Per-model weekly windows ("Weekly · Opus", "Weekly · Sonnet", …).
+  const models: Record<string, QuotaWindow> = {};
+  for (const row of provider.details) {
+    const name = row.label.startsWith('Weekly · ') ? row.label.slice('Weekly · '.length) : '';
+    const w = name ? windowFrom(provider, row.label) : undefined;
+    if (w) models[name] = w;
+  }
+  if (Object.keys(models).length) snap.models = models;
   return snap;
 }
 

@@ -6,6 +6,16 @@ export interface GateConfig {
   weeklyReservePct: number;
   /** Only run while weekly usage is behind an even pace through the week. */
   weeklyPace: boolean;
+  /** The model away runs use (null = Claude Code's default), to check its own weekly limit. */
+  runModel?: string | null;
+}
+
+/** Which per-model windows apply: the run's model if it's named, else all of them (the default may be any). */
+function modelWindowsFor(snap: Snapshot | null, runModel: string | null | undefined): [string, Snapshot['sevenDay']][] {
+  const all = Object.entries(snap?.models ?? {});
+  if (!runModel) return all;
+  const m = runModel.toLowerCase();
+  return all.filter(([name]) => m.includes(name.toLowerCase()));
 }
 
 const WEEK_MS = 7 * 24 * 3600_000;
@@ -57,6 +67,17 @@ export function budgetGate(snap: Snapshot | null, cfg: GateConfig, now: Date): G
       reasons.push(`ahead of pace this week: ${Math.round(week.usedPct)}% used, an even pace is ${Math.round(pace)}% by now`);
     } else {
       notes.push(`${Math.round(pace - week.usedPct)}% of the week unspent so far (${Math.round(week.usedPct)}% used, even pace ${Math.round(pace)}%)`);
+    }
+  }
+
+  // Per-model weekly limits (e.g. Opus has its own 7-day window).
+  for (const [name, w] of modelWindowsFor(snap, cfg.runModel)) {
+    const v = windowView(w, now);
+    if (!v.known) continue;
+    if (v.usedPct >= 100) reasons.push(`weekly ${name} limit is used up: running now would spill into paid extra usage`);
+    else if (v.usedPct > maxWeeklyUsed) {
+      if (cfg.runModel) reasons.push(`weekly ${name} usage is ${Math.round(v.usedPct)}%, over the ${maxWeeklyUsed}% hard stop`);
+      else notes.push(`weekly ${name} usage is ${Math.round(v.usedPct)}%; away runs use Claude Code's default model, which may be ${name}`);
     }
   }
 
