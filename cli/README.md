@@ -52,6 +52,18 @@ That reads: 62% of the 5h window left, it resets in 1h40m, so about 37% per hour
 
 If you already have a status line command, keep it and call Chompyy from a small wrapper: save stdin to a variable, pipe it to `chompyy statusline`, and print both.
 
+## Get to know you (cold start)
+
+```bash
+chompyy history            # what it would read: sessions, projects, dates (local, sends nothing)
+chompyy history --digest   # the exact text it would send
+chompyy coldstart          # one model call: proposes taste lines and suggested cards
+chompyy coldstart accept --taste t1,t2 --cards c1    # the rest are declined
+chompyy keep-history 365   # Claude Code deletes transcripts after 30 days by default
+```
+
+Only interactive sessions are read (headless runs are skipped). Each proposal must cite your sessions: a taste line needs 3 separate sessions, and a card's quote must really appear in what you said. Anything that doesn't check out is thrown away.
+
 ## Two-minute walkthrough
 
 ```bash
@@ -88,6 +100,7 @@ Each card in a git repo runs in its own worktree at `~/.chompyy/worktrees/<id>` 
 | `chompyy board [--column approved]` | Cards by column: suggested, later, approved, running, review, done |
 | `chompyy show <id>` | One card with its blueprint, last run and rating |
 | `chompyy blueprint <id> [--model m]` | Draft (or redraft) the blueprint with a cheap model |
+| `chompyy picture <id> [--model m]` | Draw (or redraw) the card's picture: a diagram of what it will do, made with the diagram-design skill. Happens on its own after each blueprint while a window is active (`"pictures": false` in config.json turns it off) |
 | `chompyy approve <id>` / `drop <id>` | Queue a card for away runs / remove it (kept in `archive.jsonl`) |
 | `chompyy away <1h\|30m\|1h30m> [--dry-run] [--force]` | Run approved cards until the time is up or the gate closes |
 | `chompyy report [--all]` | Cards that ran since the last report: one action each, cards needing you first. No paths or raw agent text; ask for those with `show` |

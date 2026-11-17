@@ -6,6 +6,7 @@ struct AppState: Decodable {
     let quota: Quota
     let gate: Gate
     let cards: [Card]
+    let coldStart: ColdStartState?
 }
 
 struct Quota: Decodable {
@@ -78,6 +79,12 @@ struct Card: Decodable, Identifiable, Hashable {
     let answers: [Answer]?
     let files: [String]
     let questionsText: String?
+    let source: String?
+    let why: String?
+    let picture: PictureInfo?
+    let pictureError: String?
+    let drawingAt: String?
+    let pictureStale: Bool?
 
     static func == (a: Card, b: Card) -> Bool { a.id == b.id && a.updatedAt == b.updatedAt }
     func hash(into h: inout Hasher) { h.combine(id) }

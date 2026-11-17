@@ -28,6 +28,10 @@ On the first `chompyy status`, macOS asks whether `security` may use the **"Clau
 
 A 🍪 appears in your menu bar. Click it, then **Open board**.
 
+## Let it get to know you (1 minute)
+
+The board starts with **Let Chompyy get to know you**. Press **Get started**: it shows what it reads from your Claude Code history (on your Mac, secrets removed; **See exactly what's sent** shows every word), then suggests how you like work done and a few tasks from things you said you'd do later. Tick what's right; nothing is added otherwise. Claude Code deletes sessions after 30 days, so **Keep a year of history** is worth pressing.
+
 ## Your first card (15 minutes, most of it away)
 
 1. **+ Park an idea**, pick your repo, and write a small task you'd actually want done: *"Add a test for the date parser"*, *"Write a CONTRIBUTING guide from how this repo works"*, *"Make a quiz on chapter 3 of my notes"*.

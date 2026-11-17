@@ -38,7 +38,7 @@ The moment we design for: *"I noticed you undid 3 cards that added tests you did
 
 1. ✅ **Core loop (MVP CLI)**: quota snapshot → board → blueprint → sandboxed away run → action-first report → keep/undo → rating
 2. ◐ **Mac app with the card board** (Swift, `mac/`): menu bar cookie + board window; open a card as a picture-first sheet to approve, edit, answer, keep, undo, rate. First version built 2026-11-15, moved ahead so you can test with it sooner
-3. 🔜 **History cold start** for Claude Code (§5.9): privacy notice → first taste.md + suggested cards, landing in the board
+3. ✅ **History cold start** for Claude Code (§5.9): privacy notice → first taste.md + suggested cards, landing in the board (2026-11-17)
 4. 📋 **Foundation**: codeburn (spend, 42 tools, optimize, compare, guard) and CodexBar (limits for 114 providers, menu bar) — see [Foundation](#1-foundation-codeburn--codexbar)
 5. 📋 **Taste distiller**, triggers (last hour, bedtime), cost ranges, the "while you were away" trends
 6. 📋 **Optimization side**: cache-aware sessions, compression before history
@@ -108,7 +108,7 @@ Licence duty for anything copied: keep the MIT notices (a `THIRD_PARTY_NOTICES` 
 | `board`, `show`, `approve`, `drop` (archived, not deleted) | ✅ | |
 | `chompyy eat-tokens`: leftover window plus the cards you could run (read-only) | ✅ | |
 | **Suggested cards on request only** (no automatic pushes) | 📋 | The more you ask, the more it prepares; cap and expire stale ones |
-| Suggestions from history: unfinished ideas, "let's do that later", TODOs the agent left, abandoned tasks, routines repeated 3+ times | 🔜 | Part of the cold start |
+| Suggestions from history: unfinished ideas, "let's do that later", TODOs the agent left, abandoned tasks, routines repeated 3+ times | ✅ | Cold start; each card must quote what you said, checked against the digest |
 | Suggestions related to what you're working on now | 📋 | |
 | Review cards while waiting: during a long run, show 1–2 cards to approve instead of scrolling | 📋 | Only during waits over ~1 minute, never while typing |
 | Stale-card expiry | 📋 | |
@@ -131,7 +131,7 @@ Licence duty for anything copied: keep the MIT notices (a `THIRD_PARTY_NOTICES` 
 | **File boundary**: the blueprint lists the files and folders it may change; the sandbox only allows writes there | 📋 | cc-sdd |
 | **Project principles** ("constitution") fed into every blueprint, from the project section of taste.md | 📋 | spec-kit (MIT) |
 | Blueprint as a small change proposal; finished ones archived as history for cost ranges | 📋 | OpenSpec (MIT, TypeScript) |
-| **Diagram-first blueprints and reports** (flowchart or mind map) for people who understand scope through a picture | 📋 | diagram-design (MIT, 45 diagram types as self-contained HTML + SVG, works in Claude Code, Codex, Cursor) for rich diagrams; Mermaid (MIT) where plain text must render on GitHub; markmap (MIT) for mind maps. On or off is a taste preference, learned or set |
+| **Diagram-first blueprints and reports** (flowchart or mind map) for people who understand scope through a picture | ◐ blueprints ✅ (2026-11-17), reports 📋 | Every card opens with a picture drawn by an agent following the vendored diagram-design skill (`cli/vendor/diagram-design`, Chompyy skin, light + dark by token swap, self-check run), redrawn when the blueprint changes. Before that: diagram-design (MIT, 45 diagram types as self-contained HTML + SVG, works in Claude Code, Codex, Cursor) for rich diagrams; Mermaid (MIT) where plain text must render on GitHub; markmap (MIT) for mind maps. On or off is a taste preference, learned or set |
 
 ## 5. Away runs
 
@@ -218,8 +218,8 @@ Chompyy's main difference (see [the top](#what-makes-chompyy-different-taste-lea
 | **Preferences with validity periods**: valid-from date; retired with the contradicting evidence, never silently deleted | 📋 | graphiti's model (Apache-2.0), kept in a local JSONL that renders `taste.md`. Not graphiti itself: it needs a graph database, against "no extra installs" |
 | Background consolidation while you're away (sleep-time agent) | 📋 | Letta; the nightly distiller below |
 | `<private>` tags and progressive disclosure (index → timeline → details) | 📋 | claude-mem; for the cold start and taste loading |
-| 🔜 **History cold start** (Claude Code): privacy notice first, read transcripts locally, propose a first taste.md and suggested cards for you to approve | 🔜 | **Next build step.** Read at install: Claude Code deletes transcripts after ~30 days by default (`cleanupPeriodDays`); offer to raise it |
-| Privacy notice: what it reads, runs locally, keeps only taste.md and the board, filters secrets, approve before use, one command forgets everything | 🔜 | Part of the cold start |
+| ✅ **History cold start** (Claude Code): privacy notice first, read transcripts locally, propose a first taste.md and suggested cards for you to approve | ✅ | `chompyy history`, `chompyy coldstart`, app banner + sheet. One model call (sonnet) over a ≤60k-char digest; taste needs 3+ sessions; citations verified; `keep-history` raises `cleanupPeriodDays` (on the first real run, 4 transcripts aged out the same day) |
+| Privacy notice: what it reads, runs locally, keeps only taste.md and the board, filters secrets, approve before use, one command forgets everything | ✅ | "See exactly what's sent" shows the digest; pasted blocks become [pasted text], also without paste markers (code, logs, traces, diffs; 0 found in 550 real prompts); more secret types and phone numbers removed; `chompyy coldstart forget` |
 | **Taste distiller** (nightly): signals → candidate preferences; written only after 3 separate confirmations; removed when contradicted | 📋 | Signals, strongest first: blueprint edits, edits to results, chat corrections, ratings, accepted or rejected suggestions |
 | Scoped taste: everywhere / per task type / per project; only relevant sections load at session start | 📋 | Keeps the startup small and cache-stable |
 | Learn only from approved or rated work | 📋 | Ungoverned memory hurts (research card G5) |

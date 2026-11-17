@@ -5,6 +5,7 @@ import AppKit
 struct BoardView: View {
     @EnvironmentObject var store: Store
     @State private var showFeedback = false
+    @State private var showColdStart = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -13,6 +14,7 @@ struct BoardView: View {
             if let error = store.error, store.state == nil {
                 ContentUnavailableView("Can't reach Chompyy", systemImage: "exclamationmark.triangle", description: Text(error))
             } else {
+                ColdStartBanner(open: $showColdStart)
                 HStack(alignment: .top, spacing: 12) {
                     ForEach(Column.allCases) { column in
                         ColumnView(column: column)
@@ -34,6 +36,8 @@ struct BoardView: View {
         .toolbar {
             ToolbarItemGroup {
                 ParkIdeaButton()
+                Button { showColdStart = true } label: { Label("Suggest from my history", systemImage: "clock.arrow.circlepath") }
+                    .help("Read your Claude Code history and suggest tasks and taste lines")
                 Button { showFeedback = true } label: { Label("Feedback", systemImage: "bubble.left.and.text.bubble.right") }
                     .help("Everything Chompyy has recorded from you")
                 AwayMenu()
@@ -44,6 +48,8 @@ struct BoardView: View {
             }
         }
         .sheet(isPresented: $showFeedback) { FeedbackView() }
+        .sheet(isPresented: $showColdStart) { ColdStartView().environmentObject(store) }
+        .onAppear { if ProcessInfo.processInfo.environment["CHOMPYY_OPEN_COLDSTART"] != nil { showColdStart = true } } // for testing
         .frame(minWidth: 1080, minHeight: 560)
     }
 }
@@ -221,7 +227,9 @@ struct CardTile: View {
         } else if let outcome = card.outcome {
             pill(outcome == "kept" ? "Kept" : "Undone", outcome == "kept" ? "tray.and.arrow.down" : "arrow.uturn.backward", .secondary)
         } else if card.column == "later" || card.column == "suggested" {
-            if card.blueprint != nil {
+            if card.source == "history" && card.blueprint == nil && card.blueprintError == nil {
+                pill("From your history", "clock.arrow.circlepath", Brand.doughEdge)
+            } else if card.blueprint != nil {
                 pill("Ready", "doc.text", Brand.ok)
             } else if card.blueprintError != nil {
                 pill("Blueprint failed", "exclamationmark.triangle", Brand.warn)
