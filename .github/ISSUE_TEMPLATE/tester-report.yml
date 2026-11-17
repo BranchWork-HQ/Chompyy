@@ -1,0 +1,62 @@
+name: Tester report
+description: How your Chompyy test went (2 minutes)
+title: "Tester report: "
+labels: ["tester"]
+body:
+  - type: dropdown
+    id: stars
+    attributes:
+      label: How was it overall?
+      options:
+        - "5 – I'd keep using it"
+        - "4"
+        - "3 – it gets the job done"
+        - "2"
+        - "1 – didn't work for me"
+    validations:
+      required: true
+  - type: checkboxes
+    id: five
+    attributes:
+      label: What would have made it a 5?
+      description: Pick any that fit.
+      options:
+        - label: Easier install
+        - label: Better task suggestions (I didn't know what to park)
+        - label: Blueprints closer to what I meant
+        - label: Results I could keep without fixing
+        - label: Clearer review (what it did and why)
+        - label: Run more while I'm away
+        - label: Prettier app
+  - type: textarea
+    id: something-else
+    attributes:
+      label: Something else that would have made it a 5?
+  - type: input
+    id: task
+    attributes:
+      label: What did you ask it to do?
+      placeholder: "Add a test for the date parser"
+  - type: dropdown
+    id: got-to
+    attributes:
+      label: How far did you get?
+      options:
+        - Couldn't install
+        - Installed, didn't park a card
+        - Parked and approved a card
+        - A card ran while I was away
+        - Kept or undid a result
+    validations:
+      required: true
+  - type: textarea
+    id: broke
+    attributes:
+      label: Anything broken?
+      description: The card number and the last lines of ~/.chompyy/app-away.log help.
+      render: text
+  - type: input
+    id: setup
+    attributes:
+      label: Your setup
+      placeholder: "macOS 15, Apple Silicon, Max plan"

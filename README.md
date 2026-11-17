@@ -4,7 +4,9 @@
 
 The home of Chompyy, spun out of [BranchWork](https://github.com/BranchWork-HQ/branchwork). For now it holds the research behind it: how to get more done per token with coding agents such as Claude Code, what exists, what actually works when measured, and where there's room left.
 
-> **Status: early MVP.** A first CLI is in [cli/](cli/README.md) (quota snapshot, board, blueprints, away runs, report). The rest of the direction below is still a plan.
+> **Status: early test version.** A CLI ([cli/](cli/README.md)) and a Mac menu bar app ([mac/](mac/README.md)): live quota, board, picture-first blueprints, away runs, review and rating. Taste learning and suggested tasks are next.
+
+**Try it:** `npm install -g chompyy && chompyy status && chompyy app` (macOS 14+, Claude Code on a Pro/Max/Ultra plan, Node 20+). The tester guide is **[TRY.md](TRY.md)**.
 
 ## Why
 
