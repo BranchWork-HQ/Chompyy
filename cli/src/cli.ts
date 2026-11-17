@@ -19,6 +19,9 @@ import { answerCard, appState, cardView, editBlueprint, recordCliLocation } from
 import { refreshLiveQuota } from './livequota.js';
 import { recentProjects } from './projects.js';
 import { cliVersion, installApp } from './macapp.js';
+import { buildDigest, historyRetention, scanHistory } from './history.js';
+import { acceptColdStart, forgetColdStart, formatColdStart, loadColdStart, runColdStart } from './coldstart.js';
+import { keepHistory } from './claudesettings.js';
 
 const HELP = `chompyy: use the 5-hour window capacity that would reset unused
 
@@ -54,6 +57,12 @@ Back
   chompyy five-star <id>        options for "what would have made it a 5?" (JSON)
   chompyy taste                 show taste.md
   chompyy signals [--json]      everything Chompyy has recorded from you: ratings, edits, answers
+
+Get to know you (cold start)
+  chompyy history [--digest]    what Chompyy would read from your Claude Code history (local; --digest = the exact text it would send)
+  chompyy coldstart [--force]   read your history once and propose taste lines and suggested cards (one model call)
+  chompyy coldstart show        the proposals    accept --taste t1,t2 --cards c1    forget
+  chompyy keep-history <days>   keep Claude Code transcripts longer (cleanupPeriodDays; default 30)
 
 App
   chompyy app                   install (or update) the Mac app in ~/Applications and open it
@@ -159,6 +168,9 @@ async function main(argv: string[]): Promise<void> {
       json: { type: 'boolean' },
       refresh: { type: 'boolean' },
       'to-five': { type: 'string', multiple: true },
+      digest: { type: 'boolean' },
+      taste: { type: 'string' },
+      cards: { type: 'string' },
     },
   });
   const [command, ...args] = values.help ? ["help"] : positionals;
@@ -213,6 +225,62 @@ async function main(argv: string[]): Promise<void> {
       console.log(`Installed ${at} and opened it. Look for the cookie in your menu bar.`);
       return;
     }
+    case 'history': {
+      const scan = scanHistory();
+      if (values.digest) return console.log(buildDigest(scan.sessions).text || '(nothing to read)');
+      const { included, text } = buildDigest(scan.sessions);
+      const retention = historyRetention();
+      const projects = [...new Set(scan.sessions.map((s) => s.project))];
+      const info = {
+        sessions: scan.sessions.length,
+        projects: projects.length,
+        projectNames: projects.map((p) => p.split('/').pop()),
+        from: scan.from,
+        to: scan.to,
+        skipped: scan.skipped,
+        digest: { sessions: included.length, chars: text.length },
+        retention,
+      };
+      if (values.json) return json(info);
+      console.log(`${info.sessions} interactive sessions in ${info.projects} projects, ${(scan.from ?? '').slice(0, 10)} to ${(scan.to ?? '').slice(0, 10)}`);
+      console.log(`Skipped: ${scan.skipped.headless} headless runs, ${scan.skipped.temp} in temp folders, ${scan.skipped.empty} empty`);
+      console.log(`Would send: the newest ${included.length} sessions, ${text.length} characters (see it: chompyy history --digest)`);
+      console.log(`Claude Code keeps transcripts ${retention.days} days${retention.isDefault ? ' (default; raise it with chompyy keep-history 365)' : ''}`);
+      return;
+    }
+    case 'coldstart': {
+      const sub = args[0];
+      if (sub === 'show') {
+        const cs = loadColdStart();
+        if (values.json) return json(cs);
+        return console.log(cs ? formatColdStart(cs) : 'No cold start yet. Run `chompyy coldstart`.');
+      }
+      if (sub === 'accept') {
+        const list = (v?: string) => (v ?? '').split(',').map((x) => x.trim()).filter(Boolean);
+        const r = acceptColdStart({ taste: list(values.taste), cards: list(values.cards) }, now);
+        if (values.json) return json(r);
+        console.log(`Added ${r.taste.length} taste line(s) to taste.md and ${r.cards.length} card(s) to suggested${r.cards.length ? ` (${r.cards.map((c) => `#${c.id}`).join(', ')})` : ''}.`);
+        draftPending(now);
+        return;
+      }
+      if (sub === 'forget') return console.log(forgetColdStart() ? 'Forgot the cold start proposals. Accepted taste lines stay in taste.md.' : 'Nothing to forget.');
+      if (sub) throw new Error('Usage: chompyy coldstart [show|accept|forget]');
+      await freshQuota();
+      if (!values.force && !windowActive(now)) throw new Error('No active 5-hour window: reading your history would start one. Try again while you are using Claude Code, or add --force.');
+      const config = loadConfig();
+      if (!claudeAvailable(config.claudeBin)) throw new Error(`Can't find Claude Code (\`${config.claudeBin}\`).`);
+      const cs = await runColdStart(scanHistory(), new ClaudeRunner(config.claudeBin), { model: config.coldStartModel, cwd: chompyyHome(), now });
+      if (values.json) return json(cs);
+      console.log(formatColdStart(cs));
+      return;
+    }
+    case 'keep-history': {
+      const days = Number(need(args[0], 'chompyy keep-history <days>'));
+      if (!Number.isInteger(days) || days < 1) throw new Error('Days must be a whole number, e.g. 365.');
+      const r = keepHistory(days);
+      console.log(`Claude Code now keeps transcripts for ${days} days (was ${r.before ?? '30, the default'}). Changed ${r.path}.`);
+      return;
+    }
     case 'version':
       console.log(cliVersion());
       return;
@@ -256,7 +324,13 @@ async function main(argv: string[]): Promise<void> {
         }
       });
       if (values.json) return json(items.reverse());
-      for (const s of items) console.log(`${s.at.slice(0, 16)}  #${s.card}  ${s.kind ?? 'rating'}  ${s.rating ? `${s.rating}/5 ` : ''}${s.reason ?? s.text ?? ''}${s.toFive ? `  → to make it a 5: ${s.toFive.join('; ')}` : ''}`);
+      for (const s of items) {
+        if (s.kind === 'coldstart') {
+          console.log(`${s.at.slice(0, 16)}  coldstart  kept: ${[...s.accepted.taste, ...s.accepted.cards].join('; ') || '-'}  left out: ${[...s.declined.taste, ...s.declined.cards].join('; ') || '-'}`);
+          continue;
+        }
+        console.log(`${s.at.slice(0, 16)}  #${s.card}  ${s.kind ?? 'rating'}  ${s.rating ? `${s.rating}/5 ` : ''}${s.reason ?? s.text ?? ''}${s.toFive ? `  → to make it a 5: ${s.toFive.join('; ')}` : ''}`);
+      }
       return;
     }
     case 'edit-blueprint': {

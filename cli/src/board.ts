@@ -76,6 +76,10 @@ export interface Card {
   answers?: { at: string; text: string }[];
   /** Options offered for "what would have made it a 5?", written for this card. */
   fiveStarOptions?: string[];
+  /** Where a suggested card came from ("history" = the cold start). */
+  source?: 'history';
+  /** Why it was suggested, in one sentence. */
+  why?: string;
 }
 
 export interface BoardData {

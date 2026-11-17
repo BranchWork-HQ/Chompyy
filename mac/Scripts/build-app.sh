@@ -22,8 +22,8 @@ if [[ $RELEASE == 1 ]]; then
 else
   ARCHS=()
 fi
-swift build -c release "${ARCHS[@]}"
-BIN="$(swift build -c release "${ARCHS[@]}" --show-bin-path)/Chompyy"
+swift build -c release ${ARCHS[@]+"${ARCHS[@]}"}
+BIN="$(swift build -c release ${ARCHS[@]+"${ARCHS[@]}"} --show-bin-path)/Chompyy"
 APP="build/Chompyy.app"
 
 rm -rf "$APP"

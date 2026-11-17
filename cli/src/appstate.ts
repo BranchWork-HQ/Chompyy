@@ -9,6 +9,7 @@ import { appendJsonl, homePath, readJson, writeJson } from './home.js';
 import { loadLiveState } from './livequota.js';
 import { windowView, type Snapshot } from './quota.js';
 import { changedFiles } from './review.js';
+import { loadColdStart } from './coldstart.js';
 
 export interface CardView extends Card {
   files: string[];
@@ -39,7 +40,16 @@ export function appState(board: BoardData, snap: Snapshot | null, config: Config
     },
     gate: budgetGate(snap, config, now),
     cards: board.cards.map(cardView),
+    coldStart: coldStartState(),
   };
+}
+
+/** Whether the app should offer the cold start: never run, proposals waiting, or done. */
+export function coldStartState(): { status: 'never' | 'proposed' | 'done'; waiting: number } {
+  const cs = loadColdStart();
+  if (!cs) return { status: 'never', waiting: 0 };
+  const waiting = [...cs.taste, ...cs.cards].filter((p) => p.status === 'proposed').length;
+  return { status: waiting ? 'proposed' : 'done', waiting };
 }
 
 /** Replace a card's blueprint with your edit. Edits are the strongest taste signal, so the change is logged. */

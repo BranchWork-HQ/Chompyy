@@ -2,14 +2,17 @@ import SwiftUI
 
 struct Signal: Decodable, Identifiable {
     let at: String
-    let card: String
+    let card: String?
     let title: String?
     let kind: String?
     let rating: Int?
     let reason: String?
     let text: String?
     let toFive: [String]?
-    var id: String { at + card + (kind ?? "rating") }
+    let accepted: Picks?
+    let declined: Picks?
+    struct Picks: Decodable { let taste: [String]; let cards: [String] }
+    var id: String { at + (card ?? "") + (kind ?? "rating") }
 }
 
 /// Everything Chompyy has recorded from you (ratings, blueprint edits, answers): the raw material for taste.
@@ -44,13 +47,20 @@ struct FeedbackView: View {
                                 Spacer()
                                 Text(date(s.at)).font(.caption).foregroundStyle(.secondary)
                             }
-                            Text("#\(s.card) \(s.title ?? "")").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                            if let card = s.card {
+                                Text("#\(card) \(s.title ?? "")").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                            }
+                            if let a = s.accepted, let d = s.declined {
+                                Text("Kept \(a.taste.count + a.cards.count), left out \(d.taste.count + d.cards.count)").font(.caption).foregroundStyle(.secondary)
+                                ForEach(a.taste + a.cards, id: \.self) { Text("✓ \($0)").font(.callout) }
+                                ForEach(d.taste + d.cards, id: \.self) { Text("✗ \($0)").font(.callout).foregroundStyle(.secondary) }
+                            }
                             if let t = s.toFive, !t.isEmpty {
                                 Text("To make it a 5: " + t.joined(separator: " · ")).font(.callout).foregroundStyle(Brand.doughEdge)
                             }
                             if let t = s.reason ?? s.text, !t.isEmpty {
                                 Text("“\(t)”").font(.callout)
-                            } else if s.kind == nil {
+                            } else if s.kind == nil && s.accepted == nil {
                                 Text("No reason given").font(.caption).foregroundStyle(.tertiary)
                             }
                         }
@@ -72,6 +82,7 @@ struct FeedbackView: View {
         switch s.kind {
         case "blueprint-edit": "You edited a blueprint"
         case "answer": "You answered its question"
+        case "coldstart": "You picked suggestions from your history"
         default: "You rated a result"
         }
     }
@@ -80,6 +91,7 @@ struct FeedbackView: View {
         switch s.kind {
         case "blueprint-edit": "pencil"
         case "answer": "bubble.left.fill"
+        case "coldstart": "clock.arrow.circlepath"
         default: "star.fill"
         }
     }

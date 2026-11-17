@@ -52,6 +52,18 @@ That reads: 62% of the 5h window left, it resets in 1h40m, so about 37% per hour
 
 If you already have a status line command, keep it and call Chompyy from a small wrapper: save stdin to a variable, pipe it to `chompyy statusline`, and print both.
 
+## Get to know you (cold start)
+
+```bash
+chompyy history            # what it would read: sessions, projects, dates (local, sends nothing)
+chompyy history --digest   # the exact text it would send
+chompyy coldstart          # one model call: proposes taste lines and suggested cards
+chompyy coldstart accept --taste t1,t2 --cards c1    # the rest are declined
+chompyy keep-history 365   # Claude Code deletes transcripts after 30 days by default
+```
+
+Only interactive sessions are read (headless runs are skipped). Each proposal must cite your sessions: a taste line needs 3 separate sessions, and a card's quote must really appear in what you said. Anything that doesn't check out is thrown away.
+
 ## Two-minute walkthrough
 
 ```bash

@@ -54,6 +54,10 @@ struct CardDetail: View {
             if card.idea != card.title {
                 Text(card.idea).foregroundStyle(.secondary).textSelection(.enabled)
             }
+            if let why = card.why {
+                Label("Suggested because: \(why)", systemImage: "clock.arrow.circlepath")
+                    .font(.callout).foregroundStyle(Brand.doughEdge)
+            }
             actions
         }
     }
@@ -381,7 +385,7 @@ struct FlowLayout: Layout {
     }
 }
 
-private struct DiffText: Identifiable { let text: String; var id: Int { text.hashValue } }
+struct DiffText: Identifiable { let text: String; var id: Int { text.hashValue } }
 
 struct DiffSheet: View {
     let text: String

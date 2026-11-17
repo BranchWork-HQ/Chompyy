@@ -6,7 +6,7 @@ import { basename, dirname, join } from 'node:path';
 import type { BoardData } from './board.js';
 
 /** Walk up to the folder holding .git, without starting git (fast enough for hundreds of folders). */
-function findGitRoot(dir: string): string | null {
+export function findGitRoot(dir: string): string | null {
   let d = dir;
   for (let i = 0; i < 30; i++) {
     if (existsSync(join(d, '.git'))) return d;
@@ -20,7 +20,7 @@ function findGitRoot(dir: string): string | null {
 /** Folders people usually keep code in; scanned two levels deep for git repos. */
 const CODE_FOLDERS = ['orca', 'Desktop', 'Developer', 'code', 'Code', 'projects', 'Projects', 'src', 'dev', 'repos', 'GitHub', 'Documents/GitHub'];
 
-const isTemp = (p: string) => /^\/(private\/)?(var|tmp)\//.test(p) || p.includes('/.chompyy/') || p.includes('/node_modules/');
+export const isTemp = (p: string) => /^\/(private\/)?(var|tmp)\//.test(p) || p.includes('/.chompyy/') || p.includes('/node_modules/');
 
 export interface Project {
   path: string;

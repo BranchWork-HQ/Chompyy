@@ -6,6 +6,8 @@ export interface Config {
   claudeBin: string;
   /** Cheap model that drafts blueprints. */
   blueprintModel: string;
+  /** Model that reads your history once for the cold start. */
+  coldStartModel: string;
   /** Model for away runs; null = Claude Code's default. */
   runModel: string | null;
   /** Hard wall-clock limit per card, in minutes (also capped by the time left in the away run). */
@@ -37,6 +39,7 @@ export interface Config {
 export const DEFAULT_CONFIG: Config = {
   claudeBin: 'claude',
   blueprintModel: 'haiku',
+  coldStartModel: 'sonnet',
   runModel: null,
   cardTimeoutMin: 30,
   maxTurns: 50,
