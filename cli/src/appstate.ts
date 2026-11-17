@@ -11,6 +11,9 @@ import { windowView, type Snapshot } from './quota.js';
 import { changedFiles } from './review.js';
 import { loadColdStart } from './coldstart.js';
 import { blueprintHash } from './picture.js';
+import { costRange, readRuns, type CostRange, type RunRecord } from './costs.js';
+import { loadStore, nextQuestion, readSignals, receipts, type Preference } from './taste.js';
+import { agentInstalled, loadTriggerState } from './triggers.js';
 
 export interface CardView extends Card {
   files: string[];
@@ -18,20 +21,24 @@ export interface CardView extends Card {
   questionsText: string | null;
   /** The picture was drawn from an older blueprint. */
   pictureStale: boolean;
+  /** Expected cost from similar past runs, for cards that haven't run. */
+  costRange: CostRange | null;
 }
 
-export function cardView(card: Card): CardView {
+export function cardView(card: Card, runs: RunRecord[] = readRuns()): CardView {
   const qPath = card.run ? join(card.run.workdir, 'QUESTIONS.md') : '';
   return {
     ...card,
     files: card.run ? changedFiles(card) : [],
     questionsText: qPath && existsSync(qPath) ? readFileSync(qPath, 'utf8') : null,
     pictureStale: Boolean(card.picture && card.picture.blueprintHash !== blueprintHash(card.blueprint)),
+    costRange: card.run ? null : costRange(card, runs),
   };
 }
 
 export function appState(board: BoardData, snap: Snapshot | null, config: Config, now: Date) {
   const live = loadLiveState();
+  const runs = readRuns();
   return {
     generatedAt: now.toISOString(),
     quota: {
@@ -43,9 +50,20 @@ export function appState(board: BoardData, snap: Snapshot | null, config: Config
       sevenDay: windowView(snap?.sevenDay, now),
     },
     gate: budgetGate(snap, config, now),
-    cards: board.cards.map(cardView),
+    cards: board.cards.map((c) => cardView(c, runs)),
     coldStart: coldStartState(),
+    tasteQuestion: tasteQuestion(),
+    triggers: { installed: agentInstalled(), lastHour: config.lastHourTrigger, bedtime: config.bedtime, ...loadTriggerState() },
   };
+}
+
+/** The one taste question waiting, with its receipts, for the app to show as a one-tap card. */
+export function tasteQuestion(): (Pick<Preference, 'id' | 'text' | 'noticed' | 'scope'> & { evidence: string }) | null {
+  const signals = readSignals();
+  const p = nextQuestion(loadStore(), signals);
+  if (!p) return null;
+  const byId = new Map(signals.map((s) => [s.id, s]));
+  return { id: p.id, text: p.text, noticed: p.noticed, scope: p.scope, evidence: receipts(p.evidence.map((e) => byId.get(e)!).filter(Boolean)) };
 }
 
 /** Whether the app should offer the cold start: never run, proposals waiting, or done. */

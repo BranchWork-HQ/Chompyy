@@ -1,6 +1,6 @@
 # Chompyy features
 
-Everything Chompyy does or is planned to do, in one list to build from. Collected from the [spec](research/spec-token-utilization.md), the [research](research/atomic-knowledge.md), the shipped CLI ([`cli/`](cli/README.md)), issue #2, and the design conversations. Updated 2026-11-15.
+Everything Chompyy does or is planned to do, in one list to build from. Collected from the [spec](research/spec-token-utilization.md), the [research](research/atomic-knowledge.md), the shipped CLI ([`cli/`](cli/README.md)), issue #2, and the design conversations. Updated 2026-11-17.
 
 **Status:** ✅ built · 🔜 next · 📋 planned · 💭 idea (not decided)
 
@@ -40,7 +40,7 @@ The moment we design for: *"I noticed you undid 3 cards that added tests you did
 2. ◐ **Mac app with the card board** (Swift, `mac/`): menu bar cookie + board window; open a card as a picture-first sheet to approve, edit, answer, keep, undo, rate. First version built 2026-11-15, moved ahead so you can test with it sooner
 3. ✅ **History cold start** for Claude Code (§5.9): privacy notice → first taste.md + suggested cards, landing in the board (2026-11-17)
 4. 📋 **Foundation**: codeburn (spend, 42 tools, optimize, compare, guard) and CodexBar (limits for 114 providers, menu bar) — see [Foundation](#1-foundation-codeburn--codexbar)
-5. 📋 **Taste distiller**, triggers (last hour, bedtime), cost ranges, the "while you were away" trends
+5. ✅ **Taste distiller**, triggers (last hour, bedtime), cost ranges, the "while you were away" trends (CLI, 2026-11-17; the Mac app doesn't show the taste question or cost ranges yet)
 6. 📋 **Optimization side**: cache-aware sessions, compression before history
 7. 📋 **More agents**: Cursor, Codex history and runners; calendar
 
@@ -123,7 +123,7 @@ Licence duty for anything copied: keep the MIT notices (a `THIRD_PARTY_NOTICES` 
 |---|---|---|
 | Drafted by a cheap model (haiku) with Goal / Scope / Out of scope / Shape / How it's checked | ✅ | About 10 s; configurable model |
 | Says committing to the card's own branch is allowed | ✅ | |
-| **Cost range** from similar past runs, narrowing as history grows and as steps finish ("hourglass") | 📋 | Models predict their own spend poorly (r ≤ 0.39), so ranges come from history; upper end from P90 |
+| **Cost range** from similar past runs, narrowing as history grows and as steps finish ("hourglass") | ◐ | From history ✅ (2026-11-17): each run records the 5h and weekly quota it used (after − before, an upper bound if you were busy too) in `runs.jsonl`; a card shows min–max from similar runs, P10–P90 from 5+, in `show`, `eat-tokens` and the app JSON. Narrowing as steps finish 📋. Models predict their own spend poorly (r ≤ 0.39), so ranges come from history |
 | Edit the blueprint before approving | 📋 | The strongest taste signal |
 | Blueprint model reads the repo (read-only) and flags "Can't run unattended: …" | ✅ | Boundary test: it caught the network-only card before it ran |
 | Drafting waits until a 5-hour window is active | ✅ | Drafting is a model call and would otherwise start a window |
@@ -151,7 +151,7 @@ Licence duty for anything copied: keep the MIT notices (a `THIRD_PARTY_NOTICES` 
 | Quota re-read before each card in an away run | ✅ | |
 | Warn at approval when two cards touch the same files | 📋 | Overlaps conflict at keep time today; Run again recovers |
 | Independent check (run the repo's tests outside the agent) | 📋 | Today the agent grades itself |
-| **Triggers**: last hour before a reset, bedtime (set once), `/away` | ◐ | `/away` ✅; last-hour and bedtime 📋 |
+| **Triggers**: last hour before a reset, bedtime (set once), `/away` | ✅ | `/away` ✅; last-hour and bedtime ✅ (2026-11-17): `chompyy triggers on` installs a LaunchAgent running `chompyy tick` every 5 min; once per window / per night; the gate still decides each card; `away.lock` keeps it to one run at a time |
 | Token-value priority to order cards: `(impact × P(success) × urgency) ÷ (tokens × price now)`, where price depends on whether you're present, budget scarcity and an imminent reset | 💭 | From the design conversation; start simple |
 | **Circuit breaker**: stop a card that loops (same tool call or failing command repeated) and a two-condition "done" check | 📋 | ralph-claude-code; codeburn `guard` has the loop detection to copy |
 | **Contact the human as a step**: the card pauses on `QUESTIONS.md` and resumes after you answer | 📋 | 12-factor-agents (licence unclear: ideas only) |
@@ -176,8 +176,8 @@ Licence duty for anything copied: keep the MIT notices (a `THIRD_PARTY_NOTICES` 
 | One commit per step with a clear message; undo a single step, not only the whole card | 📋 | aider (Apache-2.0) |
 | Keep/undo recorded, so the report stops asking | ✅ | |
 | `rate <id> <1-5> ["why"]` → `signals.jsonl` | ✅ | Raw material for taste |
-| "While you were away" **trends**: e.g. "paper digests −31% tokens, −1.2 corrections vs last month", from real runs and paired replays | 📋 | Generated at night when nothing else is queued |
-| Morning-report framing: "Last night: 2 skills updated, 1 retired" | 📋 | Shows the system evolving |
+| "While you were away" **trends**: e.g. "paper digests −31% tokens, −1.2 corrections vs last month", from real runs and paired replays | ◐ | From real runs ✅ (2026-11-17): last 7 days vs the 7 before (cost per card, keep rate, rating, blueprint edits) in the report and `chompyy trends`; only with 3+ points on both sides. Per task type and paired replays 📋 |
+| Morning-report framing: "Last night: 2 skills updated, 1 retired" | ✅ | "Since last time: 3 cards ran, 1 kept, using 12% of 5h windows · taste: 1 learned, 1 retired" (skills come with skill distillation) |
 
 ## 7. Taste and memory (the core)
 
@@ -210,19 +210,19 @@ Chompyy's main difference (see [the top](#what-makes-chompyy-different-taste-lea
 | Feature | Status | Notes |
 |---|---|---|
 | `taste.md` stub and `/taste` | ✅ | Plain text, user edits win |
-| **Evidence behind every preference**: "why do you think that?" shows the cards, edits and quotes | 📋 | What makes it feel cared for rather than creepy |
-| **Ask, don't assume**: new preferences arrive as one-tap questions in the report | 📋 | |
+| **Evidence behind every preference**: "why do you think that?" shows the cards, edits and quotes | ✅ | `chompyy taste why <id>`; citations checked against `signals.jsonl`. What makes it feel cared for rather than creepy |
+| **Ask, don't assume**: new preferences arrive as one-tap questions in the report | ✅ | One per report, strongest evidence first; `taste yes / not-now / never`; in the app JSON as `tasteQuestion` (app UI 📋). |
 | **Rating asks "What would have made it a 5?"** with 3–4 card-specific options (cheap model, cached) + "Something else"; 5★ asks "What made it great?" | ✅ | Saved as `toFive` in signals.jsonl; generic options when no window is active |
 | **Feedback view**: everything recorded from you (ratings, to-a-5 picks, edits, answers) | ✅ | Toolbar 💬; `chompyy signals` |
-| **Warm, not noisy** (rules below) | 📋 | |
-| **Preferences with validity periods**: valid-from date; retired with the contradicting evidence, never silently deleted | 📋 | graphiti's model (Apache-2.0), kept in a local JSONL that renders `taste.md`. Not graphiti itself: it needs a graph database, against "no extra installs" |
-| Background consolidation while you're away (sleep-time agent) | 📋 | Letta; the nightly distiller below |
+| **Warm, not noisy** (rules below) | ◐ | 2, 3 and 5 ✅ (one question per report, asked only with evidence, "not now" waits for a new card, "never" stops it); quiet hours and "mention it once" 📋 |
+| **Preferences with validity periods**: valid-from date; retired with the contradicting evidence, never silently deleted | ✅ | `preferences.json` (status, evidence, validFrom, retiredBecause, against) renders the learned lines in `taste.md`; deleting a learned line retires it. graphiti's model (Apache-2.0) in a plain local file. Not graphiti itself: it needs a graph database, against "no extra installs" |
+| Background consolidation while you're away (sleep-time agent) | ✅ | Distils after every away run and at bedtime when there are new signals, inside an active window only |
 | `<private>` tags and progressive disclosure (index → timeline → details) | 📋 | claude-mem; for the cold start and taste loading |
 | ✅ **History cold start** (Claude Code): privacy notice first, read transcripts locally, propose a first taste.md and suggested cards for you to approve | ✅ | `chompyy history`, `chompyy coldstart`, app banner + sheet. One model call (sonnet) over a ≤60k-char digest; taste needs 3+ sessions; citations verified; `keep-history` raises `cleanupPeriodDays` (on the first real run, 4 transcripts aged out the same day) |
 | Privacy notice: what it reads, runs locally, keeps only taste.md and the board, filters secrets, approve before use, one command forgets everything | ✅ | "See exactly what's sent" shows the digest; pasted blocks become [pasted text], also without paste markers (code, logs, traces, diffs; 0 found in 550 real prompts); more secret types and phone numbers removed; `chompyy coldstart forget` |
-| **Taste distiller** (nightly): signals → candidate preferences; written only after 3 separate confirmations; removed when contradicted | 📋 | Signals, strongest first: blueprint edits, edits to results, chat corrections, ratings, accepted or rejected suggestions |
+| **Taste distiller** (nightly): signals → candidate preferences; written only after 3 separate confirmations; removed when contradicted | ✅ | `chompyy distill` (sonnet, one call over new signals). Asked after 3 separate cards, or 1 when you said it in a rating; written only on yes; keep/undo now logged as signals. Signals, strongest first: blueprint edits, edits to results, chat corrections, ratings, accepted or rejected suggestions |
 | Scoped taste: everywhere / per task type / per project; only relevant sections load at session start | 📋 | Keeps the startup small and cache-stable |
-| Learn only from approved or rated work | 📋 | Ungoverned memory hurts (research card G5) |
+| Learn only from approved or rated work | ✅ | Signals of cards never approved, run or rated are ignored. Ungoverned memory hurts (research card G5) |
 | **Event memory off by default per conversation**, opt-in | 📋 | Taste stays on; over-recall in unrelated chats is what users find intrusive |
 | Skill distillation from approved runs: strong model distils, cheap model runs; skills expire and get re-checked | 📋 | Research cards G1, G4, G5 |
 | History import for Cursor (and other tools via codeburn's readers) | 📋 | |

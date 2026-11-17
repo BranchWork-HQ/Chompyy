@@ -108,7 +108,36 @@ Each card in a git repo runs in its own worktree at `~/.chompyy/worktrees/<id>` 
 | `chompyy keep <id>` | Merge the card's branch into your current branch and remove its worktree. Refuses if your repo has uncommitted changes |
 | `chompyy undo <id>` | Throw the run away: remove its worktree and branch (or draft folder). Your own branches are never touched |
 | `chompyy rate <id> <1-5> ["why"]` | Rate a result against its blueprint; moves it to *done* and logs a signal |
-| `chompyy taste` | Show `taste.md` (a stub for now; nothing is distilled yet) |
+| `chompyy taste` | Show `taste.md` |
+| `chompyy taste list` / `why <id>` | Every learned preference and its status / the cards, edits and quotes behind one |
+| `chompyy taste yes\|not-now\|never <id>` | Answer the report's question. Only *yes* writes it to `taste.md`; *never* stops Chompyy proposing it again |
+| `chompyy taste retire <id>` | Stop using a preference; it stays in `taste list` with the reason |
+| `chompyy distill [--force]` | Read new signals and update preferences now (also runs after every away run) |
+| `chompyy trends` | Last 7 days vs the 7 before: cost per card, keep rate, rating, blueprint edits |
+| `chompyy triggers on\|off` | Install or remove the macOS LaunchAgent that runs `chompyy tick` every 5 minutes |
+| `chompyy bedtime <23:30\|off>` / `last-hour <on\|off>` | Turn the bedtime and last-hour-before-reset triggers on or off |
+
+## Taste
+
+Chompyy learns how you like work done from what you do with results, not from what you tell it:
+
+1. **Signals** collect in `signals.jsonl`: ratings and their reasons, "what would have made it a 5?" picks, blueprint edits, keep and undo, answers. Only cards you approved, ran or rated count; drafts you dropped don't.
+2. **The distiller** (`distillModel`, default sonnet; one model call, only inside an active window) reads new signals and proposes preferences. Each one must cite signals, and the citations are checked, so it can't invent evidence.
+3. **Asked, not assumed.** A preference becomes a question after 3 separate cards, or after one if you said it yourself in a rating. The report asks at most one question, strongest evidence first.
+4. **Yes** writes it to `taste.md` with a valid-from date, and away runs get `taste.md` in their prompt. Contradicted or removed preferences are retired with the reason, never silently deleted. Delete a learned line from `taste.md` and that preference is retired: your edits win.
+
+## Triggers
+
+`chompyy triggers on` installs a LaunchAgent (`~/Library/LaunchAgents/dev.chompyy.tick.plist`) that runs `chompyy tick` every 5 minutes. Nothing fires until you turn it on. A tick starts an away run when:
+
+- **last hour**: the 5-hour window resets within the hour with at least `lastHourMinLeftPct` left (default 25%); once per window;
+- **bedtime**: it's within `bedtimeWindowMin` (default 60) of your `bedtime`; once a night. At bedtime it also distils taste when there's something new.
+
+Either way the run lasts until 2 minutes before the reset, the budget gate still decides every card, and only one away runs at a time (`away.lock`). Ticks are logged to `tick.log`.
+
+## Cost ranges
+
+Each run records what it used of your windows: 5-hour and weekly quota after the card minus before (it also counts anything else you did at the same time, so it's an upper bound). A card that hasn't run shows a range from similar past runs (`show`, `eat-tokens`): min–max at first, P10–P90 once there are 5 or more.
 
 ## The budget gate
 
@@ -142,6 +171,12 @@ An unknown weekly window doesn't close the gate (some plans don't report it); `a
 | `sandbox` | `true` | Run away cards in Claude Code's OS sandbox (macOS, Linux, WSL2) |
 | `sandboxAllowedDomains` | `[]` | Domains sandboxed commands may reach, e.g. `["registry.npmjs.org"]` |
 | `extraArgs` | `[]` | Appended to every away-run `claude -p` call, e.g. `["--max-budget-usd", "2"]` for API-key users |
+| `distillModel` | `"sonnet"` | Model that distils taste from your signals |
+| `distillAfterAway` | `true` | Distil after each away run when there are new signals |
+| `lastHourTrigger` | `true` | Last-hour trigger (only fires once `chompyy triggers on`) |
+| `lastHourMinLeftPct` | `25` | Last-hour trigger needs at least this much of the window left |
+| `bedtime` | `null` | Bedtime trigger as `"23:30"`; `null` = off |
+| `bedtimeWindowMin` | `60` | How long after bedtime it may still start |
 
 Set `CHOMPYY_HOME` to keep state somewhere other than `~/.chompyy` (the tests do this).
 
@@ -179,8 +214,11 @@ Everything is plain JSON or Markdown in `~/.chompyy/`:
 | `board.json` | Cards, with blueprints, run info and ratings |
 | `runs/<id>/<time>.log` | Prompt, output and errors of each run |
 | `worktrees/<id>/` | Git worktrees of cards that ran in a repo |
-| `signals.jsonl` | One line per rating: card, rating, reason, blueprint (input for the future taste distiller) |
-| `taste.md` | What's been learned; edit freely |
+| `signals.jsonl` | Everything you did that teaches taste: ratings, blueprint edits, keep/undo, answers, taste answers |
+| `preferences.json` | Learned preferences with evidence, status, valid-from and retired-because |
+| `taste.md` | What's been learned and confirmed, plus your own lines; edit freely |
+| `runs.jsonl` | One line per run: duration and what it used of the 5-hour and weekly windows |
+| `triggers.json` / `tick.log` | What fired, and what each tick decided |
 | `archive.jsonl` | Dropped cards |
 | `state.json` | When the last report was shown |
 | `config.json` | Your settings |

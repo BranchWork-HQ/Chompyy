@@ -162,3 +162,17 @@ describe('keep and undo', () => {
     expect(existsSync(join(repo, 'NEW.md'))).toBe(false);
   });
 });
+
+describe('report extras', () => {
+  it('puts the morning line on top and the one question and trends below', async () => {
+    const { morningLine } = await import('../src/report.js');
+    const card = { id: '1', title: 't', outcome: 'kept', run: { status: 'ok', durationMs: 60_000, finishedAt: '2026-11-13T00:00:00Z', cost: { fiveHourPct: 7.4, weeklyPct: 1 } } } as never;
+    const line = morningLine([card], { learned: 1, retired: 1, toAsk: 0 })!;
+    expect(line).toBe('Since last time: 1 card ran, 1 kept, using 7% of 5h windows · taste: 1 learned, 1 retired');
+    const text = formatReport([card], null, () => ({ files: [], questions: [] }), { header: [line], footer: ['💭 question'] });
+    expect(text.split('\n').slice(0, 2)).toEqual(['🍪 While you were away · 1 card', line]);
+    expect(text.endsWith('\n\n💭 question')).toBe(true);
+    expect(formatReport([], 'x', () => ({ files: [], questions: [] }), { footer: ['💭 q'] })).toBe('Nothing new since your last report.\n\n💭 q');
+    expect(morningLine([], { learned: 0, retired: 0, toAsk: 2 })).toBeNull();
+  });
+});

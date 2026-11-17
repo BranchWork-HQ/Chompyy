@@ -43,6 +43,10 @@ export interface RunInfo {
   summary: string;
   /** What the agent said about its own checks (its last "CHECKS:" line). */
   checks?: Checks;
+  /** Points of the 5-hour window and the week used during the run (null = window reset or quota unknown). */
+  cost?: { fiveHourPct: number | null; weeklyPct: number | null };
+  /** What started it: you (away) or a trigger. */
+  trigger?: string;
 }
 
 export interface Rating {

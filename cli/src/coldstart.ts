@@ -5,7 +5,7 @@ import { existsSync, rmSync, writeFileSync } from 'node:fs';
 import { addCard, updateBoard, type BoardData, type Card } from './board.js';
 import { appendJsonl, homePath, readJson, writeJson } from './home.js';
 import { buildDigest, pickPrompts, type HistoryScan, type Session } from './history.js';
-import { readTaste } from './report.js';
+import { insertUnderHeading, readTaste } from './taste.js';
 import type { Runner } from './runner.js';
 
 export type ProposalStatus = 'proposed' | 'accepted' | 'declined';
@@ -176,22 +176,8 @@ export async function runColdStart(
 
 /** Add the taste lines under their scope heading in taste.md. Your own lines are never touched. */
 export function addTasteLines(text: string, lines: TasteProposal[]): string {
-  let out = text.endsWith('\n') ? text : `${text}\n`;
-  for (const t of lines) {
-    const line = `- ${t.text}  (from your history · seen in ${t.sessions.length} sessions · last ${t.lastSeen})`;
-    const heading = `## ${t.scope}`;
-    const at = out.split('\n').findIndex((l) => l.trim() === heading);
-    if (at < 0) {
-      out = `${out.trimEnd()}\n\n${heading}\n${line}\n`;
-      continue;
-    }
-    const rows = out.split('\n');
-    let end = at + 1;
-    while (end < rows.length && !rows[end]!.startsWith('## ')) end++;
-    while (end > at + 1 && rows[end - 1]!.trim() === '') end--; // after the section's last line
-    rows.splice(end, 0, line);
-    out = rows.join('\n');
-  }
+  let out = text;
+  for (const t of lines) out = insertUnderHeading(out, t.scope, `- ${t.text}  (from your history · seen in ${t.sessions.length} sessions · last ${t.lastSeen})`);
   return out;
 }
 
