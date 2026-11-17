@@ -144,7 +144,7 @@ struct ColdStartView: View {
 
             VStack(alignment: .leading, spacing: 10) {
                 fact("eye", "What it reads", "What you typed in Claude Code and the last thing Claude said in each session, from ~/.claude/projects\(info.map { ", \(dateRange($0))" } ?? ""). Headless runs (Chompyy's own, scripts, benchmarks) are skipped.")
-                fact("eye.slash", "What it leaves out", "Tool output and file contents. Pasted blocks become [pasted text]. Keys, tokens, passwords and email addresses are removed.")
+                fact("eye.slash", "What it leaves out", "Tool output and file contents. Pasted code, logs and error traces become [pasted text]. Keys, tokens, passwords, email addresses and phone numbers are removed. Pasted plain text looks like typing, so each message is cut to 300 characters.")
                 fact("paperplane", "Where it goes", "One summary goes to Claude through your own Claude Code, the same service that saw those sessions. Nothing goes to Chompyy or anyone else.")
                 fact("tray.full", "What it keeps", "Only what you tick: lines in taste.md and cards in Suggested. Change your mind any time: edit taste.md, drop a card, or `chompyy coldstart forget`.")
             }
