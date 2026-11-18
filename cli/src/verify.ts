@@ -128,7 +128,7 @@ export async function verifyRun(opts: VerifyOptions): Promise<Verified> {
   }
 }
 
-function run(argv: string[], cwd: string, env: NodeJS.ProcessEnv, timeoutMs: number): Promise<{ code: number | null; output: string; timedOut: boolean }> {
+export function run(argv: string[], cwd: string, env: NodeJS.ProcessEnv, timeoutMs: number): Promise<{ code: number | null; output: string; timedOut: boolean }> {
   return new Promise((resolve, reject) => {
     const child = spawn(argv[0]!, argv.slice(1), { cwd, env, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
     let output = '';
