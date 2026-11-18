@@ -120,6 +120,9 @@ struct Card: Decodable, Identifiable, Hashable {
     let pictureError: String?
     let drawingAt: String?
     let pictureStale: Bool?
+    /** What its run may need beyond the box (ticked when approving), and what you allowed. */
+    let permissionPlan: [PlannedPermission]?
+    let permissions: [String]?
 
     static func == (a: Card, b: Card) -> Bool { a.id == b.id && a.updatedAt == b.updatedAt }
     func hash(into h: inout Hasher) { h.combine(id) }
@@ -176,5 +179,18 @@ enum Column: String, CaseIterable, Identifiable {
         case .review: "Waiting for you"
         case .done: "Kept, undone or rated"
         }
+    }
+}
+
+/// One item on a card's permission plan (research/away-readiness.md, step 3).
+struct PlannedPermission: Decodable, Identifiable, Hashable {
+    let id: String
+    let kind: String
+    let value: String
+    let why: String
+    let source: String
+
+    var label: String {
+        kind == "network" ? "Let the shell reach \(value)" : "Let it run \(value.replacingOccurrences(of: " *", with: ""))"
     }
 }

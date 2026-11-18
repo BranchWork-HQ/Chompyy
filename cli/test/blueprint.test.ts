@@ -22,11 +22,12 @@ describe('blueprint', () => {
     expect(p).toContain('Digest of caching papers');
   });
 
-  it('drafts with the configured cheap model and read-only tools', async () => {
+  it('drafts with the configured cheap model; it can read files and the web, never write or run commands', async () => {
     const { runner, calls } = fake('Sure! Here it is:\n\n## Goal\nA digest.\n\n## Scope\n- 5 papers\n');
     const text = await draftBlueprint(card, runner, { model: 'haiku', cwd: '/tmp' });
     expect(text).toBe('## Goal\nA digest.\n\n## Scope\n- 5 papers');
-    expect(calls[0]).toMatchObject({ model: 'haiku', tools: 'Read,Glob,Grep', cwd: '/tmp' });
+    expect(calls[0]).toMatchObject({ model: 'haiku', tools: 'Read,Glob,Grep,WebSearch,WebFetch', cwd: '/tmp' });
+    expect(calls[0]!.tools).not.toMatch(/Bash|Edit|Write/);
   });
 
   it('fails on a bad exit or a reply without a goal', async () => {

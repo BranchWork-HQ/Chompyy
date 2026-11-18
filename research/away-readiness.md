@@ -1,6 +1,6 @@
 # Away readiness: same results as prompting Claude directly, in a safe box
 
-Status: agreed with the user on 2026-11-18. Steps 1–2 done (`chompyy preflight`; fresh base + setup); steps 3–6 next. Build against this; don't patch around it.
+Status: agreed with the user on 2026-11-18. Steps 1–3 done (preflight; fresh base + setup; permission plan + research in drafting); steps 4–6 next. Build against this; don't patch around it.
 
 ## Why
 
@@ -62,6 +62,14 @@ Dependencies come from a setup step: your installed packages when the lockfile m
 installed once per lockfile (`--ignore-scripts` + rebuild, with network, outside the box) and cloned for every
 later card. Real dry run on the -release repo: first card installed once (3.3 s), second cloned (1.5 s), and
 the copy had the fold toggle that card #17 couldn't find on the old checkout.
+
+## Step 3 result (2026-11-18)
+A card's blueprint view lists what its run may need beyond the box, from three sources: what earlier runs in
+the repo were blocked on (the runner recovers blocked commands through their tool-use id and hosts from network
+errors, and the repo profile keeps them), what preflight found, and an optional `## Needs` section the drafter
+writes (drafting can now WebSearch/WebFetch). Nothing is allowed unless ticked; a permission is only ever one
+plain domain or one program (`network:<domain>`, `command:<program> *`), and allowed commands still run in the
+sandbox. `chompyy approve <id> --allow …`; the app shows the checkboxes above Approve.
 
 ## Prior art
 - OpenAI Codex cloud: a setup script runs with internet, then the agent works with internet off.
