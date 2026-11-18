@@ -149,15 +149,65 @@ describe('away loop: recovery and questions', () => {
     expect(loadBoard().cards[0]!.run!.status).toBe('ok');
   });
 
-  it('puts a card left in running by an interrupted run back in the queue and runs it', async () => {
-    const { deps, lines } = setup(home, { cards: 1 });
+  it('moves a card left in running by a crashed run to review, then runs the rest of the queue', async () => {
+    const { deps, lines } = setup(home, { cards: 2 });
     updateBoard((b) => {
       b.cards[0]!.column = 'running';
     });
     const summary = await away(60 * MIN, deps);
-    expect(lines.some((l) => l.includes('Put back in approved after an interrupted run: #1'))).toBe(true);
-    expect(summary.ran).toEqual(['1']);
-    expect(columns()).toEqual({ 1: 'review' });
+    expect(lines.some((l) => l.includes('Moved to review after an interrupted run: #1'))).toBe(true);
+    expect(loadBoard().cards[0]!.run!.status).toBe('error');
+    expect(summary.ran).toEqual(['2']);
+    expect(columns()).toEqual({ 1: 'review', 2: 'review' });
+  });
+});
+
+describe('guardrails: one bad card never eats the night', () => {
+  const home = useTempHome();
+
+  it('a worker that dies mid-card puts that card in review and the queue goes on', async () => {
+    const { deps, lines } = setup(home, { cards: 3 });
+    const { runCard } = await import('../src/away.js');
+    deps.isolate = async (id, timeoutMs, trigger) => {
+      if (id === '1') {
+        // What happened on 2026-11-17: the process died (out of memory) with the card still in running.
+        updateBoard((b) => {
+          b.cards.find((c) => c.id === '1')!.column = 'running';
+        });
+        return { exitCode: 134, signal: null, stderr: 'FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory\n 1: 0x10055f0b8 node::OOMErrorHandler' };
+      }
+      await runCard(id, timeoutMs, deps, trigger);
+      return { exitCode: 0, stderr: '' };
+    };
+    const summary = await away(8 * 60 * MIN, deps);
+    expect(summary.ran).toEqual(['1', '2', '3']);
+    expect(columns()).toEqual({ 1: 'review', 2: 'review', 3: 'review' });
+    const run = loadBoard().cards[0]!.run!;
+    expect(run.status).toBe('error');
+    expect(run.summary).toMatch(/exited with code 134 before it finished: FATAL ERROR: Reached heap limit/);
+    expect(run.summary).not.toMatch(/0x10055f0b8/);
+    expect(lines.some((l) => l.includes('Moving on to the next card'))).toBe(true);
+    expect(loadBoard().cards[1]!.run!.status).toBe('ok');
+  });
+
+  it('a worker that cannot even start still does not stop the queue', async () => {
+    const { deps } = setup(home, { cards: 2 });
+    deps.isolate = async () => {
+      throw new Error('spawn ENOENT');
+    };
+    const summary = await away(60 * MIN, deps);
+    expect(summary.ran).toEqual(['1', '2']); // neither reached running, both stay approved
+    expect(columns()).toEqual({ 1: 'approved', 2: 'approved' });
+  });
+
+  it('a stalled agent is stopped as stuck, says why, and asks the runner to watch for it', async () => {
+    const { deps, requests } = setup(home, { cards: 2, result: { exitCode: null, stalled: 'no progress for 15m' } });
+    await away(60 * MIN, deps);
+    expect(requests[0]!.idleTimeoutMs).toBe(15 * MIN);
+    const run = loadBoard().cards[0]!.run!;
+    expect(run.status).toBe('stuck');
+    expect(run.summary).toMatch(/no progress for 15m/);
+    expect(loadBoard().cards[1]!.column).toBe('review'); // and the next card ran
   });
 });
 
