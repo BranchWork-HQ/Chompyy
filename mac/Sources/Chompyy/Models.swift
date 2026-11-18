@@ -78,6 +78,8 @@ struct RunInfo: Decodable {
     let branch: String?
     let summary: String
     let checks: Checks?
+    /// Chompyy's own measurement: the repo's checks on the card vs on the main it started from.
+    let verified: Verified?
 }
 
 struct Checks: Decodable {
@@ -193,4 +195,11 @@ struct PlannedPermission: Decodable, Identifiable, Hashable {
     var label: String {
         kind == "network" ? "Let the shell reach \(value)" : "Let it run \(value.replacingOccurrences(of: " *", with: ""))"
     }
+}
+
+/// What Chompyy measured after the run (research/away-readiness.md, step 4).
+struct Verified: Decodable {
+    let result: String   // passed | failed | not run
+    let why: String
+    let command: String?
 }

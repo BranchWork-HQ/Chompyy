@@ -24,6 +24,8 @@ export interface Verified {
   tail?: string;
   /** The failure looks like the sandbox blocking something (a write outside the folder, the network), not broken code. */
   sandboxBlocked?: boolean;
+  /** Per check, card vs main (research/away-readiness.md, step 4). */
+  outcomes?: { label: string; dir: string; card: 'passed' | 'failed'; main: 'passed' | 'failed' | 'unknown'; newFailures: string[]; verdict: 'ok' | 'broke' | 'same-as-main' }[];
 }
 
 /** Signs in test output that the sandbox, not the code, stopped it. */

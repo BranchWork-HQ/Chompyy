@@ -1,6 +1,6 @@
 # Away readiness: same results as prompting Claude directly, in a safe box
 
-Status: agreed with the user on 2026-11-18. Steps 1–3 done (preflight; fresh base + setup; permission plan + research in drafting); steps 4–6 next. Build against this; don't patch around it.
+Status: agreed with the user on 2026-11-18. Steps 1–4 done (preflight; fresh base + setup; permission plan; verify main vs card); steps 5–6 next. Build against this; don't patch around it.
 
 ## Why
 
@@ -70,6 +70,14 @@ errors, and the repo profile keeps them), what preflight found, and an optional 
 writes (drafting can now WebSearch/WebFetch). Nothing is allowed unless ticked; a permission is only ever one
 plain domain or one program (`network:<domain>`, `command:<program> *`), and allowed commands still run in the
 sandbox. `chompyy approve <id> --allow …`; the app shows the checkboxes above Approve.
+
+## Step 4 result (2026-11-18)
+After a card runs, Chompyy runs every check in the repo on the card's copy and, when something fails, on the
+main it started from (both sandboxed; main's results cached per commit). It compares failing tests by name
+(vitest/jest, go, pytest, XCTest, cargo) and reports only what the card made worse. The app now leads with
+"Chompyy checked it: …" and shows the agent's own CHECKS line as "It said: …". Real test on the -release repo:
+a planted failing test was reported as "this change broke cli: npm test (test/planted.test.ts > planted
+break); it passes on main", with typecheck and swift build passing.
 
 ## Prior art
 - OpenAI Codex cloud: a setup script runs with internet, then the agent works with internet off.

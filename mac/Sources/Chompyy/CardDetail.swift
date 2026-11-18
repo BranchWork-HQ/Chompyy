@@ -138,13 +138,27 @@ struct CardDetail: View {
                 .font(.headline)
                 .foregroundStyle(card.hasQuestions ? Brand.warn : Brand.chocolate)
 
-            if let checks = card.run?.checks {
+            // Chompyy's measurement leads; the agent's own words are a claim, shown under it.
+            if let v = card.run?.verified, v.result != "not run" {
                 Label {
-                    Text(checks.result == "passed" ? "Its checks pass" : checks.result == "failed" ? "Its checks fail" : "It couldn't check its work")
+                    Text(v.result == "passed" ? "Chompyy checked it: nothing broke" : "Chompyy checked it: this change broke something")
+                        .font(.callout.weight(.semibold))
+                    + Text(v.why.isEmpty ? "" : ": \(v.why)").font(.callout)
+                } icon: {
+                    Image(systemName: v.result == "passed" ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
+                }
+                .foregroundStyle(v.result == "passed" ? Brand.ok : Brand.warn)
+                if let checks = card.run?.checks, !checks.why.isEmpty {
+                    Text("It said: \(checks.why)").font(.caption).foregroundStyle(.secondary)
+                }
+            } else if let checks = card.run?.checks {
+                Label {
+                    Text(checks.result == "passed" ? "It says its checks pass" : checks.result == "failed" ? "It says its checks fail" : "It couldn't check its work")
                         .font(.callout.weight(.semibold))
                     + Text(checks.why.isEmpty ? "" : ": \(checks.why)").font(.callout)
+                    + Text(card.run?.verified.map { " (Chompyy couldn't check it: \($0.why))" } ?? " (not checked by Chompyy)").font(.caption)
                 } icon: {
-                    Image(systemName: checks.result == "passed" ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                    Image(systemName: checks.result == "passed" ? "checkmark.circle" : "exclamationmark.triangle")
                 }
                 .foregroundStyle(checks.result == "passed" ? Brand.ok : Brand.warn)
             }
