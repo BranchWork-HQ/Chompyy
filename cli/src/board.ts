@@ -70,6 +70,8 @@ export interface Card {
   column: Column;
   blueprint: string | null;
   blueprintError?: string;
+  /** Permissions you allowed for this card's run when approving it ("network:host", "command:swiftc *"). */
+  permissions?: string[];
   /** When a background draft started (so the app doesn't start a second one). */
   draftingAt?: string;
   /** Parked with --no-blueprint: don't draft it automatically. */

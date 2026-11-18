@@ -6,6 +6,7 @@ import { join, relative } from 'node:path';
 import { parseArgs } from 'node:util';
 import { away, cacheEnv, runCard, type AwayDeps } from './away.js';
 import { formatPreflight, loadProfile, preflight, saveProfile } from './preflight.js';
+import { parsePermission, recordNeeds } from './permissions.js';
 import { draftBlueprint, draftFiveStarOptions, GENERIC_FIVE_STAR } from './blueprint.js';
 import { addCard, awayQueue, COLUMNS, dropCard, expireSuggested, formatBoard, formatCard, getCard, loadBoard, moveCard, recoverRunning, updateBoard, type Column } from './board.js';
 import { loadConfig, setConfig } from './config.js';
@@ -256,6 +257,12 @@ function awayDeps(config: ReturnType<typeof loadConfig>, freshQuota: (force?: bo
     plan: planWorkspace,
     prepare: prepareWorkspace,
     commitLeftovers,
+    recordNeeds: (card, needs) => {
+      const root = gitRoot(card.cwd);
+      if (!root) return;
+      const p = loadProfile(root) ?? { root, checks: [], updatedAt: new Date().toISOString() };
+      saveProfile({ ...p, needs: recordNeeds(p.needs ?? [], needs, card.id, new Date().toISOString()) });
+    },
     repoChecks: (card) => {
       const root = gitRoot(card.cwd);
       const p = root ? loadProfile(root) : null;
@@ -355,6 +362,7 @@ async function main(argv: string[]): Promise<void> {
       taste: { type: 'string' },
       cards: { type: 'string' },
       ref: { type: 'string' },
+      allow: { type: 'string', multiple: true },
       timeout: { type: 'string' },
       trigger: { type: 'string' },
     },
@@ -627,8 +635,18 @@ async function main(argv: string[]): Promise<void> {
       return;
     }
     case 'approve': {
-      const card = updateBoard((b) => moveCard(b, need(args[0], 'chompyy approve <id>'), 'approved', now));
-      console.log(`✅ #${card.id} approved: ${card.title}`);
+      const id = need(args[0], 'chompyy approve <id> [--allow network:host] [--allow "command:swiftc *"]');
+      // The permission plan: what you allow here is all the run gets beyond the box's defaults (none by default).
+      const allow = values.allow ?? [];
+      const bad = allow.filter((a) => !parsePermission(a));
+      if (bad.length) throw new Error(`Not a permission: ${bad.join(', ')}. Use network:<domain> or "command:<program> *".`);
+      const card = updateBoard((b) => {
+        const c = moveCard(b, id, 'approved', now);
+        if (allow.length) c.permissions = [...new Set(allow)];
+        else delete c.permissions;
+        return c;
+      });
+      console.log(`✅ #${card.id} approved: ${card.title}${card.permissions?.length ? `\n   allowed: ${card.permissions.join(', ')}` : ''}`);
       for (const o of overlaps(card, loadBoard().cards)) {
         console.log(`   ⚠️  #${o.id} "${o.title}" may touch the same files (${o.files.slice(0, 3).join(', ')}). Keeping both can conflict; Run again fixes that.`);
       }
@@ -646,7 +664,8 @@ async function main(argv: string[]): Promise<void> {
       const config = loadConfig();
       console.log(`Checking ${root} on its latest main, in the away box and outside it…`);
       const result = await preflight(root, { cacheDir: homePath('cache', 'tools'), denyRead: config.denyReadPaths, timeoutMs: config.checkTimeoutMin * 60_000, ...(values.ref ? { ref: values.ref } : {}) });
-      saveProfile({ root, checks: result.results.map((r) => r.check), updatedAt: result.at, preflight: result });
+      const before = loadProfile(root);
+      saveProfile({ root, checks: result.results.map((r) => r.check), updatedAt: result.at, preflight: result, ...(before?.needs ? { needs: before.needs } : {}) });
       if (values.json) return json(result);
       console.log(formatPreflight(result));
       return;

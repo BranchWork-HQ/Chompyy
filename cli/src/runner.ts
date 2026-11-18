@@ -2,6 +2,7 @@
 // tests pass a fake.
 import { spawn, spawnSync } from 'node:child_process';
 import { closeSync, openSync, writeSync } from 'node:fs';
+import { commandPattern, hostsInErrors, type RunNeeds } from './permissions.js';
 
 export interface RunRequest {
   prompt: string;
@@ -76,6 +77,8 @@ export interface RunResult {
   stuck?: string;
   /** Set when the run was stopped for making no progress: why. */
   stalled?: string;
+  /** What the run was blocked on (commands needing approval, hosts it tried), for the next permission plan. */
+  needs?: RunNeeds;
 }
 
 export interface Runner {
@@ -294,6 +297,10 @@ export class ClaudeRunner implements Runner {
       const final = new FinalText();
       let denied = 0;
       const deniedTools = new Map<string, number>();
+      // What it was blocked on: blocked Bash calls link back to their command by id; hosts come from error text.
+      const bashCommands = new Map<string, string>();
+      const neededCommands = new Set<string>();
+      const neededHosts = new Set<string>();
       const raw = new RawLog(req.rawLogPath, req.rawLogMaxBytes);
       const watch = req.loopRepeat ? new LoopWatch(req.loopRepeat) : null;
       const lines = new LineReader((line) => {
@@ -305,8 +312,21 @@ export class ClaudeRunner implements Runner {
           return;
         }
         final.feed(event);
-        const ev = event as { type?: string; subtype?: string; tool_name?: string };
+        const ev = event as { type?: string; subtype?: string; tool_name?: string; tool_use_id?: string; message?: { content?: unknown } };
+        if (Array.isArray(ev.message?.content)) {
+          for (const b of ev.message!.content as { type?: string; id?: string; name?: string; input?: { command?: string }; content?: unknown }[]) {
+            if (b?.type === 'tool_use' && b.name === 'Bash' && b.id && typeof b.input?.command === 'string') bashCommands.set(b.id, b.input.command);
+            if (b?.type === 'tool_result') {
+              const text = typeof b.content === 'string' ? b.content : JSON.stringify(b.content ?? '');
+              for (const h of hostsInErrors(text.slice(0, 20_000))) neededHosts.add(h);
+            }
+          }
+        }
         if (ev.type === 'system' && ev.subtype === 'permission_denied') {
+          if (ev.tool_name === 'Bash' && ev.tool_use_id) {
+            const pattern = commandPattern(bashCommands.get(ev.tool_use_id) ?? '');
+            if (pattern) neededCommands.add(pattern);
+          }
           // A blocked action isn't progress. Thousands of them (npm retrying with no network) mean it's stuck.
           denied++;
           deniedTools.set(ev.tool_name ?? '?', (deniedTools.get(ev.tool_name ?? '?') ?? 0) + 1);
@@ -363,7 +383,8 @@ export class ClaudeRunner implements Runner {
         if (child.pid) active.delete(child.pid);
         if (watch) lines.end();
         const output = watch ? final.text() : text.toString();
-        resolve({ exitCode, output, stderr: stderr.toString(), timedOut, durationMs: Date.now() - started, ...(stuck ? { stuck } : {}), ...(stalled ? { stalled } : {}) });
+        resolve({ exitCode, output, stderr: stderr.toString(), timedOut, durationMs: Date.now() - started, ...(stuck ? { stuck } : {}), ...(stalled ? { stalled } : {}),
+          ...(neededCommands.size || neededHosts.size ? { needs: { commands: [...neededCommands], hosts: [...neededHosts] } } : {}) });
       };
       child.on('error', (err) => {
         stderr.push(String(err));

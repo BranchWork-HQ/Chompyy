@@ -10,6 +10,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:f
 import { basename, join, relative } from 'node:path';
 import { cacheEnv } from './away.js';
 import { diagnose, type FixKind } from './catalog.js';
+import { hostsInErrors, type RecordedNeed } from './permissions.js';
 import { homePath, readJson, writeJson } from './home.js';
 import { detectCheck, run, sandboxProfile } from './verify.js';
 import { setupDependencies } from './deps.js';
@@ -91,6 +92,8 @@ export interface RepoProfile {
   checks: RepoCheck[];
   updatedAt: string;
   preflight?: PreflightResult;
+  /** What away runs in this repo were blocked on (offered on the next permission plan). */
+  needs?: RecordedNeed[];
 }
 
 const git = (cwd: string, args: string[]) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
@@ -209,4 +212,9 @@ export function formatPreflight(p: PreflightResult): string {
       : `Away-ready: no${box ? ` · ${box} check(s) blocked by the box` : ''}${broken ? ` · ${broken} failing on main itself` : ''}.`,
   );
   return lines.join('\n');
+}
+
+/** Hosts the repo's own checks tried to reach in the box (for the permission plan). */
+export function preflightHosts(p: RepoProfile | null): string[] {
+  return [...new Set((p?.preflight?.results ?? []).filter((r) => r.verdict === 'box').flatMap((r) => (r.diagnoses ?? []).filter((d) => d.id === 'network').flatMap((d) => hostsInErrors(d.evidence))))];
 }

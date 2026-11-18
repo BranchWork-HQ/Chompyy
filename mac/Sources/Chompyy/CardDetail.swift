@@ -3,6 +3,7 @@ import SwiftUI
 
 /// One card: the picture first (blueprint map), then the details, then the one thing to do.
 struct CardDetail: View {
+    @State private var allowed: Set<String> = []
     @EnvironmentObject var store: Store
     let card: Card
     @State private var editing = false
@@ -60,8 +61,35 @@ struct CardDetail: View {
                 Label("Suggested because: \(why)", systemImage: "clock.arrow.circlepath")
                     .font(.callout).foregroundStyle(Brand.doughEdge)
             }
+            if let plan = card.permissionPlan, !plan.isEmpty, column == .later || column == .suggested {
+                permissionPlan(plan)
+            }
             actions
         }
+    }
+
+    /// What the run may need beyond the box. Nothing is allowed unless you tick it; allowed commands still run
+    /// inside the box. An away run can't ask at 3 AM, so it asks here.
+    private func permissionPlan(_ plan: [PlannedPermission]) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("This run may need", systemImage: "lock.open").font(.headline)
+            ForEach(plan) { item in
+                Toggle(isOn: Binding(
+                    get: { allowed.contains(item.id) },
+                    set: { on in if on { allowed.insert(item.id) } else { allowed.remove(item.id) } }
+                )) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(item.label)
+                        Text(item.why).font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                .toggleStyle(.checkbox)
+            }
+            Text("Nothing is allowed unless you tick it. Allowed commands still run inside the sandbox.")
+                .font(.caption).foregroundStyle(.tertiary)
+        }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Brand.columnBackground))
     }
 
     @ViewBuilder private var actions: some View {
@@ -69,14 +97,16 @@ struct CardDetail: View {
             switch column {
             case .later, .suggested:
                 Button {
-                    Task { await store.act("approve\(card.id)", ["approve", card.id]) }
-                } label: { Label("Approve", systemImage: "checkmark") }
+                    let allow = (card.permissionPlan ?? []).filter { allowed.contains($0.id) }.flatMap { ["--allow", $0.id] }
+                    Task { await store.act("approve\(card.id)", ["approve", card.id] + allow) }
+                } label: { Label(allowed.isEmpty ? "Approve" : "Approve with \(allowed.count) allowed", systemImage: "checkmark") }
                 .buttonStyle(.borderedProminent).tint(Brand.ok)
                 .disabled(card.blueprint == nil)
                 .help(card.blueprint == nil ? "Needs a blueprint first" : "Run it on your next away run")
                 dropButton
             case .approved:
-                Text("Runs on your next away run.").font(.callout).foregroundStyle(.secondary)
+                Text(card.permissions?.isEmpty == false ? "Runs on your next away run, with \(card.permissions!.joined(separator: ", ")) allowed." : "Runs on your next away run.")
+                    .font(.callout).foregroundStyle(.secondary)
                 Spacer()
                 dropButton
             case .running:

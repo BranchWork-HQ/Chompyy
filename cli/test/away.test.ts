@@ -211,6 +211,29 @@ describe('guardrails: one bad card never eats the night', () => {
   });
 });
 
+describe('permission plan in a run', () => {
+  const home = useTempHome();
+  it('a card runs with exactly what you allowed, and remembers what it was blocked on', async () => {
+    const { deps, requests } = setup(home, { cards: 1, result: { needs: { commands: ['swiftc *'], hosts: [] } } });
+    updateBoard((b) => {
+      b.cards[0]!.permissions = ['command:swiftc *', 'network:docs.swift.org'];
+    });
+    const recorded: unknown[] = [];
+    deps.recordNeeds = (card, needs) => recorded.push([card.id, needs]);
+    deps.config = { ...deps.config, sandbox: true };
+    await away(60 * MIN, deps);
+    expect(requests[0]!.allowedTools).toContain('Bash(swiftc *)');
+    expect(JSON.stringify(requests[0]!.settings)).toContain('docs.swift.org');
+    expect(recorded).toEqual([['1', { commands: ['swiftc *'], hosts: [] }]]);
+  });
+
+  it('a card nobody allowed anything for gets only the defaults', async () => {
+    const { deps, requests } = setup(home, { cards: 1 });
+    await away(60 * MIN, deps);
+    expect(requests[0]!.allowedTools).toEqual(deps.config.allowedTools);
+  });
+});
+
 describe('sandbox', () => {
   const home = useTempHome();
   it('runs away cards sandboxed by default, allowing writes to the repo .git and the tool cache only', async () => {

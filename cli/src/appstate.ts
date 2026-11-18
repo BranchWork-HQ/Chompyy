@@ -16,6 +16,9 @@ import { blueprintHash } from './picture.js';
 import { costRange, readRuns, type CostRange, type RunRecord } from './costs.js';
 import { loadStore, nextQuestion, readSignals, receipts, type Preference } from './taste.js';
 import { agentInstalled, loadTriggerState } from './triggers.js';
+import { planFor, type PlannedPermission } from './permissions.js';
+import { loadProfile, preflightHosts } from './preflight.js';
+import { gitRoot } from './workspace.js';
 
 export interface CardView extends Card {
   files: string[];
@@ -25,7 +28,9 @@ export interface CardView extends Card {
   pictureStale: boolean;
   /** Expected cost from similar past runs, for cards that haven't run. */
   costRange: CostRange | null;
-  /** For cards waiting for review: the branch your folder is on, which Keep merges into. */
+  /** What its run may need beyond the box, to tick when approving (research/away-readiness.md, step 3). */
+  permissionPlan: PlannedPermission[];
+  /** For cards waiting for review: the branch Keep merges into. */
   folderBranch: string | null;
 }
 
@@ -37,8 +42,20 @@ export function cardView(card: Card, runs: RunRecord[] = readRuns()): CardView {
     questionsText: qPath && existsSync(qPath) ? readFileSync(qPath, 'utf8') : null,
     pictureStale: Boolean(card.picture && card.picture.blueprintHash !== blueprintHash(card.blueprint)),
     costRange: card.run ? null : costRange(card, runs),
-    folderBranch: card.column === 'review' && card.run?.branch ? currentBranch(card.cwd) : null,
+    folderBranch: card.column === 'review' && card.run?.branch ? (card.run.base?.branch || currentBranch(card.cwd)) : null,
+    permissionPlan: ['later', 'suggested', 'approved'].includes(card.column) ? permissionPlanFor(card) : [],
   };
+}
+
+/** The card's permission plan: earlier runs' blocks in its repo, preflight's network needs, the blueprint's Needs. */
+function permissionPlanFor(card: Card): PlannedPermission[] {
+  try {
+    const root = gitRoot(card.cwd);
+    const profile = root ? loadProfile(root) : null;
+    return planFor(card.blueprint ?? undefined, profile?.needs ?? [], preflightHosts(profile));
+  } catch {
+    return planFor(card.blueprint ?? undefined, []);
+  }
 }
 
 /** The branch a folder is on (what Keep merges into), or null. */

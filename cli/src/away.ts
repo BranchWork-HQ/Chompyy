@@ -10,6 +10,7 @@ import type { Snapshot } from './quota.js';
 import type { Runner } from './runner.js';
 import type { Workspace } from './workspace.js';
 import { recordRun, usedBetween } from './costs.js';
+import { applyPermissions, type RunNeeds } from './permissions.js';
 import { tasteForPrompt } from './taste.js';
 import type { Verified } from './verify.js';
 
@@ -120,6 +121,8 @@ export interface AwayDeps {
   refreshQuota?: () => Promise<void>;
   /** taste.md as agents should read it; defaults to the real one. */
   taste?: () => string;
+  /** Remember what a run was blocked on, for the repo's next permission plan. */
+  recordNeeds?: (card: Card, needs: RunNeeds) => void;
   /** The checks preflight proved pass in the box for this card's repo (research/away-readiness.md). */
   repoChecks?: (card: Card) => { dir: string; label: string }[];
   /** After a run: Chompyy runs the repo's tests itself (worktrees only). */
@@ -275,6 +278,8 @@ export async function runCard(id: string, timeoutMs: number, deps: AwayDeps, tri
     ws = deps.prepare(card);
     if (ws.base) out(`  from ${ws.base.ref} @ ${ws.base.commit.slice(0, 7)}`);
     for (const s of ws.setup ?? []) if (s.source !== 'kept') out(`  deps in ${s.dir}: ${s.source}${s.note ? ` (${s.note})` : ''}`);
+    const granted = applyPermissions(card.permissions);
+    if (card.permissions?.length) out(`  allowed for this card: ${card.permissions.join(', ')}`);
     const prompt = taskPrompt(card, ws.dir, (deps.taste ?? tasteForPrompt)(), deps.repoChecks?.(card) ?? []);
     const cacheDir = homePath('cache', 'tools');
     mkdirSync(cacheDir, { recursive: true });
@@ -288,9 +293,9 @@ export async function runCard(id: string, timeoutMs: number, deps: AwayDeps, tri
       maxTurns: config.maxTurns,
       permissionMode: config.permissionMode,
       permissionPrompts: config.permissionPrompts,
-      allowedTools: config.allowedTools,
+      allowedTools: [...config.allowedTools, ...granted.allowedTools],
       disallowedTools: [...config.disallowedTools, ...denyReadRules(config.denyReadPaths)],
-      ...(config.sandbox ? { settings: sandboxSettings(ws, config.sandboxAllowedDomains, cacheDir, config.denyReadPaths) } : {}),
+      ...(config.sandbox ? { settings: sandboxSettings(ws, [...config.sandboxAllowedDomains, ...granted.domains], cacheDir, config.denyReadPaths) } : {}),
       env: cacheEnv(cacheDir),
       extraArgs: config.extraArgs,
       ...(config.loopRepeat > 0 ? { loopRepeat: config.loopRepeat } : {}),
@@ -302,6 +307,12 @@ export async function runCard(id: string, timeoutMs: number, deps: AwayDeps, tri
     });
     rmSync(agentPidPath(card.id), { force: true });
     exitCode = result.exitCode;
+    if (result.needs) {
+      try {
+        deps.recordNeeds?.(card, result.needs);
+      } catch {}
+      out(`  blocked on: ${[...result.needs.commands, ...result.needs.hosts].join(', ')} (offered on the next blueprint here)`);
+    }
     try {
       if (deps.commitLeftovers?.(ws, card)) out('  (committed changes the agent left uncommitted)');
     } catch (err) {

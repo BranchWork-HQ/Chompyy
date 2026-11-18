@@ -3,6 +3,8 @@ import type { Card } from './board.js';
 import type { Runner } from './runner.js';
 
 export const BLUEPRINT_SECTIONS = ['Goal', 'Scope', 'Out of scope', 'Shape', "How it's checked"] as const;
+/** Optional: what the run needs beyond the box, for the permission plan. */
+export const OPTIONAL_SECTIONS = ['Needs'] as const;
 
 export function blueprintPrompt(card: Pick<Card, 'idea' | 'cwd'>): string {
   return `You write short blueprints for tasks a coding agent will run unattended, with nobody to ask.
@@ -23,15 +25,23 @@ Turn the idea below into a blueprint. Reply with ONLY this Markdown, no preamble
 ## How it's checked
 - <how someone can verify the result without the author: tests, files that exist, cited sources>
 
+## Needs
+- <ONLY if the run truly can't succeed inside the box; otherwise leave this whole section out>
+- network: <domain>: <why, one line>   (the shell needs to reach this domain, e.g. to download a file)
+- command: <program>: <why, one line>  (a program the run must use that needs approval)
+
 Look at the working directory first (read-only) so the blueprint fits what is really there: its files,
 languages, test command and tooling. Don't plan steps for tools the repo doesn't have.
+If the plan depends on facts you're unsure of (an API, a library's usage, a format), you may check them with
+WebSearch or WebFetch first. Keep research short: the blueprint, not the research, is the deliverable.
 
 The run can only change files inside the working directory. Its shell has no network, but the agent CAN
 read public web pages with its web tools (WebFetch, WebSearch), so reading docs or a linked page is fine.
-If the idea needs anything outside that (global or user config, other folders or repos, accounts,
-installing packages, calling APIs or downloading from the shell),
-start Out of scope with "Can't run unattended: <why>" and plan only what can be done inside the directory,
-such as a script or written steps the user can run themselves.
+The repo's installed dependencies are already in the run's copy, so don't plan to install them.
+If the idea needs the shell to reach a site or run a program needing approval, list it under Needs: the user
+can allow it when approving. If it needs anything else outside the directory (global or user config, other
+folders or repos, accounts, calling APIs), start Out of scope with "Can't run unattended: <why>" and plan only
+what can be done inside the directory, such as a script or written steps the user can run themselves.
 
 Keep it under 200 words. Pick the smallest useful version of the idea.
 Never write "no commits" or "leave files untracked": the run always commits to the card's own branch (Chompyy
@@ -60,8 +70,11 @@ export async function draftBlueprint(
     prompt: blueprintPrompt(card),
     cwd: opts.cwd,
     model: opts.model,
-    tools: 'Read,Glob,Grep',
-    timeoutMs: opts.timeoutMs ?? 120_000,
+    // Research while drafting: the plan you approve should already be checked against the docs.
+    tools: 'Read,Glob,Grep,WebSearch,WebFetch',
+    // Headless runs refuse anything not allowed up front (nobody to approve), so allow the research tools.
+    allowedTools: ['Read', 'Glob', 'Grep', 'WebSearch', 'WebFetch'],
+    timeoutMs: opts.timeoutMs ?? 240_000,
   });
   if (result.timedOut) throw new Error('Blueprint model timed out.');
   if (result.exitCode !== 0) throw new Error(`claude exited with ${result.exitCode}: ${result.stderr.trim().slice(0, 300)}`);
