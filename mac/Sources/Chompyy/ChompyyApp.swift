@@ -5,6 +5,13 @@ import AppKit
 struct ChompyyApp: App {
     @StateObject private var store = Store()
 
+    init() {
+        if let path = ProcessInfo.processInfo.environment["CHOMPYY_RENDER_COOKIES"] {
+            renderCookieSheet(to: path)
+            exit(0)
+        }
+    }
+
     var body: some Scene {
         MenuBarExtra {
             MenuPanel().environmentObject(store)
