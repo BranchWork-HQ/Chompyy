@@ -29,7 +29,7 @@
     --accent: #e8a35a;
     --ok: #7cc28a;
     --radius: 18px;
-    --max: 1120px;
+    --max: 1240px;
   }
   * { box-sizing: border-box; }
   html { scroll-behavior: smooth; }
@@ -130,15 +130,18 @@
 
   /* hero: words left, the live cookie right */
   .hero { text-align: left; padding: 72px 0 40px; overflow-x: clip; }
-  .hero-grid { display: grid; grid-template-columns: 1.15fr 1fr; gap: 40px; align-items: center; }
+  .hero-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: clamp(48px, 8vw, 120px); align-items: center; }
   .hero h1 { font-size: clamp(44px, 6.6vw, 92px); line-height: 1.02; }
   .hero .lede { margin: 26px 0 0; }
   .hero .cta { justify-content: flex-start; }
-  .live { position: relative; aspect-ratio: 1; max-width: 520px; width: 100%; justify-self: center; }
+  .live { position: relative; aspect-ratio: 1; max-width: 440px; width: 100%; justify-self: end; margin-right: 8%; margin-bottom: 96px; margin-top: 40px; }
   .live [data-chompyy] { position: absolute; inset: 0; }
   .live [data-chompyy] svg { width: 100%; height: 100%; overflow: visible; filter: drop-shadow(0 40px 60px rgba(0,0,0,.45)); }
   .live .halo { position: absolute; inset: 8%; border-radius: 50%; background: radial-gradient(circle, rgba(232,163,90,.22), transparent 65%); filter: blur(20px); }
-  .live-hint { position: absolute; bottom: -6px; left: 0; right: 0; text-align: center; font-size: 13px; color: var(--dim); letter-spacing: .04em; }
+  .live-hint { position: absolute; top: calc(113% + 24px); left: 0; right: 0; text-align: center; font-size: 13px; color: var(--dim); letter-spacing: .04em; }
+
+  .hint-touch { display: none; }
+  @media (hover: none) { .hint-mouse { display: none; } .hint-touch { display: inline; } }
 
   /* the scroll story: the cookie is eaten as you scroll, and calms down */
   .eat { height: 320vh; position: relative; border-top: 1px solid var(--line); }
@@ -170,7 +173,7 @@
   .feature:hover { border-color: #5a4636; transform: translateY(-3px); }
 
   /* a ring of words turning around the hero cookie (after Agrumea Farm's curved type) */
-  .ring { position: absolute; inset: -4%; animation: spin 40s linear infinite; pointer-events: none; }
+  .ring { position: absolute; left: -13%; top: -13%; width: 126%; height: 126%; overflow: visible; animation: spin 40s linear infinite; pointer-events: none; }
   .ring text { font: 600 13px Inter, sans-serif; letter-spacing: .32em; text-transform: uppercase; fill: var(--dim); }
   @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -183,7 +186,7 @@
 
   @media (max-width: 900px) {
     .hero-grid, .eat-sticky { grid-template-columns: 1fr; }
-    .live { max-width: 340px; }
+    .live { max-width: min(250px, 62vw); justify-self: center; margin: 56px 0 96px; }
     .eat-sticky { align-content: center; gap: 12px; text-align: center; }
     .eat-cookie { width: min(260px, 70%); }
     .eat-line, .eat-bar { margin-left: auto; margin-right: auto; }
@@ -239,7 +242,7 @@
       <div class="halo"></div>
       <svg class="ring" viewBox="0 0 400 400" aria-hidden="true"><defs><path id="ring-path" d="M200,200 m-188,0 a188,188 0 1,1 376,0 a188,188 0 1,1 -376,0"/></defs><text><textPath href="#ring-path" textLength="1176" lengthAdjust="spacing">Eats what's left · every five hours · while you're away · nothing wasted · keep or undo · </textPath></text></svg>
       <div data-chompyy data-left="0.93"></div>
-      <p class="live-hint">Move your mouse. It's watching.</p>
+      <p class="live-hint"><span class="hint-mouse">Move your mouse. It's watching.</span><span class="hint-touch">Drag your finger around. It's watching.</span></p>
     </div>
   </div>
 </header>
