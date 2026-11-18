@@ -144,7 +144,8 @@ Licence duty for anything copied: keep the MIT notices (a `THIRD_PARTY_NOTICES` 
 | Tool limits: `acceptEdits`, allow and deny lists, permission prompts denied instead of hanging | ✅ | |
 | Per-card timeout, turn cap, capped by time left in the away run | ✅ | |
 | Timeout and Ctrl-C stop the agent's whole process group | ✅ | |
-| A card stuck in running after an interrupted run goes back to approved | ✅ | |
+| A card stuck in running after an interrupted run goes to review as an error (with its branch), whenever no away is alive | ✅ | Changed 2026-11-18: going back to approved hid the crash and could crash every away. See research/incidents/2026-11-17-away-out-of-memory.md |
+| **Night-shift guardrails**: one bad card never eats the night. Each card runs in its own worker process (a crash ends only that card, its orphaned agent is stopped, the queue goes on), a supervisor watchdog kills a worker that outlives its card, a card whose agent prints nothing for 15 min is stopped as ⛔ stuck (`idleTimeoutMin`), and the runner's memory is bounded | ✅ | 2026-11-18, after the 2026-11-17 out-of-memory crash |
 | **Never lose a result**: commit what the agent left uncommitted after each run; keep refuses if work would be lost | ✅ | Found 2026-11-16 ([boundary test](research/boundary-test-2026-11-16.md)) |
 | **Runs report their own checks** (`CHECKS: passed / failed / not run`), shown as Checks pass / Checks fail / Not checked | ✅ | "ok" used to mean only "exited cleanly" |
 | Sandboxed local commands auto-allowed (tests, scripts); outward commands still denied | ✅ | |

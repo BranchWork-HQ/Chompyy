@@ -42,6 +42,8 @@ export interface Config {
   checkCommands: Record<string, string>;
   /** Stop a card that repeats the same tool call this many times (circuit breaker); 0 = off. */
   loopRepeat: number;
+  /** Stop a card whose agent prints nothing for this many minutes, and move on to the next; 0 = off. */
+  idleTimeoutMin: number;
   /** Suggested cards you haven't touched for this many days are archived; 0 = never. */
   suggestedExpiryDays: number;
   /** Domains sandboxed commands may reach (e.g. "registry.npmjs.org"). Empty = no network. */
@@ -130,6 +132,7 @@ export const DEFAULT_CONFIG: Config = {
   checkTimeoutMin: 10,
   checkCommands: {},
   loopRepeat: 5,
+  idleTimeoutMin: 15,
   suggestedExpiryDays: 14,
   quotaSource: 'api',
   extraArgs: [],

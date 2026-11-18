@@ -1,6 +1,7 @@
 // The one seam: something that runs a prompt headless. ClaudeRunner wraps `claude -p`;
 // tests pass a fake.
 import { spawn, spawnSync } from 'node:child_process';
+import { closeSync, openSync, writeSync } from 'node:fs';
 
 export interface RunRequest {
   prompt: string;
@@ -24,6 +25,43 @@ export interface RunRequest {
    * times trips the breaker; 0 or unset = plain text output, no watching.
    */
   loopRepeat?: number;
+  /** Stop the run when the agent prints nothing for this long (a hung command or a stalled agent); 0/unset = off. */
+  idleTimeoutMs?: number;
+  /** Called with the agent's pid (its process group) as soon as it starts. */
+  onSpawn?: (pid: number) => void;
+  /** Also write the raw output to this file, up to `rawLogMaxBytes`: memory stays small, the full trail is on disk. */
+  rawLogPath?: string;
+  rawLogMaxBytes?: number;
+}
+
+/** The raw output written to disk, cut off after `max` bytes (with a note saying so). */
+export class RawLog {
+  private fd: number | null = null;
+  private written = 0;
+  constructor(path: string | undefined, private max = 50 * 1024 * 1024) {
+    if (!path) return;
+    try {
+      this.fd = openSync(path, 'w');
+    } catch {}
+  }
+  write(chunk: string): void {
+    if (this.fd === null) return;
+    const room = this.max - this.written;
+    const buf = Buffer.from(chunk);
+    if (buf.length <= room) {
+      writeSync(this.fd, buf);
+      this.written += buf.length;
+      return;
+    }
+    if (room > 0) writeSync(this.fd, buf.subarray(0, room));
+    writeSync(this.fd, `\n[raw log cut off at ${this.max} bytes]\n`);
+    this.written = this.max;
+    this.close();
+  }
+  close(): void {
+    if (this.fd !== null) closeSync(this.fd);
+    this.fd = null;
+  }
 }
 
 export interface RunResult {
@@ -34,6 +72,8 @@ export interface RunResult {
   durationMs: number;
   /** Set when the circuit breaker stopped the run: why. */
   stuck?: string;
+  /** Set when the run was stopped for making no progress: why. */
+  stalled?: string;
 }
 
 export interface Runner {
@@ -109,14 +149,101 @@ function short(sig: string): string {
 
 /** The final text of a stream-json run: the result event, else the assistant's text blocks. */
 export function streamText(events: unknown[]): string {
-  const result = events.find((e) => (e as { type?: string }).type === 'result') as { result?: string } | undefined;
-  if (typeof result?.result === 'string') return result.result;
-  return events
-    .filter((e) => (e as { type?: string }).type === 'assistant')
-    .flatMap((e) => ((e as { message?: { content?: { type?: string; text?: string }[] } }).message?.content ?? []))
-    .filter((b) => b.type === 'text' && b.text)
-    .map((b) => b.text)
-    .join('\n');
+  const t = new FinalText();
+  for (const e of events) t.feed(e);
+  return t.text();
+}
+
+/**
+ * Keeps only what the final text needs: the result event, else the assistant's text blocks (capped).
+ * Not every event: with --verbose the stream carries whole tool results (file reads, build logs), and keeping
+ * them all is what ran an 8-hour away out of memory on 2026-11-17.
+ */
+export class FinalText {
+  private result: string | null = null;
+  private texts: string[] = [];
+  private size = 0;
+  constructor(private max = 256 * 1024) {}
+
+  feed(event: unknown): void {
+    const e = event as { type?: string; result?: unknown; message?: { content?: { type?: string; text?: string }[] } };
+    if (e.type === 'result' && typeof e.result === 'string') this.result = e.result;
+    if (e.type !== 'assistant' || !Array.isArray(e.message?.content)) return;
+    for (const b of e.message.content) {
+      if (b?.type !== 'text' || !b.text) continue;
+      this.texts.push(b.text);
+      this.size += b.text.length;
+      while (this.size > this.max && this.texts.length > 1) this.size -= this.texts.shift()!.length;
+    }
+  }
+
+  text(): string {
+    return this.result ?? this.texts.join('\n');
+  }
+}
+
+/** A stream-json line longer than this is a giant tool result we don't need: skip it rather than buffer it. */
+export const MAX_LINE = 4 * 1024 * 1024;
+
+/**
+ * Splits a stream into lines in constant memory per line: looks for newlines only in the new chunk (never
+ * re-splits what is buffered), and drops a line once it grows past `maxLine`.
+ */
+export class LineReader {
+  private buf = '';
+  private skipping = false;
+  constructor(private onLine: (line: string) => void, private maxLine = MAX_LINE) {}
+
+  push(chunk: string): void {
+    let start = 0;
+    let nl: number;
+    while ((nl = chunk.indexOf('\n', start)) !== -1) {
+      if (!this.skipping) {
+        const line = this.buf + chunk.slice(start, nl);
+        if (line.length <= this.maxLine) this.onLine(line);
+      }
+      this.buf = '';
+      this.skipping = false;
+      start = nl + 1;
+    }
+    if (this.skipping || start === chunk.length) return;
+    if (this.buf.length + chunk.length - start > this.maxLine) {
+      this.buf = '';
+      this.skipping = true;
+    } else this.buf += chunk.slice(start);
+  }
+
+  end(): void {
+    if (!this.skipping && this.buf.trim()) this.onLine(this.buf);
+    this.buf = '';
+    this.skipping = false;
+  }
+}
+
+/** Text that keeps its head and its tail once it passes `max` (CHECKS is at the end, the summary at the start). */
+export class CappedText {
+  private head = '';
+  private tail = '';
+  private dropped = 0;
+  constructor(private max = 2 * 1024 * 1024) {}
+
+  push(chunk: string): void {
+    const half = this.max / 2;
+    if (this.head.length < half) {
+      const take = chunk.slice(0, half - this.head.length);
+      this.head += take;
+      chunk = chunk.slice(take.length);
+    }
+    this.tail += chunk;
+    if (this.tail.length > half) {
+      this.dropped += this.tail.length - half;
+      this.tail = this.tail.slice(-half);
+    }
+  }
+
+  toString(): string {
+    return this.dropped ? `${this.head}\n[… ${this.dropped} characters cut …]\n${this.tail}` : this.head + this.tail;
+  }
 }
 
 /** Process groups of agents still running, so Ctrl-C on chompyy stops them too. */
@@ -147,7 +274,10 @@ export class ClaudeRunner implements Runner {
       // Own process group, so a timeout also stops commands the agent started (tests, builds).
       const child = spawn(this.bin, claudeArgs(req), { cwd: req.cwd, stdio: ['pipe', 'pipe', 'pipe'], detached: true, env: { ...process.env, ...req.env } });
       stopActiveOnExit();
-      if (child.pid) active.add(child.pid);
+      if (child.pid) {
+        active.add(child.pid);
+        req.onSpawn?.(child.pid);
+      }
       const killAll = (signal: NodeJS.Signals) => {
         try {
           if (child.pid) process.kill(-child.pid, signal);
@@ -155,39 +285,54 @@ export class ClaudeRunner implements Runner {
           child.kill(signal);
         }
       };
-      let output = '';
-      let stderr = '';
+      const text = new CappedText();
+      const stderr = new CappedText(256 * 1024);
       let timedOut = false;
       let stuck: string | undefined;
-      const events: unknown[] = [];
+      const final = new FinalText();
+      const raw = new RawLog(req.rawLogPath, req.rawLogMaxBytes);
       const watch = req.loopRepeat ? new LoopWatch(req.loopRepeat) : null;
-      let partial = '';
-      child.stdout.on('data', (d: Buffer) => {
-        if (!watch) {
-          output += d.toString();
+      const lines = new LineReader((line) => {
+        if (!line.trim()) return;
+        let event: unknown;
+        try {
+          event = JSON.parse(line);
+        } catch {
           return;
         }
-        partial += d.toString();
-        const lines = partial.split('\n');
-        partial = lines.pop() ?? '';
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          let event: unknown;
-          try {
-            event = JSON.parse(line);
-          } catch {
-            continue;
-          }
-          events.push(event);
-          const why = stuck ? null : watch.feed(event);
-          if (why) {
-            stuck = why;
-            killAll('SIGTERM');
-            setTimeout(() => killAll('SIGKILL'), 5000).unref();
-          }
+        final.feed(event);
+        const why = stuck ? null : watch!.feed(event);
+        if (why) {
+          stuck = why;
+          killAll('SIGTERM');
+          setTimeout(() => killAll('SIGKILL'), 5000).unref();
         }
       });
-      child.stderr.on('data', (d: Buffer) => (stderr += d.toString()));
+      child.stdout.setEncoding('utf8');
+      child.stderr.setEncoding('utf8');
+      // No-progress watchdog: any output counts as progress (stream-json prints every tool call and result).
+      let stalled: string | undefined;
+      let idle: NodeJS.Timeout | undefined;
+      const poke = () => {
+        if (!req.idleTimeoutMs) return;
+        clearTimeout(idle);
+        idle = setTimeout(() => {
+          stalled = `no progress for ${Math.round(req.idleTimeoutMs! / 60_000)}m`;
+          killAll('SIGTERM');
+          setTimeout(() => killAll('SIGKILL'), 5000).unref();
+        }, req.idleTimeoutMs);
+      };
+      poke();
+      child.stdout.on('data', (d: string) => {
+        poke();
+        raw.write(d);
+        if (watch) lines.push(d);
+        else text.push(d);
+      });
+      child.stderr.on('data', (d: string) => {
+        poke();
+        stderr.push(d);
+      });
       const timer = setTimeout(() => {
         timedOut = true;
         killAll('SIGTERM');
@@ -195,19 +340,15 @@ export class ClaudeRunner implements Runner {
       }, req.timeoutMs);
       const done = (exitCode: number | null) => {
         clearTimeout(timer);
+        clearTimeout(idle);
+        raw.close();
         if (child.pid) active.delete(child.pid);
-        if (watch) {
-          if (partial.trim()) {
-            try {
-              events.push(JSON.parse(partial));
-            } catch {}
-          }
-          output = streamText(events);
-        }
-        resolve({ exitCode, output, stderr, timedOut, durationMs: Date.now() - started, ...(stuck ? { stuck } : {}) });
+        if (watch) lines.end();
+        const output = watch ? final.text() : text.toString();
+        resolve({ exitCode, output, stderr: stderr.toString(), timedOut, durationMs: Date.now() - started, ...(stuck ? { stuck } : {}), ...(stalled ? { stalled } : {}) });
       };
       child.on('error', (err) => {
-        stderr += String(err);
+        stderr.push(String(err));
         done(null);
       });
       child.on('close', (code) => done(code));
