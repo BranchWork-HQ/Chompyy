@@ -74,6 +74,7 @@ export function bedtimeKey(now: Date, bedtime: string, windowMin: number): strin
 /** Leave this much before the reset so the last card isn't cut off by a fresh window. */
 const RESET_MARGIN_MS = 2 * 60_000;
 const MIN_RUN_MS = 10 * 60_000;
+const FIVE_HOURS_MS = 5 * 3600_000;
 
 /** Should a trigger start an away run now? Pure: the tick reads state, this decides. */
 export function decideTrigger(
@@ -89,10 +90,12 @@ export function decideTrigger(
   const gate = budgetGate(snap, config, now);
   if (!gate.ok) return { fire: false, why: `gate closed: ${gate.reasons.join('; ')}` };
   const five = windowView(snap?.fiveHour, now);
-  if (!five.known) return { fire: false, why: '5h window unknown' };
-  const untilReset = five.msLeft - RESET_MARGIN_MS;
+  // A reset window that nothing has restarted (the gate let it through): a run starts a fresh 5-hour window.
+  const fresh = !five.known && five.reason === 'stale';
+  if (!five.known && !fresh) return { fire: false, why: '5h window unknown' };
+  const untilReset = (five.known ? five.msLeft : FIVE_HOURS_MS) - RESET_MARGIN_MS;
 
-  if (config.lastHourTrigger && five.msLeft <= 60 * 60_000) {
+  if (five.known && config.lastHourTrigger && five.msLeft <= 60 * 60_000) {
     const key = `last-hour:${five.resetsAt}`;
     if (fired.includes(key)) return { fire: false, why: 'last-hour already ran for this window' };
     if (five.leftPct < config.lastHourMinLeftPct) return { fire: false, why: `last hour, but only ${Math.round(five.leftPct)}% left (under ${config.lastHourMinLeftPct}%)` };
@@ -105,7 +108,7 @@ export function decideTrigger(
     if (key) {
       if (fired.includes(key)) return { fire: false, why: 'bedtime already ran tonight' };
       if (untilReset < MIN_RUN_MS) return { fire: false, why: 'too close to the reset to finish a card' };
-      return { fire: true, kind: 'bedtime', durationMs: untilReset, key, why: `bedtime, ${Math.round(five.leftPct)}% of the window left` };
+      return { fire: true, kind: 'bedtime', durationMs: untilReset, key, why: five.known ? `bedtime, ${Math.round(five.leftPct)}% of the window left` : 'bedtime, a fresh window' };
     }
   }
   return { fire: false, why: 'no trigger due' };

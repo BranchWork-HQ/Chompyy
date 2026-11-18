@@ -49,6 +49,17 @@ describe('decideTrigger', () => {
   });
 });
 
+describe('decideTrigger on a reset window', () => {
+  // The window had reset and nothing restarted it: bedtime should still run, in a fresh 5-hour window.
+  it('fires at bedtime with a fresh window, but never the last-hour trigger', () => {
+    const c = { ...cfg, bedtime: '23:30', bedtimeWindowMin: 60 };
+    const now = at(23, 45);
+    const reset = snap(now, 30, -40); // the window ended 40 minutes ago
+    expect(decideTrigger(now, reset, c, [], 1, false)).toMatchObject({ fire: true, kind: 'bedtime', durationMs: (5 * 60 - 2) * 60_000, why: 'bedtime, a fresh window' });
+    expect(decideTrigger(at(15), snap(at(15), 30, -40), cfg, [], 1, false)).toMatchObject({ fire: false, why: 'no trigger due' });
+  });
+});
+
 describe('bedtime', () => {
   it('parses clock times', () => {
     expect(parseClock('23:30')).toBe(23 * 60 + 30);

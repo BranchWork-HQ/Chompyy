@@ -38,13 +38,19 @@ export function budgetGate(snap: Snapshot | null, cfg: GateConfig, now: Date): G
   const notes: string[] = [];
 
   const five = windowView(snap?.fiveHour, now);
+  const week = windowView(snap?.sevenDay, now);
   if (!five.known) {
-    // A reset (or no) window means running would *start* a fresh window, which isn't leftover capacity.
-    reasons.push(
-      five.reason === 'stale'
-        ? '5h window unknown: the snapshot is from a window that has reset'
-        : '5h window unknown: no quota snapshot (set up `chompyy statusline`)',
-    );
+    if (five.reason === 'stale' && week.known) {
+      // The window has reset and nothing has started a new one: it's a whole fresh window. Running while you're
+      // away starts it, and that time would otherwise go unused; the weekly checks below still guard the budget.
+      notes.push('the 5-hour window has reset: this run starts a fresh one (100% left)');
+    } else {
+      reasons.push(
+        five.reason === 'stale'
+          ? '5h window has reset and weekly usage is unknown, so the budget can\'t be checked'
+          : '5h window unknown: no quota snapshot (set up `chompyy statusline`)',
+      );
+    }
   } else if (five.usedPct >= 100) {
     // Whatever the settings say: past 100% a plan with extra usage turned on starts billing.
     reasons.push('5h window is used up: running now would spill into paid extra usage');
@@ -52,7 +58,6 @@ export function budgetGate(snap: Snapshot | null, cfg: GateConfig, now: Date): G
     reasons.push(`5h window has ${Math.round(five.leftPct)}% left, under the ${cfg.min5hLeftPct}% minimum`);
   }
 
-  const week = windowView(snap?.sevenDay, now);
   const maxWeeklyUsed = 100 - cfg.weeklyReservePct;
   if (!week.known) {
     notes.push('weekly usage unknown; reserve not checked');
