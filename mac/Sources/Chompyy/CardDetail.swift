@@ -131,12 +131,32 @@ struct CardDetail: View {
 
     // MARK: Review (the card needs you)
 
+    /// Main moved on since the card ran (other cards were kept): what Chompyy is doing about it (refresh.ts).
+    @ViewBuilder private var refreshNote: some View {
+        let files = (card.clashFiles ?? []).joined(separator: ", ")
+        if card.refreshing {
+            Label("Other cards were kept since this ran. Chompyy is bringing it up to date\(card.keepWhenRefreshed == true ? ", then keeping it if nothing broke" : "")…", systemImage: "arrow.triangle.2.circlepath")
+                .font(.callout).foregroundStyle(Brand.doughEdge)
+        } else if card.clashes, let r = card.refresh, r.state == "waiting" || r.state == "failed" {
+            Label("It clashes with main in \(files). \(r.state == "waiting" ? "Chompyy updates it when quota is back" : "Chompyy couldn't update it"): \(r.why ?? "")", systemImage: r.state == "failed" ? "exclamationmark.triangle" : "hourglass")
+                .font(.callout).foregroundStyle(r.state == "failed" ? Brand.warn : .secondary)
+        } else if card.clashes {
+            Label("Other cards were kept since this ran, and it now clashes with main in \(files). Press Update & keep: Chompyy fits the two together and checks it again.", systemImage: "arrow.triangle.branch")
+                .font(.callout).foregroundStyle(.secondary)
+        } else if let r = card.refresh, r.state == "done", r.by != nil {
+            Label("Up to date with main: \(r.why ?? "")", systemImage: "checkmark.circle")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
     private var reviewSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Label(card.hasQuestions ? "It has a question for you" : "It's done. Check it, then keep or undo",
                   systemImage: card.hasQuestions ? "questionmark.bubble.fill" : "eyes")
                 .font(.headline)
                 .foregroundStyle(card.hasQuestions ? Brand.warn : Brand.chocolate)
+
+            refreshNote
 
             // Chompyy's measurement leads; the agent's own words are a claim, shown under it.
             if let v = card.run?.verified, v.result != "not run" {
@@ -199,8 +219,10 @@ struct CardDetail: View {
                 Spacer()
                 Button {
                     Task { await store.finish("keep\(card.id)", ["keep", card.id], card: card.id) }
-                } label: { Label("Keep", systemImage: "tray.and.arrow.down.fill") }
+                } label: { Label(card.clashes ? "Update & keep" : "Keep", systemImage: "tray.and.arrow.down.fill") }
                 .buttonStyle(.borderedProminent).tint(Brand.ok)
+                .disabled(card.refreshing || card.keepWhenRefreshed == true)
+                .help(card.clashes ? "Other cards were kept since this ran. Chompyy brings it up to date, checks it again, and keeps it if nothing broke." : "Merge it into \(card.folderBranch ?? "your branch")")
                 Button {
                     Task { await store.finish("redo\(card.id)", ["redo", card.id], card: card.id) }
                 } label: { Label("Run again", systemImage: "arrow.clockwise") }

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // chompyy: park ideas, blueprint them, run approved cards while you're away.
 import { execFileSync, spawn } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { closeSync, existsSync, openSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { parseArgs } from 'node:util';
 import { away, cacheEnv, runCard, type AwayDeps } from './away.js';
@@ -33,6 +33,7 @@ import {
   answerPreference, distill, distillDue, formatPrefs, formatQuestion, formatWhy, getPref, loadStore, nextQuestion,
   readSignals, recordOutcome, retirePreference, syncTasteFile, tasteChangesSince, type Answer,
 } from './taste.js';
+import { clashOf, refreshCard, refreshGate, refreshClashing, withRefreshLock, type RefreshDeps } from './refresh.js';
 import { formatLive, keepAffectsLive, liveOff, liveSet, liveUpdateLocked, loadLive, startLiveUpdate } from './live.js';
 import { agentInstalled, awayRunning, bedtimeKey, decideTrigger, installAgent, loadTriggerState, markFired, noteTick, parseClock, takeAwayLock, uninstallAgent } from './triggers.js';
 
@@ -65,6 +66,7 @@ Back
   chompyy report [--all]        what ran, and the one thing to do about each
   chompyy diff <id>             the change it made
   chompyy keep <id>             merge its branch into the branch it started from (and update the live app, if set)
+  chompyy refresh [<id>]        bring cards in review up to date with main (Chompyy does this by itself after each Keep)
   chompyy undo <id>             throw it away (removes its branch; yours are untouched)
   chompyy answer <id>           answer the run's questions (stdin); the card goes back to approved
   chompyy redo <id>             throw this attempt away and run it again from your latest code
@@ -255,6 +257,54 @@ async function distillNow(now: Date, force = false): Promise<string> {
   return `Read ${r.read} new signal(s): ${parts.join(', ')}${c.dropped ? ` (${c.dropped} thrown out for weak evidence)` : ''}. See \`chompyy taste list\`.`;
 }
 
+/** Keep a card: merge it, record it, update the live app, and bring the other cards in review up to date. */
+function keepNow(id: string, now: Date): void {
+  const kept = getCard(loadBoard(), id);
+  console.log(keepCard(kept));
+  updateBoard((b) => {
+    const card = getCard(b, id);
+    card.outcome = 'kept';
+    card.column = 'done';
+    delete card.keepWhenRefreshed;
+    card.updatedAt = now.toISOString();
+    recordOutcome(card, 'kept', now);
+    return card;
+  });
+  // If this landed on what the app runs from, bring the app up to date by itself (live.ts).
+  const landedOn = kept.run?.base?.branch ?? currentBranch(kept.cwd);
+  if (keepAffectsLive(loadLive(), kept.cwd, landedOn)) {
+    startLiveUpdate();
+    console.log('Updating the app with it in the background: the CLI in seconds, the Mac app in 1–2 minutes if its code changed (`chompyy live` shows progress).');
+  }
+  // Main moved: cards still in review may clash with it now. Chompyy brings them up to date (refresh.ts).
+  const clashing = loadBoard().cards.filter((c) => c.id !== id && clashOf(c));
+  if (clashing.length) {
+    startBackground(['refresh', '--clashing'], 'refresh.log');
+    console.log(`${clashing.map((c) => '#' + c.id).join(', ')} now clash${clashing.length === 1 ? 'es' : ''} with it; Chompyy is bringing ${clashing.length === 1 ? 'it' : 'them'} up to date.`);
+  }
+}
+
+/** Run a chompyy command in the background, detached, so it outlives this process (and an app restart). */
+function startBackground(args: string[], logName: string): void {
+  const out = openSync(homePath(logName), 'a');
+  spawn(process.execPath, [process.argv[1]!, ...args], { detached: true, stdio: ['ignore', out, out] }).unref();
+  closeSync(out);
+}
+
+function refreshDeps(config: ReturnType<typeof loadConfig>, freshQuota: (force?: boolean) => Promise<unknown>): RefreshDeps {
+  const a = awayDeps(config, freshQuota);
+  return {
+    runner: a.runner,
+    config,
+    now: () => new Date(),
+    snapshot: loadSnapshot,
+    out: (line) => console.log(`${new Date().toISOString().slice(0, 16)} ${line}`),
+    ...(a.verify ? { verify: a.verify } : {}),
+    ...(a.repoChecks ? { repoChecks: a.repoChecks } : {}),
+    keep: (id) => keepNow(id, new Date()),
+  };
+}
+
 /** An away run: one at a time (lock), then distil what the run taught, if anything. */
 /** What an away run (and each card's worker) needs from the real world. */
 function awayDeps(config: ReturnType<typeof loadConfig>, freshQuota: (force?: boolean) => Promise<unknown>): AwayDeps {
@@ -350,6 +400,7 @@ async function main(argv: string[]): Promise<void> {
     options: {
       'no-blueprint': { type: 'boolean' },
       'all-later': { type: 'boolean' },
+      clashing: { type: 'boolean' },
       wait: { type: 'boolean' },
       'dry-run': { type: 'boolean' },
       force: { type: 'boolean' },
@@ -769,6 +820,10 @@ async function main(argv: string[]): Promise<void> {
       await freshQuota();
       const config = loadConfig();
       const board = loadBoard();
+      // Refreshes that waited for quota (refresh.ts) go as soon as there is some again.
+      if (board.cards.some((c) => c.column === 'review' && c.refresh?.state === 'waiting') && !refreshGate(loadSnapshot(), now)) {
+        await withRefreshLock(() => refreshClashing(refreshDeps(config, freshQuota)));
+      }
       const d = decideTrigger(now, loadSnapshot(), config, loadTriggerState().fired, awayQueue(board).length, Boolean(awayRunning()));
       const stamp = now.toISOString().slice(0, 16);
       if (!d.fire) {
@@ -850,22 +905,29 @@ async function main(argv: string[]): Promise<void> {
     }
     case 'keep': {
       const id = need(args[0], 'chompyy keep <id>');
-      const kept = getCard(loadBoard(), id);
-      console.log(keepCard(kept));
-      // If this landed on what the app runs from, bring the app up to date by itself (live.ts).
-      const landedOn = kept.run?.base?.branch ?? currentBranch(kept.cwd);
-      if (keepAffectsLive(loadLive(), kept.cwd, landedOn)) {
-        startLiveUpdate();
-        console.log('Updating the app with it in the background: the CLI in seconds, the Mac app in 1–2 minutes if its code changed (`chompyy live` shows progress).');
+      const card = getCard(loadBoard(), id);
+      const clash = clashOf(card);
+      if (clash) {
+        // Don't hand the clash to you: Chompyy brings the card onto the new main, checks it, then keeps it (refresh.ts).
+        updateBoard((b) => {
+          getCard(b, id).keepWhenRefreshed = true;
+        });
+        startBackground(['refresh', '--clashing'], 'refresh.log');
+        console.log(`#${id} clashes with ${clash.branch} (${clash.files.join(', ')}): other cards were kept since it ran. Chompyy is bringing it up to date and will keep it once its checks pass.`);
+        return;
       }
-      updateBoard((b) => {
-        const card = getCard(b, id);
-        card.outcome = 'kept';
-        card.column = 'done';
-        card.updatedAt = now.toISOString();
-        recordOutcome(card, 'kept', now);
-        return card;
+      keepNow(id, now);
+      return;
+    }
+    case 'refresh': {
+      const config = loadConfig();
+      const deps = refreshDeps(config, freshQuota);
+      await freshQuota();
+      const ran = await withRefreshLock(async () => {
+        if (args[0]) await refreshCard(args[0], deps);
+        else await refreshClashing(deps);
       });
+      if (!ran) console.log('A refresh is already running; it will go round again to include this.');
       return;
     }
     case 'undo': {

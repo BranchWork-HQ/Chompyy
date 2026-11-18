@@ -2,6 +2,7 @@
 // The app holds no logic of its own: it shows this JSON and calls chompyy commands.
 import { execFileSync } from 'node:child_process';
 import { readFileSync, existsSync } from 'node:fs';
+import { clashOf } from './refresh.js';
 import { join } from 'node:path';
 import { getCard, type BoardData, type Card } from './board.js';
 import type { Config } from './config.js';
@@ -33,6 +34,8 @@ export interface CardView extends Card {
   permissionPlan: PlannedPermission[];
   /** For cards waiting for review: the branch Keep merges into. */
   folderBranch: string | null;
+  /** For cards waiting for review: the files that would clash with main if kept now (refresh.ts fixes it). */
+  clashFiles: string[];
 }
 
 export function cardView(card: Card, runs: RunRecord[] = readRuns()): CardView {
@@ -44,6 +47,7 @@ export function cardView(card: Card, runs: RunRecord[] = readRuns()): CardView {
     pictureStale: Boolean(card.picture && card.picture.blueprintHash !== blueprintHash(card.blueprint)),
     costRange: card.run ? null : costRange(card, runs),
     folderBranch: card.column === 'review' && card.run?.branch ? (card.run.base?.branch || currentBranch(card.cwd)) : null,
+    clashFiles: card.column === 'review' ? clashOf(card)?.files ?? [] : [],
     permissionPlan: ['later', 'suggested', 'approved'].includes(card.column) ? permissionPlanFor(card) : [],
   };
 }
