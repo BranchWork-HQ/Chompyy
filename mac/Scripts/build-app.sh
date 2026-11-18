@@ -3,6 +3,11 @@
 # Usage: mac/Scripts/build-app.sh [--open] [--release]
 #   --release  universal binary (Apple Silicon + Intel) with Node and the CLI bundled inside (works without
 #              npm), plus build/Chompyy-<version>.zip (for `chompyy app`) and build/Chompyy.dmg (the website download)
+#
+# Signing and notarization (release only), when both are set up on this Mac:
+#   CHOMPYY_SIGN_ID="Developer ID Application: Your Name (TEAMID)"   a certificate in your keychain
+#   CHOMPYY_NOTARY_PROFILE=chompyy        made once with `xcrun notarytool store-credentials chompyy ...`
+# Without them the app is ad-hoc signed and macOS asks people to "Open Anyway" the first time.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -70,11 +75,22 @@ if [[ $RELEASE == 1 ]]; then
   fi
   cp "$CACHE/node" "$APP/Contents/Resources/node"
   cp "$CACHE/NODE_LICENSE" "$APP/Contents/Resources/NODE_LICENSE"
-  codesign --force --sign - "$APP/Contents/Resources/node" >/dev/null
+fi
+
+SIGN_ID="${CHOMPYY_SIGN_ID:-}"
+if [[ $RELEASE == 1 && -n "$SIGN_ID" ]]; then
+  # Inside out: Node first (hardened runtime + the JIT entitlements it needs), then the app.
+  codesign --force --timestamp --options runtime --entitlements Resources/node.entitlements --sign "$SIGN_ID" "$APP/Contents/Resources/node"
 fi
 
 # Ad-hoc signature so macOS runs it locally. A Developer ID signature comes with release packaging.
-codesign --force --sign - "$APP" >/dev/null
+if [[ $RELEASE == 1 && -n "$SIGN_ID" ]]; then
+  codesign --force --timestamp --options runtime --sign "$SIGN_ID" "$APP"
+  codesign --verify --strict --verbose=1 "$APP"
+else
+  [[ $RELEASE == 1 ]] && codesign --force --sign - "$APP/Contents/Resources/node" >/dev/null
+  codesign --force --sign - "$APP" >/dev/null
+fi
 echo "Built $(pwd)/$APP"
 
 if [[ $RELEASE == 1 ]]; then
@@ -91,6 +107,17 @@ if [[ $RELEASE == 1 ]]; then
   ln -s /Applications "$STAGE/Applications"
   hdiutil create -volname "Chompyy" -srcfolder "$STAGE" -ov -format UDZO "$DMG" >/dev/null
   rm -rf "$STAGE"
+  if [[ -n "$SIGN_ID" ]]; then
+    codesign --force --timestamp --sign "$SIGN_ID" "$DMG"
+    if [[ -n "${CHOMPYY_NOTARY_PROFILE:-}" ]]; then
+      echo "Notarizing (Apple's automated check, usually a few minutes)…"
+      xcrun notarytool submit "$DMG" --keychain-profile "$CHOMPYY_NOTARY_PROFILE" --wait
+      xcrun stapler staple "$DMG"
+      spctl --assess --type open --context context:primary-signature --verbose=2 "$DMG"
+    else
+      echo "Signed but not notarized: set CHOMPYY_NOTARY_PROFILE to notarize."
+    fi
+  fi
   echo "Disk image: $(pwd)/$DMG ($(du -h "$DMG" | cut -f1))"
 fi
 
