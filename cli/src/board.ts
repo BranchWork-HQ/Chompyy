@@ -192,12 +192,33 @@ export function cardsIn(board: BoardData, column: Column): Card[] {
 }
 
 /** Approved cards in the order they were approved: the away queue. */
-/** Cards stuck in running (the away run was stopped or crashed) go back to approved. Returns their ids. */
-export function recoverRunning(board: BoardData, now: Date): string[] {
+/**
+ * Cards stuck in running whose away run is gone (it crashed or was stopped) go to review as an error, with
+ * whatever they finished: put back in approved they would look untouched, and a card that crashes Chompyy
+ * would crash every away. `where` says where a card's work is. Returns their ids.
+ */
+export function recoverRunning(
+  board: BoardData,
+  now: Date,
+  where: (c: Card) => { dir: string; branch?: string } = () => ({ dir: '' }),
+  why = 'The away run stopped in the middle of this card (Chompyy crashed or was stopped), so it never finished.',
+): string[] {
   const stuck = cardsIn(board, 'running');
   for (const c of stuck) {
-    c.column = 'approved';
+    const ws = where(c);
+    const startedAt = c.updatedAt || now.toISOString();
+    c.column = 'review';
     c.updatedAt = now.toISOString();
+    c.run = {
+      status: 'error',
+      startedAt,
+      finishedAt: now.toISOString(),
+      durationMs: Math.max(0, now.getTime() - Date.parse(startedAt)) || 0,
+      exitCode: null,
+      workdir: ws.dir,
+      ...(ws.branch ? { branch: ws.branch } : {}),
+      summary: `${why} Anything it committed is on its branch; Run again to retry.`,
+    };
   }
   return stuck.map((c) => c.id);
 }

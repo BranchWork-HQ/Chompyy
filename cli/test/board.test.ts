@@ -114,12 +114,14 @@ describe('rating', () => {
 
 describe('recoverRunning', () => {
   useTempHome();
-  it('puts cards stuck in running back to approved', () => {
+  it('moves cards stuck in running to review as an error, with where their work is', () => {
     const b = { nextId: 3, cards: [
       { id: '1', title: 'a', idea: 'a', cwd: '/x', column: 'running', blueprint: 'bp', createdAt: '', updatedAt: '' },
       { id: '2', title: 'b', idea: 'b', cwd: '/x', column: 'review', blueprint: 'bp', createdAt: '', updatedAt: '' },
     ] } as unknown as BoardData;
-    expect(recoverRunning(b, NOW)).toEqual(['1']);
-    expect(b.cards.map((c) => c.column)).toEqual(['approved', 'review']);
+    expect(recoverRunning(b, NOW, () => ({ dir: '/wt/1', branch: 'chompyy/1' }))).toEqual(['1']);
+    expect(b.cards.map((c) => c.column)).toEqual(['review', 'review']);
+    expect(b.cards[0]!.run).toMatchObject({ status: 'error', workdir: '/wt/1', branch: 'chompyy/1', exitCode: null });
+    expect(b.cards[0]!.run!.summary).toMatch(/stopped in the middle/);
   });
 });

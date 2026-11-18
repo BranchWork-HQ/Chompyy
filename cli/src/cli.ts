@@ -4,17 +4,18 @@ import { spawn } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { parseArgs } from 'node:util';
-import { away, cacheEnv } from './away.js';
+import { away, cacheEnv, runCard, type AwayDeps } from './away.js';
 import { draftBlueprint, draftFiveStarOptions, GENERIC_FIVE_STAR } from './blueprint.js';
-import { addCard, awayQueue, COLUMNS, dropCard, expireSuggested, formatBoard, formatCard, getCard, loadBoard, moveCard, updateBoard, type Column } from './board.js';
+import { addCard, awayQueue, COLUMNS, dropCard, expireSuggested, formatBoard, formatCard, getCard, loadBoard, moveCard, recoverRunning, updateBoard, type Column } from './board.js';
 import { loadConfig, setConfig } from './config.js';
 import { formatDuration, parseDuration } from './duration.js';
 import { budgetGate } from './gate.js';
 import { chompyyHome, homePath } from './home.js';
-import { loadSnapshot, mergeSnapshot, parseStatusline, saveSnapshot, statusLineText, statusText, windowView } from './quota.js';
+import { loadSnapshot, mergeSnapshot, parseStatusline, saveSnapshot, statusLineText, statusText as baseStatusText, windowView, type Snapshot } from './quota.js';
+import { loadSamples } from './pacing.js';
 import { cardsSince, formatReport, lastReportAt, markReported, morningLine, rateCard, readTaste } from './report.js';
 import { changedFiles, diffCard, keepCard, overlaps, questionsOf, undoCard } from './review.js';
-import { ClaudeRunner, claudeAvailable } from './runner.js';
+import { CappedText, ClaudeRunner, claudeAvailable } from './runner.js';
 import { commitLeftovers, gitRoot, planWorkspace, prepareWorkspace } from './workspace.js';
 import { verifyRun } from './verify.js';
 import { answerCard, appState, cardView, editBlueprint, recordCliLocation } from './appstate.js';
@@ -96,6 +97,11 @@ App
   chompyy state --json          everything the Mac app shows, in one JSON (board, show, status also take --json)
 
 State lives in ${chompyyHome()} (override with CHOMPYY_HOME).`;
+
+/** `chompyy status` text with pacing: burn-rate history and your bedtime. */
+function statusText(snap: Snapshot | null, now: Date): string {
+  return baseStatusText(snap, now, { samples: loadSamples(), bedtime: loadConfig().bedtime });
+}
 
 async function readStdin(): Promise<string> {
   if (process.stdin.isTTY) return '';
@@ -239,47 +245,77 @@ async function distillNow(now: Date, force = false): Promise<string> {
 }
 
 /** An away run: one at a time (lock), then distil what the run taught, if anything. */
+/** What an away run (and each card's worker) needs from the real world. */
+function awayDeps(config: ReturnType<typeof loadConfig>, freshQuota: (force?: boolean) => Promise<unknown>): AwayDeps {
+  return {
+    runner: new ClaudeRunner(config.claudeBin),
+    config,
+    now: () => Date.now(),
+    snapshot: loadSnapshot,
+    plan: planWorkspace,
+    prepare: prepareWorkspace,
+    commitLeftovers,
+    refreshQuota: async () => {
+      await freshQuota(true);
+    },
+    ...(config.independentCheck
+      ? {
+          verify: (ws, card) => {
+            const root = gitRoot(card.cwd);
+            const cacheDir = homePath('cache', 'tools');
+            // A card made in a subfolder (e.g. cli/ of a repo) is checked there, with that folder's node_modules.
+            const sub = root ? relative(root, card.cwd) : '';
+            return verifyRun({
+              dir: sub && !sub.startsWith('..') ? join(ws.dir, sub) : ws.dir,
+              repoRoot: sub && !sub.startsWith('..') ? card.cwd : root,
+              cacheDir,
+              env: cacheEnv(cacheDir),
+              denyRead: config.denyReadPaths,
+              timeoutMs: config.checkTimeoutMin * 60_000,
+              override: root ? config.checkCommands[root] : undefined,
+              now: () => new Date(),
+            });
+          },
+        }
+      : {}),
+    out: (line) => console.log(line),
+  };
+}
+
+/** The supervisor's side of a worker: run `chompyy run-card` and wait, killing it if it outlives its card. */
+function isolateCard(config: ReturnType<typeof loadConfig>) {
+  return (id: string, timeoutMs: number, trigger?: string) =>
+    new Promise<{ exitCode: number | null; signal: string | null; stderr: string }>((resolve) => {
+      const args = [process.argv[1]!, 'run-card', id, '--timeout', String(timeoutMs), ...(trigger ? ['--trigger', trigger] : [])];
+      const child = spawn(process.execPath, args, { stdio: ['ignore', 'inherit', 'pipe'], env: process.env });
+      const stderr = new CappedText(64 * 1024);
+      child.stderr!.setEncoding('utf8');
+      child.stderr!.on('data', (d: string) => {
+        stderr.push(d);
+        process.stderr.write(d);
+      });
+      // Watchdog: the card's cap, plus time for the independent check and committing, plus a margin.
+      const limit = timeoutMs + (config.independentCheck ? config.checkTimeoutMin * 60_000 : 0) + 5 * 60_000;
+      const dog = setTimeout(() => {
+        child.kill('SIGTERM'); // the worker stops its agent's process group on SIGTERM
+        setTimeout(() => child.kill('SIGKILL'), 10_000).unref();
+      }, limit);
+      child.on('close', (code, signal) => {
+        clearTimeout(dog);
+        resolve({ exitCode: code, signal, stderr: stderr.toString() });
+      });
+      child.on('error', (err) => {
+        clearTimeout(dog);
+        resolve({ exitCode: null, signal: null, stderr: String(err) });
+      });
+    });
+}
+
 async function runAway(ms: number, opts: { dryRun?: boolean; force?: boolean; trigger?: string }, now: Date, freshQuota: (force?: boolean) => Promise<unknown>): Promise<void> {
   const config = loadConfig();
   const release = opts.dryRun ? () => {} : takeAwayLock(now, opts.trigger ?? 'away');
   try {
-    await away(
-      ms,
-      {
-        runner: new ClaudeRunner(config.claudeBin),
-        config,
-        now: () => Date.now(),
-        snapshot: loadSnapshot,
-        plan: planWorkspace,
-        prepare: prepareWorkspace,
-        commitLeftovers,
-        refreshQuota: async () => {
-          await freshQuota(true);
-        },
-        ...(config.independentCheck
-          ? {
-              verify: (ws, card) => {
-                const root = gitRoot(card.cwd);
-                const cacheDir = homePath('cache', 'tools');
-                // A card made in a subfolder (e.g. cli/ of a repo) is checked there, with that folder's node_modules.
-                const sub = root ? relative(root, card.cwd) : '';
-                return verifyRun({
-                  dir: sub && !sub.startsWith('..') ? join(ws.dir, sub) : ws.dir,
-                  repoRoot: sub && !sub.startsWith('..') ? card.cwd : root,
-                  cacheDir,
-                  env: cacheEnv(cacheDir),
-                  denyRead: config.denyReadPaths,
-                  timeoutMs: config.checkTimeoutMin * 60_000,
-                  override: root ? config.checkCommands[root] : undefined,
-                  now: () => new Date(),
-                });
-              },
-            }
-          : {}),
-        out: (line) => console.log(line),
-      },
-      opts,
-    );
+    await away(ms, { ...awayDeps(config, freshQuota), isolate: isolateCard(config) }, opts);
   } finally {
     release();
   }
@@ -312,6 +348,8 @@ async function main(argv: string[]): Promise<void> {
       digest: { type: 'boolean' },
       taste: { type: 'string' },
       cards: { type: 'string' },
+      timeout: { type: 'string' },
+      trigger: { type: 'string' },
     },
   });
   const [command, ...args] = values.help ? ["help"] : positionals;
@@ -335,7 +373,7 @@ async function main(argv: string[]): Promise<void> {
         const parsed = parseStatusline(await readStdin(), now);
         const snap = mergeSnapshot(loadSnapshot(), { ...parsed, ...(parsed.fiveHour || parsed.sevenDay ? { source: 'statusline' as const } : {}) });
         saveSnapshot(snap);
-        console.log(statusLineText(snap, now));
+        console.log(statusLineText(snap, now, { samples: loadSamples(), color: true }));
       } catch {
         console.log('🍪');
       }
@@ -358,6 +396,8 @@ async function main(argv: string[]): Promise<void> {
     case 'state': {
       const refreshed = await freshQuota(Boolean(values.refresh));
       draftPending(now);
+      // A card left in running by an away run that died shouldn't look like it's still working.
+      if (!awayRunning() && loadBoard().cards.some((c) => c.column === 'running')) updateBoard((b) => recoverRunning(b, now, planWorkspace));
       // What the quota check just did, so the app's Refresh button can say it instead of looking dead.
       const quotaRefresh = values.refresh ? (refreshed ? { ok: refreshed.ok, message: refreshed.message } : { ok: false, message: 'Live quota reading is off (quotaSource in config.json).' }) : null;
       return json({ ...appState(loadBoard(), loadSnapshot(), loadConfig(), now), quotaRefresh });
@@ -590,6 +630,13 @@ async function main(argv: string[]): Promise<void> {
     case 'drop': {
       const card = updateBoard((b) => dropCard(b, need(args[0], 'chompyy drop <id>'), now));
       console.log(`🗑  #${card.id} dropped: ${card.title}`);
+      return;
+    }
+    case 'run-card': {
+      // A worker started by an away run: one card in its own process, so a crash ends only this card.
+      const id = need(args[0], 'chompyy run-card <id> --timeout <ms>');
+      const config = loadConfig();
+      await runCard(id, Number(values.timeout) || config.cardTimeoutMin * 60_000, awayDeps(config, freshQuota), values.trigger);
       return;
     }
     case 'away': {

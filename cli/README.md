@@ -29,6 +29,19 @@ You also need [Claude Code](https://code.claude.com) (`claude` on your PATH) for
 
 By default Chompyy reads live quota with Claude Code's saved login (macOS Keychain or `~/.claude/.credentials.json`), from the same usage endpoint Claude Code's `/usage` shows. It sends no message, so it never starts a window, and it checks at most every 5 minutes. Nothing to set up. To use only the status line instead, set `"quotaSource": "statusline"` in `~/.chompyy/config.json`.
 
+### Pacing
+
+```
+🍪 5h 22% left ⇡41% · 3h07m · limit ~20:24 | 7d 24% used ⇣7%
+```
+
+- **Pace delta**: used % minus the % of the window that has passed. `⇣` (green) is headroom, `⇡` (red) is burning faster than an even pace.
+- **Forecast**: from your pace over the last hour (or your average this window), how much of the 5-hour window will reset unused (`~40% unused at 18:20`, the moment to give Chompyy a card), or when you'll hit the limit first. Once a limit is hit it stops projecting and shows when it resets.
+- **Today** (`chompyy status`): what's left of the week ÷ the days left, where your day ends at your `bedtime` (midnight if unset), with on pace / ahead / behind / over. It needs a reading from before today to judge; until then it shows the allowance only.
+- **Per-model weekly limits** (e.g. Opus) appear in `chompyy status` when your plan has them, and the gate respects them: a run on a model whose weekly window is over the hard stop doesn't start.
+
+The rate comes from a small history of quota readings (`quota-history.json`, 8 days), saved whenever the numbers change; no extra calls.
+
 ## Set up the quota snapshot (fallback)
 
 Chompyy can also read quota from Claude Code's status line, never by sending a message (if no window is active, the first message would start a new 5-hour window). Add this to `~/.claude/settings.json`:
@@ -94,7 +107,7 @@ Each card in a git repo runs in its own worktree at `~/.chompyy/worktrees/<id>` 
 | Command | What it does |
 |---|---|
 | `chompyy statusline` | Status line hook: reads Claude Code's JSON on stdin, saves the snapshot, prints one line |
-| `chompyy status` | % left in the 5h window, time to reset, per-hour pace, weekly used, stale or not |
+| `chompyy status` | % left in the 5h window, time to reset, weekly used, pace delta, forecast, today's allowance, per-model weekly windows |
 | `chompyy eat-tokens` | Read-only view of remaining 5h quota and approved/later cards; starts nothing |
 | `chompyy later "<idea>"` | New card in *later*, remembering the current directory. Drafts the blueprint in the background when `claude` is available (`--wait` to wait for it, `--no-blueprint` to skip) |
 | `chompyy board [--column approved]` | Cards by column: suggested, later, approved, running, review, done |

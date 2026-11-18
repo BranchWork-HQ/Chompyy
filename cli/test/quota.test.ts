@@ -71,7 +71,9 @@ describe('text output', () => {
       }),
       NOW,
     );
-    expect(statusLineText(snap, NOW)).toBe('🍪 5h 62% left · 1h40m · ~37%/h | 7d 41% used');
+    // 38% used with 2/3 of the window gone: 29 points of headroom; at that average pace ~43% is left at the reset.
+    expect(statusLineText(snap, NOW)).toMatch(/^🍪 5h 62% left ⇣29% · 1h40m · ~43% unused at \d\d:\d\d \| 7d 41% used ⇣9%$/);
+    expect(statusLineText(snap, NOW, { color: true })).toContain('\u001b[32m⇣29%\u001b[0m');
   });
 
   it('marks a stale or missing 5h window', () => {

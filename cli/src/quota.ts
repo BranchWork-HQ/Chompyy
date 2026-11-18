@@ -2,6 +2,7 @@
 // message: if no window is active, the first message would start a new 5-hour window.
 import { formatDuration } from './duration.js';
 import { homePath, readJson, writeJson } from './home.js';
+import { FIVE_HOURS, WEEK, dailyAllowance, forecastWindow, formatAllowance, formatDelta, formatForecast, formatForecastShort, paceDelta, recordSample, type Sample } from './pacing.js';
 
 export interface QuotaWindow {
   usedPct: number;
@@ -15,6 +16,8 @@ export interface Snapshot {
   source?: 'api' | 'statusline';
   fiveHour?: QuotaWindow;
   sevenDay?: QuotaWindow;
+  /** Per-model weekly windows from the usage endpoint, e.g. { Opus: …, Sonnet: … }. */
+  models?: Record<string, QuotaWindow>;
 }
 
 export type WindowView =
@@ -69,6 +72,7 @@ export function mergeSnapshot(prev: Snapshot | null, next: Snapshot): Snapshot {
     ...(next.source ? { source: next.source } : {}),
     fiveHour: next.fiveHour ?? prev?.fiveHour,
     sevenDay: next.sevenDay ?? prev?.sevenDay,
+    ...(next.models ?? prev?.models ? { models: next.models ?? prev?.models } : {}),
   };
 }
 
@@ -84,21 +88,28 @@ export function windowView(w: QuotaWindow | undefined, now: Date): WindowView {
 
 const pct = (n: number) => `${Math.round(n)}%`;
 
-/** One short line for Claude Code's status bar: "🍪 5h 62% left · 1h40m · ~37%/h | 7d 41% used". */
-export function statusLineText(snap: Snapshot, now: Date): string {
+/**
+ * One short line for Claude Code's status bar:
+ * "🍪 5h 62% left ⇣15% · 1h40m · ~40% unused at 18:20 | 7d 41% used ⇡3%".
+ * ⇣ = headroom against an even pace, ⇡ = burning faster (coloured when `color`).
+ */
+export function statusLineText(snap: Snapshot, now: Date, opts: { samples?: Sample[]; color?: boolean } = {}): string {
   const five = windowView(snap.fiveHour, now);
   const week = windowView(snap.sevenDay, now);
+  const d5 = formatDelta(paceDelta(snap.fiveHour, FIVE_HOURS, now), opts.color);
+  const forecast = formatForecastShort(forecastWindow(snap.fiveHour, FIVE_HOURS, opts.samples ?? [], (s) => s.five, now));
   const fivePart = five.known
-    ? `5h ${pct(five.leftPct)} left · ${formatDuration(five.msLeft)} · ~${pct(five.pacePerHour)}/h`
+    ? `5h ${pct(five.leftPct)} left${d5 ? ` ${d5}` : ''} · ${formatDuration(five.msLeft)} · ${forecast || `~${pct(five.pacePerHour)}/h`}`
     : five.reason === 'stale'
       ? '5h reset'
       : '5h ?';
-  const weekPart = week.known ? ` | 7d ${pct(week.usedPct)} used` : '';
+  const d7 = formatDelta(paceDelta(snap.sevenDay, WEEK, now), opts.color);
+  const weekPart = week.known ? ` | 7d ${pct(week.usedPct)} used${d7 ? ` ${d7}` : ''}` : '';
   return `🍪 ${fivePart}${weekPart}`;
 }
 
 /** Multi-line `chompyy status` text. */
-export function statusText(snap: Snapshot | null, now: Date): string {
+export function statusText(snap: Snapshot | null, now: Date, opts: { samples?: Sample[]; bedtime?: string | null } = {}): string {
   if (!snap || (!snap.fiveHour && !snap.sevenDay)) {
     return [
       'No quota snapshot yet.',
@@ -122,6 +133,15 @@ export function statusText(snap: Snapshot | null, now: Date): string {
   } else {
     lines.push(`7d window  unknown${week.reason === 'stale' ? ' (snapshot is from before the weekly reset)' : ''}`);
   }
+  for (const [name, w] of Object.entries(snap.models ?? {})) {
+    const v = windowView(w, now);
+    if (v.known) lines.push(`${`7d ${name}`.padEnd(10)} ${pct(v.usedPct)} used ${formatDelta(paceDelta(w, WEEK, now))}`.trimEnd());
+  }
+  const d5 = formatDelta(paceDelta(snap.fiveHour, FIVE_HOURS, now));
+  const d7 = formatDelta(paceDelta(snap.sevenDay, WEEK, now));
+  if (d5 || d7) lines.push(`pace       ${[d5 && `5h ${d5}`, d7 && `7d ${d7}`].filter(Boolean).join(' · ')}  (⇣ headroom, ⇡ faster than an even pace)`);
+  if (five.known) lines.push(`forecast   ${formatForecast(forecastWindow(snap.fiveHour, FIVE_HOURS, opts.samples ?? [], (s) => s.five, now))}`);
+  if (week.known) lines.push(formatAllowance(dailyAllowance(snap.sevenDay, opts.samples ?? [], now, opts.bedtime ?? null)));
   const age = now.getTime() - Date.parse(snap.capturedAt);
   const stale = !five.known;
   lines.push(`snapshot   taken ${formatDuration(age)} ago${stale ? ' · STALE' : ''}`);
@@ -138,4 +158,7 @@ export function loadSnapshot(): Snapshot | null {
 
 export function saveSnapshot(snap: Snapshot): void {
   writeJson(snapshotPath(), snap);
+  try {
+    recordSample(snap); // the burn-rate history behind the forecast and the daily allowance
+  } catch {}
 }
