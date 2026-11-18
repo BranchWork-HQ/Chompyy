@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { blueprintPrompt, cleanBlueprint, draftAllPlan, draftBlueprint, laterToDraft } from '../src/blueprint.js';
+import { blueprintPrompt, cleanBlueprint, draftAllPlan, draftBlueprint, isUsageLimit, laterToDraft } from '../src/blueprint.js';
 import type { BoardData, Card } from '../src/board.js';
 import { claudeArgs, type RunRequest, type Runner } from '../src/runner.js';
 
@@ -34,6 +34,28 @@ describe('blueprint', () => {
   it('fails on a bad exit or a reply without a goal', async () => {
     await expect(draftBlueprint(card, fake('', 1).runner, { model: 'haiku', cwd: '/' })).rejects.toThrow(/exited with 1/);
     expect(() => cleanBlueprint('I cannot help')).toThrow(/Goal/);
+  });
+});
+
+describe('usage limit', () => {
+  it('a draft that hits the limit fails with a message isUsageLimit recognises (the limit text is on stdout)', async () => {
+    const runner: Runner = {
+      async run() {
+        return { exitCode: 1, output: 'Claude AI usage limit reached|1763470800', stderr: '', timedOut: false, durationMs: 5 };
+      },
+    };
+    const err = await draftBlueprint(card, runner, { model: 'haiku', cwd: '/' }).catch((e: Error) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect(isUsageLimit((err as Error).message)).toBe(true);
+  });
+
+  it('recognises the limit wordings and nothing else', () => {
+    for (const m of ['Claude AI usage limit reached|1763470800', '5-hour limit reached ∙ resets 3pm', "You've hit your limit · resets 4pm", 'Weekly limit reached']) {
+      expect(isUsageLimit(m)).toBe(true);
+    }
+    for (const m of ['claude exited with 1: auth error', 'Blueprint model timed out.', 'The model reply has no "## Goal" section.']) {
+      expect(isUsageLimit(m)).toBe(false);
+    }
   });
 });
 

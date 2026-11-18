@@ -8,8 +8,8 @@ import { away, cacheEnv, runCard, type AwayDeps } from './away.js';
 import { formatPreflight, loadProfile, preflight, saveProfile } from './preflight.js';
 import { verifyCard } from './verifycard.js';
 import { parsePermission, recordNeeds } from './permissions.js';
-import { draftAllPlan, draftBlueprint, draftFiveStarOptions, GENERIC_FIVE_STAR, writeBlueprintFile } from './blueprint.js';
-import { addCard, awayQueue, COLUMNS, dropCard, expireSuggested, formatBoard, formatCard, getCard, loadBoard, moveCard, recoverRunning, updateBoard, type Column } from './board.js';
+import { draftAllPlan, draftBlueprint, draftFiveStarOptions, GENERIC_FIVE_STAR, isUsageLimit, writeBlueprintFile } from './blueprint.js';
+import { addCard, awayQueue, claimDrafts, COLUMNS, dropCard, expireSuggested, formatBoard, formatCard, getCard, loadBoard, moveCard, noteDraftFailure, quotaWaitReason, recoverRunning, updateBoard, type Column } from './board.js';
 import { loadConfig, setConfig } from './config.js';
 import { formatDuration, parseDuration } from './duration.js';
 import { budgetGate } from './gate.js';
@@ -131,6 +131,8 @@ async function blueprintCard(id: string, model?: string): Promise<string> {
       const c = getCard(b, id);
       c.blueprint = text;
       delete c.blueprintError;
+      delete c.blueprintWaiting;
+      delete c.blueprintWaitUntil;
       delete c.draftingAt;
       writeBlueprintFile(c, text);
       c.updatedAt = new Date().toISOString();
@@ -139,13 +141,15 @@ async function blueprintCard(id: string, model?: string): Promise<string> {
     return text;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    updateBoard((b) => {
-      const c = getCard(b, id);
-      c.blueprintError = message;
-      delete c.draftingAt;
-    });
+    updateBoard((b) => noteDraftFailure(b, id, message, isUsageLimit(message), retryAfterLimit(new Date())));
     throw err;
   }
+}
+
+/** When to retry a draft that hit the usage limit: at the 5-hour reset if known, else in 30 minutes. */
+function retryAfterLimit(now: Date): Date {
+  const five = windowView(loadSnapshot()?.fiveHour, now);
+  return five.known ? new Date(five.resetsAt * 1000) : new Date(now.getTime() + 30 * 60_000);
 }
 
 /** Draw (or redraw) a card's picture with the diagram-design skill. Errors are kept on the card. */
@@ -187,6 +191,11 @@ function windowActive(now: Date): boolean {
   return windowView(loadSnapshot()?.fiveHour, now).known;
 }
 
+/** Why a draft must wait (the running window has 0% left), or null. A draft then would only hit the limit. */
+function quotaEmpty(now: Date): string | null {
+  return quotaWaitReason(windowView(loadSnapshot()?.fiveHour, now));
+}
+
 /**
  * Draft blueprints that are waiting, but only while a window is active: drafting is a model call, and
  * with no active window it would start a new 5-hour window. Called whenever quota is fresh.
@@ -195,18 +204,13 @@ function draftPending(now: Date): void {
   const days = loadConfig().suggestedExpiryDays;
   if (days > 0 && loadBoard().cards.some((c) => c.column === 'suggested')) updateBoard((b) => expireSuggested(b, now, days));
   if (!windowActive(now) || !claudeAvailable(loadConfig().claudeBin)) return;
-  const stale = now.getTime() - 3 * 60_000;
-  const ids = updateBoard((b) => {
-    const due = b.cards.filter(
-      (c) => (c.column === 'later' || c.column === 'suggested') && !c.blueprint && !c.blueprintError && !c.noAutoDraft && (!c.draftingAt || Date.parse(c.draftingAt) < stale),
-    );
-    for (const c of due) c.draftingAt = now.toISOString();
-    return due.map((c) => c.id);
-  });
+  // With 0% left the cards wait (and say so) instead of failing; they stay due and draft after the reset.
+  const waiting = quotaEmpty(now);
+  const ids = updateBoard((b) => claimDrafts(b, now, waiting));
   for (const id of ids) blueprintInBackground(id);
 
   // Pictures for cards whose blueprint is ready but not drawn yet, or changed since (an edit or a redraw).
-  if (!loadConfig().pictures) return;
+  if (!loadConfig().pictures || waiting) return;
   const toDraw = updateBoard((b) => {
     const due = b.cards.filter(
       (c) =>
@@ -593,6 +597,14 @@ async function main(argv: string[]): Promise<void> {
         console.log('   the blueprint waits until your 5-hour window is active (drafting now would start a new window)');
         return;
       }
+      const waiting = quotaEmpty(now);
+      if (waiting) {
+        updateBoard((b) => {
+          getCard(b, card.id).blueprintWaiting = waiting;
+        });
+        console.log(`   ${waiting}`);
+        return;
+      }
       updateBoard((b) => {
         getCard(b, card.id).draftingAt = now.toISOString();
       });
@@ -628,6 +640,13 @@ async function main(argv: string[]): Promise<void> {
       if (values['all-later']) {
         await freshQuota();
         if (!claudeAvailable(loadConfig().claudeBin)) throw new Error('claude CLI not found: drafting needs it.');
+        // Same rule as background drafting (card #20): with 0% left, every draft would only hit the limit.
+        const waiting = quotaEmpty(now);
+        if (waiting) {
+          updateBoard((b) => claimDrafts(b, now, waiting)); // marks the later cards "waiting for quota"
+          console.log(`Nothing drafted: ${waiting}. They draft on their own once quota is back.`);
+          return;
+        }
         const plan = draftAllPlan(loadBoard(), windowActive(now), now);
         if (!plan.ids.length) {
           console.log(plan.message);
@@ -646,8 +665,17 @@ async function main(argv: string[]): Promise<void> {
           try {
             await blueprintCard(id, values.model); // a failure is kept on the card as blueprintError
           } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            if (isUsageLimit(message)) {
+              // Out of quota mid-way: the rest would fail the same way. They wait for the reset instead (card #20).
+              const left = plan.ids.slice(i + 1);
+              updateBoard((b) => { for (const l of left) delete getCard(b, l).draftingAt; claimDrafts(b, new Date(), quotaEmpty(new Date()) ?? 'waiting for quota: the usage limit was hit'); });
+              console.log(`Drafted ${i} of ${plan.ids.length}: the usage limit was hit at #${id}. The rest draft on their own once quota is back.`);
+              process.exitCode = i === 0 ? 1 : 0;
+              return;
+            }
             failed.push(id);
-            if (!values.quiet) console.log(`   #${id} failed: ${err instanceof Error ? err.message : err}`);
+            if (!values.quiet) console.log(`   #${id} failed: ${message}`);
           }
         }
         const done = plan.ids.length - failed.length;

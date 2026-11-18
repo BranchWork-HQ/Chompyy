@@ -3,6 +3,7 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { appendJsonl, chompyyHome, homePath, readJson, writeJson } from './home.js';
 import type { PictureInfo } from './picture.js';
+import type { WindowView } from './quota.js';
 import type { Verified } from './verify.js';
 
 export const COLUMNS = ['suggested', 'later', 'approved', 'running', 'review', 'done'] as const;
@@ -74,6 +75,10 @@ export interface Card {
   column: Column;
   blueprint: string | null;
   blueprintError?: string;
+  /** Why the blueprint isn't drafted yet (the 5-hour quota is used up); it drafts once quota returns. */
+  blueprintWaiting?: string;
+  /** Don't retry the draft before this time (set when a draft hit the usage limit). */
+  blueprintWaitUntil?: string;
   /** Permissions you allowed for this card's run when approving it ("network:host", "command:swiftc *"). */
   permissions?: string[];
   /** When a background draft started (so the app doesn't start a second one). */
@@ -226,6 +231,68 @@ export function cardsIn(board: BoardData, column: Column): Card[] {
   return board.cards.filter((c) => c.column === column);
 }
 
+/** "14:05" in local time, from Unix seconds. */
+function clock(unixSec: number): string {
+  return new Date(unixSec * 1000).toTimeString().slice(0, 5);
+}
+
+/**
+ * Why drafting must wait, or null if it can go ahead. A running 5-hour window with 0% left means a draft
+ * would only fail on the usage limit, so the card waits instead of looking stuck.
+ */
+export function quotaWaitReason(five: WindowView): string | null {
+  if (!five.known || five.leftPct > 0) return null;
+  return `waiting for quota: the 5-hour window is used up, drafts after it resets at ${clock(five.resetsAt)}`;
+}
+
+/** A parked card with no blueprint that should be drafted now (not already drafting, not told to wait). */
+function needsDraft(c: Card, now: Date): boolean {
+  const stale = now.getTime() - 3 * 60_000;
+  return (
+    (c.column === 'later' || c.column === 'suggested') &&
+    !c.blueprint && !c.blueprintError && !c.noAutoDraft &&
+    (!c.draftingAt || Date.parse(c.draftingAt) < stale) &&
+    (!c.blueprintWaitUntil || Date.parse(c.blueprintWaitUntil) <= now.getTime())
+  );
+}
+
+/**
+ * Claim the cards whose blueprint should be drafted now: marks them drafting and returns their ids.
+ * With `waiting` set (no quota left), nothing is drafted: the cards get the reason instead and stay due,
+ * so a later pass drafts them once quota returns.
+ */
+export function claimDrafts(board: BoardData, now: Date, waiting: string | null): string[] {
+  const due = board.cards.filter((c) => needsDraft(c, now));
+  if (waiting) {
+    for (const c of due) c.blueprintWaiting = waiting;
+    return [];
+  }
+  for (const c of due) {
+    c.draftingAt = now.toISOString();
+    delete c.blueprintWaiting;
+    delete c.blueprintWaitUntil;
+  }
+  return due.map((c) => c.id);
+}
+
+/**
+ * Record a failed draft. A usage-limit failure isn't the card's fault, so it gets no blueprintError (which
+ * would stop retries): it waits and is retried after `retryAt`.
+ */
+export function noteDraftFailure(board: BoardData, id: string, message: string, usageLimit: boolean, retryAt: Date): void {
+  const c = getCard(board, id);
+  delete c.draftingAt;
+  if (usageLimit) {
+    delete c.blueprintError;
+    c.blueprintWaiting = `waiting for quota: the usage limit was hit, retries after ${clock(retryAt.getTime() / 1000)}`;
+    c.blueprintWaitUntil = retryAt.toISOString();
+  } else {
+    c.blueprintError = message;
+    delete c.blueprintWaiting;
+    delete c.blueprintWaitUntil;
+  }
+}
+
 /** Approved cards in the order they were approved: the away queue. */
 /**
  * Cards stuck in running whose away run is gone (it crashed or was stopped) go to review as an error, with
@@ -270,7 +337,7 @@ function shortPath(p: string): string {
 function cardLine(c: Card): string {
   const marks: string[] = [];
   if (c.column === 'later' || c.column === 'suggested') {
-    marks.push(c.blueprint ? 'blueprint ✓' : c.blueprintError ? 'blueprint failed' : 'no blueprint');
+    marks.push(c.blueprint ? 'blueprint ✓' : c.blueprintError ? 'blueprint failed' : c.blueprintWaiting ? 'waiting for quota' : 'no blueprint');
   }
   if (c.run) marks.push(c.run.status);
   if (c.rating) marks.push(`${'★'.repeat(c.rating.score)}`);
@@ -309,7 +376,7 @@ export function formatCard(c: Card): string {
     `column: ${c.column} · workspace: ${workspaceOf(c)} · cwd: ${shortPath(c.cwd)} · created ${c.createdAt}`,
   ];
   if (c.idea !== c.title) lines.push('', c.idea);
-  lines.push('', c.blueprint ?? (c.blueprintError ? `(blueprint failed: ${c.blueprintError})` : '(no blueprint yet)'));
+  lines.push('', c.blueprint ?? (c.blueprintError ? `(blueprint failed: ${c.blueprintError})` : c.blueprintWaiting ? `(no blueprint yet: ${c.blueprintWaiting})` : '(no blueprint yet)'));
   if (c.run) {
     lines.push('', `last run: ${c.run.status} · ${c.run.workdir}${c.run.branch ? ` · branch ${c.run.branch}` : ''}`);
     if (c.run.summary) lines.push('', 'what the agent said:', ...c.run.summary.split('\n').map((l) => `  ${l}`));
