@@ -77,8 +77,18 @@ export async function draftBlueprint(
     timeoutMs: opts.timeoutMs ?? 240_000,
   });
   if (result.timedOut) throw new Error('Blueprint model timed out.');
-  if (result.exitCode !== 0) throw new Error(`claude exited with ${result.exitCode}: ${result.stderr.trim().slice(0, 300)}`);
+  // In -p mode Claude Code prints some failures (like the usage limit) on stdout, so fall back to it.
+  if (result.exitCode !== 0) throw new Error(`claude exited with ${result.exitCode}: ${(result.stderr.trim() || result.output.trim()).slice(0, 300)}`);
   return cleanBlueprint(result.output);
+}
+
+/**
+ * True when a failed model call ran into the plan's usage limit (out of quota), e.g. Claude Code's
+ * "Claude AI usage limit reached|1763470800", "5-hour limit reached ∙ resets 3pm" or "You've hit your limit".
+ * Such a failure isn't the card's fault: it should wait for the reset, not be marked failed.
+ */
+export function isUsageLimit(message: string): boolean {
+  return /usage limit reached|(5-hour|weekly|session|opus) limit reached|hit your (usage )?limit|limit reached\s*[∙·|]\s*resets/i.test(message);
 }
 
 /** Generic options when a card-specific list can't be made (e.g. no active window). */

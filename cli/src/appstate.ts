@@ -116,6 +116,8 @@ export function editBlueprint(board: BoardData, id: string, text: string, now: D
   if (before?.trim() === next) return card;
   card.blueprint = next;
   delete card.blueprintError;
+  delete card.blueprintWaiting;
+  delete card.blueprintWaitUntil;
   card.updatedAt = now.toISOString();
   appendJsonl(homePath('signals.jsonl'), { at: card.updatedAt, card: card.id, title: card.title, kind: 'blueprint-edit', before, after: next });
   return card;
