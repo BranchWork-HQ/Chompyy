@@ -5,6 +5,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { parseArgs } from 'node:util';
 import { away, cacheEnv, runCard, type AwayDeps } from './away.js';
+import { formatPreflight, loadProfile, preflight, saveProfile } from './preflight.js';
 import { draftBlueprint, draftFiveStarOptions, GENERIC_FIVE_STAR } from './blueprint.js';
 import { addCard, awayQueue, COLUMNS, dropCard, expireSuggested, formatBoard, formatCard, getCard, loadBoard, moveCard, recoverRunning, updateBoard, type Column } from './board.js';
 import { loadConfig, setConfig } from './config.js';
@@ -255,6 +256,11 @@ function awayDeps(config: ReturnType<typeof loadConfig>, freshQuota: (force?: bo
     plan: planWorkspace,
     prepare: prepareWorkspace,
     commitLeftovers,
+    repoChecks: (card) => {
+      const root = gitRoot(card.cwd);
+      const p = root ? loadProfile(root) : null;
+      return (p?.preflight?.results ?? []).filter((r) => r.verdict === 'ready').map((r) => ({ dir: r.check.dir, label: r.check.label }));
+    },
     refreshQuota: async () => {
       await freshQuota(true);
     },
@@ -348,6 +354,7 @@ async function main(argv: string[]): Promise<void> {
       digest: { type: 'boolean' },
       taste: { type: 'string' },
       cards: { type: 'string' },
+      ref: { type: 'string' },
       timeout: { type: 'string' },
       trigger: { type: 'string' },
     },
@@ -630,6 +637,18 @@ async function main(argv: string[]): Promise<void> {
     case 'drop': {
       const card = updateBoard((b) => dropCard(b, need(args[0], 'chompyy drop <id>'), now));
       console.log(`🗑  #${card.id} dropped: ${card.title}`);
+      return;
+    }
+    case 'preflight': {
+      // Run the repo's checks on clean latest main, in the away box and outside it (research/away-readiness.md).
+      const root = gitRoot(args[0] ?? process.cwd());
+      if (!root) throw new Error('Not in a git repo. Usage: chompyy preflight [path-to-repo]');
+      const config = loadConfig();
+      console.log(`Checking ${root} on its latest main, in the away box and outside it…`);
+      const result = await preflight(root, { cacheDir: homePath('cache', 'tools'), denyRead: config.denyReadPaths, timeoutMs: config.checkTimeoutMin * 60_000, ...(values.ref ? { ref: values.ref } : {}) });
+      saveProfile({ root, checks: result.results.map((r) => r.check), updatedAt: result.at, preflight: result });
+      if (values.json) return json(result);
+      console.log(formatPreflight(result));
       return;
     }
     case 'run-card': {

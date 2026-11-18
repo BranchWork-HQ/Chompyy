@@ -50,6 +50,7 @@ export function cacheEnv(dir: string): Record<string, string> {
     npm_config_cache: `${dir}/npm`,
     PIP_CACHE_DIR: `${dir}/pip`,
     XDG_CACHE_HOME: dir,
+    CLANG_MODULE_CACHE_PATH: `${dir}/clang-module-cache`,
   };
 }
 
@@ -73,9 +74,15 @@ export function denyReadRules(paths: string[]): string[] {
   return paths.flatMap((p) => [`Read(${p})`, `Read(${p}/**)`]);
 }
 
-export function taskPrompt(card: Card, workdir: string, taste = ''): string {
+export function taskPrompt(card: Card, workdir: string, taste = '', checks: { dir: string; label: string }[] = []): string {
   return `${safetyRules(workdir)}
-${taste ? `
+${checks.length ? `
+# How to check this repo (Chompyy ran these on main in this same sandbox: they pass here)
+
+${checks.map((c) => `- in ${c.dir || 'the top folder'}: \`${c.label}\``).join('\n')}
+
+Run these, exactly as written. If one fails after your change, it's your change.
+` : ''}${taste ? `
 # How this user likes work done (their taste.md; follow it unless the blueprint says otherwise)
 
 ${taste}
@@ -113,6 +120,8 @@ export interface AwayDeps {
   refreshQuota?: () => Promise<void>;
   /** taste.md as agents should read it; defaults to the real one. */
   taste?: () => string;
+  /** The checks preflight proved pass in the box for this card's repo (research/away-readiness.md). */
+  repoChecks?: (card: Card) => { dir: string; label: string }[];
   /** After a run: Chompyy runs the repo's tests itself (worktrees only). */
   verify?: (ws: Workspace, card: Card) => Promise<Verified | undefined>;
   /**
@@ -264,7 +273,7 @@ export async function runCard(id: string, timeoutMs: number, deps: AwayDeps, tri
 
   try {
     ws = deps.prepare(card);
-    const prompt = taskPrompt(card, ws.dir, (deps.taste ?? tasteForPrompt)());
+    const prompt = taskPrompt(card, ws.dir, (deps.taste ?? tasteForPrompt)(), deps.repoChecks?.(card) ?? []);
     const cacheDir = homePath('cache', 'tools');
     mkdirSync(cacheDir, { recursive: true });
     const questionsPath = join(ws.dir, 'QUESTIONS.md');

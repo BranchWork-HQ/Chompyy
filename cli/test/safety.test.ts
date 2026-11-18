@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -99,9 +100,12 @@ describe('independent check', () => {
     rmSync(d, { recursive: true, force: true });
   });
 
-  it.runIf(process.platform === 'darwin')('really sandboxes the tests: no writes outside the folder, no network', async () => {
+  // Starting a sandbox is impossible inside another one (an away run's box): there this test can't test anything.
+  const canSandbox = process.platform === 'darwin' && spawnSync('/usr/bin/sandbox-exec', ['-p', '(version 1)(allow default)', '/usr/bin/true']).status === 0;
+  it.runIf(canSandbox)('really sandboxes the tests: no writes outside the folder, no network', async () => {
     const d = dir();
-    const outside = mkdtempSync(join(process.env.HOME!, '.chompyy-verify-outside-'));
+    // Outside what the inner sandbox may write, but inside the project, so this test also runs in an away box.
+    const outside = mkdtempSync(join(process.cwd(), '.chompyy-verify-outside-'));
     try {
       expect(await verifyRun({ ...base(d), override: 'echo ok > inside.txt' })).toMatchObject({ result: 'passed' });
       expect(await verifyRun({ ...base(d), override: `echo bad > ${outside}/x.txt` })).toMatchObject({ result: 'failed', sandboxBlocked: true });

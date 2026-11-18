@@ -1,16 +1,16 @@
-import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { recentProjects } from '../src/projects.js';
+import { isTemp, recentProjects } from '../src/projects.js';
 
 describe('recentProjects', () => {
   const dirs: string[] = [];
   afterEach(() => dirs.splice(0).forEach((d) => rmSync(d, { recursive: true, force: true })));
 
   it('lists git repos from transcripts and code folders, newest first, skipping non-git and temp folders', () => {
-    // Under the real home so paths aren't treated as temp folders.
-    const root = mkdtempSync(join(process.env.HOME!, '.chompyy-projects-test-'));
+    // In a temp folder (tests must not write to your home folder: away runs can't), told not to count as temp.
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'chompyy-projects-test-'))); // /var → /private/var, as the code sees it
     dirs.push(root);
     const home = join(root, 'home');
     const repoA = join(home, 'code', 'alpha');
@@ -24,7 +24,7 @@ describe('recentProjects', () => {
     writeFileSync(join(claude, 'p2', 's.jsonl'), JSON.stringify({ cwd: plain }) + '\n');
     utimesSync(join(repoB, '.git'), new Date('2020-01-01'), new Date('2020-01-01'));
 
-    const list = recentProjects({ nextId: 1, cards: [] }, { claudeDir: claude, home });
+    const list = recentProjects({ nextId: 1, cards: [] }, { claudeDir: claude, home, isTemp: (p) => !p.startsWith(root) && isTemp(p) });
     expect(list.map((p) => p.name)).toEqual(['alpha', 'beta']);
     expect(list[0]!.path).toBe(repoA);
   });
