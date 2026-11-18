@@ -18,6 +18,11 @@ describe('failure catalog', () => {
     expect(seen("sh: vitest: command not found")).toContain('missing-deps');
     expect(seen('Permission for this tool use was denied. It requires approval, and this session has no approval surface')).toContain('needs-approval');
   });
+  it('recognises the failures from the 2026-11-18 evening away run', () => {
+    expect(seen('error: You don\u2019t have permission to save the file \u201coutput-file-map.json\u201d in the folder \u201cChompyy.build\u201d.')).toEqual(['temp-outside']);
+    expect(seen('Raw compiler output: error: permissionDenied')).toContain('temp-outside');
+    expect(seen('Error: [vitest-worker]: Timeout calling "onTaskUpdate"')).toEqual(['runner-reply-timeout']);
+  });
   it('stays quiet on an ordinary test failure', () => {
     expect(seen('AssertionError: expected 2 to be 3\n Tests  1 failed | 10 passed')).toEqual([]);
   });
@@ -95,6 +100,8 @@ describe('the agent gets the proven checks', () => {
     const card = { id: '9', title: 't', idea: 'i', cwd: '/r', column: 'approved', blueprint: 'bp', createdAt: '', updatedAt: '' } as never;
     const prompt = taskPrompt(card, '/w', '', [{ dir: 'mac', label: 'swift build --disable-sandbox' }, { dir: '', label: 'npm test' }]);
     expect(prompt).toMatch(/they pass here/);
+    expect(prompt).toMatch(/Chompyy runs them again itself/);
+    expect(prompt).toMatch(/permission or sandbox error.*\n?.*CHECKS: not run/);
     expect(prompt).toContain('- in mac: `swift build --disable-sandbox`');
     expect(prompt).toContain('- in the top folder: `npm test`');
     expect(taskPrompt(card, '/w')).not.toMatch(/How to check this repo/);

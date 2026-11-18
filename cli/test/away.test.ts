@@ -1,7 +1,8 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { away, type AwayDeps } from '../src/away.js';
+import { away, sandboxSettings, type AwayDeps } from '../src/away.js';
+import { boxTempDirs, sandboxProfile } from '../src/verify.js';
 import { addCard, loadBoard, moveCard, updateBoard } from '../src/board.js';
 import { DEFAULT_CONFIG } from '../src/config.js';
 import type { Snapshot } from '../src/quota.js';
@@ -291,16 +292,25 @@ describe('a long away run waits out a 5-hour reset', () => {
 
 describe('sandbox', () => {
   const home = useTempHome();
-  it('runs away cards sandboxed by default, allowing writes to the repo .git and the tool cache only', async () => {
+  it('runs away cards sandboxed by default, allowing writes to the repo .git, the tool cache and temp folders only', async () => {
     const { deps, requests } = setup(home, { cards: 1 });
     deps.prepare = (card) => ({ kind: 'worktree', dir: join(home(), 'worktrees', card.id), branch: `chompyy/${card.id}`, gitDir: '/repo/.git' });
     mkdirSync(join(home(), 'worktrees', '1'), { recursive: true });
     await away(60 * MIN, deps);
     expect(requests[0]!.settings).toEqual({
-      sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, filesystem: { allowWrite: ['/repo/.git', join(home(), 'cache', 'tools')], denyRead: DEFAULT_CONFIG.denyReadPaths }, network: { allowedDomains: [] }, autoAllowBashIfSandboxed: true },
+      sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, filesystem: { allowWrite: ['/repo/.git', join(home(), 'cache', 'tools'), ...boxTempDirs()], denyRead: DEFAULT_CONFIG.denyReadPaths }, network: { allowedDomains: [] }, autoAllowBashIfSandboxed: true },
     });
     expect(requests[0]!.env?.GOCACHE).toBe(join(home(), 'cache', 'tools', 'go-build'));
     expect(requests[0]!.disallowedTools).toEqual(expect.arrayContaining(['Bash(git push *)', 'Read(~/.ssh)', 'Read(~/.ssh/**)', 'Read(~/.aws/**)']));
+  });
+  it('allows the same temp folders as Chompyy\'s own check box, so swift build works in both (2026-11-18)', () => {
+    const settings = sandboxSettings({ kind: 'worktree', dir: '/w', branch: 'b', gitDir: '/g' } as never, []) as { sandbox: { filesystem: { allowWrite: string[] } } };
+    const profile = sandboxProfile({ writable: [], denyRead: [] });
+    for (const t of boxTempDirs()) {
+      expect(settings.sandbox.filesystem.allowWrite).toContain(t);
+      expect(profile).toContain(`(subpath "${t}")`);
+    }
+    expect(boxTempDirs()).toContain('/private/tmp');
   });
   it('can be turned off', async () => {
     const { deps, requests } = setup(home, { cards: 1 });
