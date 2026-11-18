@@ -3,9 +3,9 @@
 // written, so they run in a macOS sandbox (sandbox-exec): writes only in the card's folder, the tool cache and
 // temp folders; no network; no reads of credential folders. Elsewhere the check is skipped, never run open.
 import { spawn } from 'node:child_process';
-import { existsSync, lstatSync, readFileSync, readdirSync, rmSync, symlinkSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 
 export interface CheckCommand {
   argv: string[];
@@ -57,6 +57,20 @@ export function detectCheck(dir: string, override?: string): CheckCommand | null
   return null;
 }
 
+/**
+ * Temp folders every box allows writes to: the agent's sandbox during a card AND Chompyy's own check box.
+ * One list, so a command that works in one works in the other. macOS tools save files through the per-user
+ * temp folder (/private/var/folders/<x>/<y>/T and C): `swift build` writes output-file-map.json via a temp file
+ * there, and failed with a permission error in the agent's sandbox while passing in Chompyy's (2026-11-18).
+ */
+export function boxTempDirs(): string[] {
+  let user: string;
+  try { user = dirname(realpathSync(tmpdir())); } catch { user = '/private/var/folders'; }
+  // tmpdir() is normally <user>/T; anywhere else (TMPDIR overridden), allow it as it is.
+  if (!user.startsWith('/private/var/folders/')) user = tmpdir();
+  return ['/private/tmp', user];
+}
+
 const sbString = (p: string) => `"${p.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 const expand = (p: string) => (p.startsWith('~/') ? join(homedir(), p.slice(2)) : p);
 
@@ -68,7 +82,7 @@ export function sandboxProfile(opts: { writable: string[]; denyRead: string[] })
     '(deny network*)',
     '(allow network* (local unix))',
     '(deny file-write*)',
-    `(allow file-write* ${[...opts.writable.map((p) => `(subpath ${sbString(p)})`), '(subpath "/private/tmp")', '(subpath "/private/var/folders")', '(literal "/dev/null")', '(literal "/dev/tty")'].join(' ')})`,
+    `(allow file-write* ${[...opts.writable.map((p) => `(subpath ${sbString(p)})`), ...boxTempDirs().map((p) => `(subpath ${sbString(p)})`), '(literal "/dev/null")', '(literal "/dev/tty")'].join(' ')})`,
     ...opts.denyRead.map((p) => `(deny file-read* (subpath ${sbString(expand(p))}))`),
   ].join('\n');
 }

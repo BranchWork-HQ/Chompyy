@@ -60,7 +60,7 @@ function permissionPlanFor(card: Card): PlannedPermission[] {
 }
 
 /** The branch a folder is on (what Keep merges into), or null. */
-function currentBranch(cwd: string): string | null {
+export function currentBranch(cwd: string): string | null {
   try {
     return execFileSync('git', ['-C', cwd, 'rev-parse', '--abbrev-ref', 'HEAD'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() || null;
   } catch {
@@ -144,6 +144,8 @@ export function answerCard(board: BoardData, id: string, text: string, now: Date
 export function recordCliLocation(): void {
   const path = homePath('cli.json');
   const want = { node: process.execPath, script: process.argv[1] };
-  const have = readJson<{ node?: string; script?: string }>(path, {});
+  const have = readJson<{ node?: string; script?: string; live?: boolean }>(path, {});
+  // The live copy (live.ts) owns cli.json once set: running a CLI from a work folder must not take the app over.
+  if (have.live && have.script && existsSync(have.script)) return;
   if (have.node !== want.node || have.script !== want.script) writeJson(path, want);
 }

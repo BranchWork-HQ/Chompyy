@@ -50,6 +50,22 @@ export const CATALOG: CatalogEntry[] = [
     remedy: 'Make the test use a temp folder (`os.tmpdir()`), which works everywhere and leaves nothing behind.',
   },
   {
+    id: 'temp-outside',
+    title: "The tool can't save through the system temp folder",
+    match: /You don.t have permission to save the file|error: permissionDenied/i,
+    cause: 'macOS tools save files safely by writing a temp copy in your per-user temp folder (/private/var/folders/…) first; a box that blocks it breaks the save (swift build, 2026-11-18).',
+    fix: 'auto',
+    remedy: "Every box allows the same temp folders (boxTempDirs): the agent's sandbox and Chompyy's own check.",
+  },
+  {
+    id: 'runner-reply-timeout',
+    title: 'The test runner timed out talking to its worker',
+    match: /Timeout calling "?on\w+"?/i,
+    cause: 'Tests that block the worker (synchronous git or shell calls) for over 60 s in one file starve Vitest\'s reply channel; every test passes but the run fails.',
+    fix: 'repo',
+    remedy: 'Give the worker a pause after each test (a setup file with `afterEach(() => new Promise((r) => setImmediate(r)))`), or make the slow calls async.',
+  },
+  {
     id: 'network',
     title: 'It needs the network',
     match: /ENOTFOUND|EAI_AGAIN|getaddrinfo|Could not resolve host|network is unreachable|ECONNREFUSED|Failed to fetch|unable to access 'https?:/i,

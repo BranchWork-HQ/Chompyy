@@ -12,7 +12,7 @@ import type { Workspace } from './workspace.js';
 import { recordRun, usedBetween } from './costs.js';
 import { applyPermissions, type RunNeeds } from './permissions.js';
 import { tasteForPrompt } from './taste.js';
-import type { Verified } from './verify.js';
+import { boxTempDirs, type Verified } from './verify.js';
 
 /** Don't start a card with less than this much time left in the away run. */
 export const MIN_CARD_MS = 2 * 60_000;
@@ -63,7 +63,7 @@ export function sandboxSettings(ws: Workspace, allowedDomains: string[], cacheDi
       enabled: true,
       failIfUnavailable: true, // refuse to run rather than run unprotected
       allowUnsandboxedCommands: false, // no retrying outside the sandbox
-      filesystem: { allowWrite: [...(ws.gitDir ? [ws.gitDir] : []), ...(cacheDir ? [cacheDir] : [])], ...(denyRead.length ? { denyRead } : {}) },
+      filesystem: { allowWrite: [...(ws.gitDir ? [ws.gitDir] : []), ...(cacheDir ? [cacheDir] : []), ...boxTempDirs()], ...(denyRead.length ? { denyRead } : {}) },
       network: { allowedDomains },
       // Commands are confined by the sandbox, so local ones (tests, scripts) run without a prompt.
       // The deny list still blocks outward commands (push, publish, curl, …).
@@ -85,6 +85,9 @@ ${checks.length ? `
 ${checks.map((c) => `- in ${c.dir || 'the top folder'}: \`${c.label}\``).join('\n')}
 
 Run these, exactly as written. If one fails after your change, it's your change.
+After you finish, Chompyy runs them again itself and compares the result with main. So CHECKS: failed means
+your change broke something. If a check can't run at all (a permission or sandbox error, a missing download),
+that is not your change: write CHECKS: not run, with the error.
 ` : ''}${taste ? `
 # How this user likes work done (their taste.md; follow it unless the blueprint says otherwise)
 
