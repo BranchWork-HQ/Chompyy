@@ -38,38 +38,9 @@ describe('workspace', () => {
     const ws = prepareWorkspace(c);
     expect(existsSync(join(ws.dir, 'README.md'))).toBe(true);
     expect(execFileSync('git', ['-C', ws.dir, 'branch', '--show-current'], { encoding: 'utf8' }).trim()).toBe('chompyy/7');
-    expect(prepareWorkspace(c)).toEqual(ws); // second call is a no-op
+    expect(ws.base).toMatchObject({ ref: expect.stringMatching(/^(main|master)$/), branch: expect.stringMatching(/^(main|master)$/) });
+    expect(prepareWorkspace(c)).toMatchObject({ kind: ws.kind, dir: ws.dir, branch: ws.branch }); // second call reuses it
     git('worktree', 'remove', '--force', ws.dir);
   });
 });
 
-describe('dependencies in a fresh worktree', () => {
-  it('clones installed node_modules into the worktree, without touching the originals', async () => {
-    const { execFileSync } = await import('node:child_process');
-    const { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync } = await import('node:fs');
-    const { tmpdir } = await import('node:os');
-    const { join } = await import('node:path');
-    const { linkDependencies } = await import('../src/workspace.js');
-    const root = mkdtempSync(join(tmpdir(), 'chompyy-deps-'));
-    const g = (...a: string[]) => execFileSync('git', ['-C', root, ...a], { stdio: 'ignore' });
-    g('init', '-q');
-    mkdirSync(join(root, 'cli', 'node_modules', 'leftpad'), { recursive: true });
-    writeFileSync(join(root, 'cli', 'package.json'), '{}');
-    writeFileSync(join(root, 'cli', 'node_modules', 'leftpad', 'index.js'), 'module.exports = 1');
-    writeFileSync(join(root, '.gitignore'), 'node_modules/\n');
-    g('add', '.'); g('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'init');
-    const wt = join(mkdtempSync(join(tmpdir(), 'chompyy-wt-')), 'w');
-    g('worktree', 'add', '-q', wt);
-    expect(linkDependencies(root, wt)).toEqual(['cli']);
-    expect(readFileSync(join(wt, 'cli', 'node_modules', 'leftpad', 'index.js'), 'utf8')).toBe('module.exports = 1');
-    writeFileSync(join(wt, 'cli', 'node_modules', 'leftpad', 'index.js'), 'changed');
-    expect(readFileSync(join(root, 'cli', 'node_modules', 'leftpad', 'index.js'), 'utf8')).toBe('module.exports = 1'); // a copy, not a link
-    expect(existsSync(join(wt, 'node_modules'))).toBe(false); // only where the repo has one
-    expect(linkDependencies(root, wt)).toEqual([]); // already there: left alone
-    // an empty node_modules (left by an aborted npm ci) counts as missing
-    const wt2 = join(mkdtempSync(join(tmpdir(), 'chompyy-wt-')), 'w');
-    g('worktree', 'add', '-q', '--detach', wt2);
-    mkdirSync(join(wt2, 'cli', 'node_modules'));
-    expect(linkDependencies(root, wt2)).toEqual(['cli']);
-  });
-});

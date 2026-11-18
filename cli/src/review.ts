@@ -4,6 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Card } from './board.js';
+import { homePath } from './home.js';
 import { commitLeftovers, gitRoot, uncommittedWork } from './workspace.js';
 
 function git(cwd: string, args: string[]): string {
@@ -111,12 +112,49 @@ function removeWorktree(root: string, card: Card): void {
   if (existsSync(run.workdir)) git(root, ['worktree', 'remove', '--force', run.workdir]);
 }
 
-/** Merge the card's branch into the repo's current branch, then tidy up the worktree. */
+/**
+ * Where Keep lands a card that started from the latest main: the folder that has that branch open (merged there,
+ * with your unsaved work protected as before), else a temporary copy of the branch, so your folders aren't touched.
+ */
+export function landingFor(root: string, branch: string, id: string): { dir: string; temporary: boolean } {
+  const blocks = git(root, ['worktree', 'list', '--porcelain']).split('\n\n');
+  for (const b of blocks) {
+    const dir = b.match(/^worktree (.+)$/m)?.[1];
+    if (dir && b.includes(`\nbranch refs/heads/${branch}`) && existsSync(dir)) return { dir, temporary: false };
+  }
+  const has = (ref: string) => {
+    try {
+      git(root, ['rev-parse', '--verify', '--quiet', ref]);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  if (!has(`refs/heads/${branch}`)) {
+    if (!has(`refs/remotes/origin/${branch}`)) throw new Error(`There's no ${branch} branch in ${root} to keep this card on.`);
+    git(root, ['branch', branch, `origin/${branch}`]);
+  }
+  const dir = homePath('landing', id);
+  rmSync(dir, { recursive: true, force: true });
+  git(root, ['worktree', 'add', '--quiet', dir, branch]);
+  return { dir, temporary: true };
+}
+
+/** Merge the card's branch into the branch it started from (or, for older cards, the repo's current branch), then tidy up. */
 export function keepCard(card: Card): string {
   const run = ran(card);
   if (!run.branch) return `Card #${card.id} ran in a draft folder; copy what you want from ${run.workdir}`;
-  const root = gitRoot(card.cwd);
-  if (!root) throw new Error(`${card.cwd} is no longer a git repo.`);
+  const repo = gitRoot(card.cwd);
+  if (!repo) throw new Error(`${card.cwd} is no longer a git repo.`);
+  const landing = run.base?.branch ? landingFor(repo, run.base.branch, card.id) : { dir: repo, temporary: false };
+  const root = landing.dir;
+  const dropLanding = () => {
+    if (landing.temporary) {
+      try {
+        git(repo, ['worktree', 'remove', '--force', landing.dir]);
+      } catch {}
+    }
+  };
   // Your own unsaved work only blocks Keep when it touches the same files as the card (git's own rule),
   // or when something is staged (git won't put unrelated staged changes into a merge commit).
   const into = git(root, ['rev-parse', '--abbrev-ref', 'HEAD']);
@@ -128,15 +166,18 @@ export function keepCard(card: Card): string {
     const staged = git(root, ['diff', '--cached', '--name-only']).split('\n').filter(Boolean);
     const list = (fs: string[]) => fs.slice(0, 3).join(', ') + (fs.length > 3 ? ` and ${fs.length - 3} more` : '');
     if (clash.length) {
+      dropLanding();
       throw new Error(`Can't keep #${card.id} yet: it changes ${list(clash)}, and you have unsaved changes in ${clash.length === 1 ? 'that file' : 'those files'} in ${root} (branch ${into}). Commit or set them aside first, or press Undo to drop the card's work.`);
     }
     if (staged.length) {
+      dropLanding();
       throw new Error(`Can't keep #${card.id} yet: ${root} has staged changes (${list(staged)}) that a merge would mix in. Commit or unstage them first, or press Undo to drop the card's work.`);
     }
   }
   commitLeftovers({ kind: 'worktree', dir: run.workdir }, card); // older runs may have left work uncommitted
   const loose = uncommittedWork(run.workdir);
   if (loose.length) {
+    dropLanding();
     throw new Error(`The card's folder has uncommitted work that keep would lose: ${loose.slice(0, 5).join(', ')}. Commit it in ${run.workdir} first.`);
   }
   try {
@@ -145,12 +186,17 @@ export function keepCard(card: Card): string {
     try {
       git(root, ['merge', '--abort']);
     } catch {}
+    dropLanding();
     throw new Error(`${run.branch} conflicts with ${into}: another card or your own work changed the same lines. Nothing was changed. Run it again on top of the latest with \`chompyy redo ${card.id}\` (or merge by hand: git -C ${root} merge ${run.branch}).`);
   }
-  removeWorktree(root, card);
-  git(root, ['branch', '-d', run.branch]);
+  dropLanding();
+  removeWorktree(repo, card);
+  git(repo, ['branch', '-D', run.branch]); // merged just now (into the landing branch, which may not be this folder's)
   const note = yours.length ? ` Your ${yours.length} unsaved change${yours.length === 1 ? ' was' : 's were'} left as they were.` : '';
-  return `Kept #${card.id}: merged ${run.branch} into ${into}.${note} Undo it with \`git -C ${root} reset --hard HEAD~1\`.`;
+  if (landing.temporary) {
+    return `Kept #${card.id}: merged ${run.branch} into ${into} (none of your folders has ${into} open, so they weren't touched).${note} Undo it with \`git -C ${repo} branch -f ${into} ${into}~1\`.`;
+  }
+  return `Kept #${card.id}: merged ${run.branch} into ${into}${root !== repo ? ` in ${root}` : ''}.${note} Undo it with \`git -C ${root} reset --hard HEAD~1\`.`;
 }
 
 /** Throw the run away: remove the worktree and branch (or the draft folder). */
