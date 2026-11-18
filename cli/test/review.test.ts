@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
@@ -146,10 +146,28 @@ describe('keep and undo', () => {
     expect(commitLeftovers({ kind: 'worktree', dir }, card)).toBe(false);
   });
 
-  it('keep refuses when the repo has uncommitted changes', () => {
-    const { repo, card } = setup('7');
+  it('keep works around your unsaved changes in other files, and leaves them alone', () => {
+    const { repo, card, git } = setup('7');
     writeFileSync(join(repo, 'README.md'), '# edited\n');
-    expect(() => keepCard(card)).toThrow(/uncommitted changes/);
+    writeFileSync(join(repo, 'scratch.txt'), 'mine\n');
+    expect(keepCard(card)).toMatch(/Kept #7: merged .* Your 2 unsaved changes were left as they were\./);
+    expect(readFileSync(join(repo, 'README.md'), 'utf8')).toBe('# edited\n');
+    expect(existsSync(join(repo, 'NEW.md'))).toBe(true);
+    expect(git(repo, 'status', '--porcelain')).toMatch(/README.md[\s\S]*scratch.txt/);
+  });
+
+  it('keep refuses when your unsaved changes touch the same files as the card', () => {
+    const { repo, card } = setup('7');
+    writeFileSync(join(repo, 'NEW.md'), 'mine\n');
+    expect(() => keepCard(card)).toThrow(/Can't keep #7 yet: it changes NEW.md, and you have unsaved changes in that file .*press Undo/);
+    expect(readFileSync(join(repo, 'NEW.md'), 'utf8')).toBe('mine\n');
+  });
+
+  it('keep refuses when something is staged', () => {
+    const { repo, card, git } = setup('7');
+    writeFileSync(join(repo, 'README.md'), '# staged\n');
+    git(repo, 'add', 'README.md');
+    expect(() => keepCard(card)).toThrow(/staged changes \(README.md\)/);
   });
 
   it('undo removes the branch and leaves your branch untouched', () => {

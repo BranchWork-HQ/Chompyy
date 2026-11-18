@@ -28,36 +28,60 @@ final class Store: ObservableObject {
     var needsYou: [Card] { cards.filter(\.needsYou) }
     var selectedCard: Card? { cards.first { $0.id == selectedCardID } }
 
+    /// How Chompyy feels right now (drives the cookie's face).
+    var cookieMood: CookieMood? {
+        guard let q = state?.quota.fiveHour else { return nil }
+        return CookieMood.from(left: fiveHourLeft, msLeft: q.msLeft, fresh: q.isFresh)
+    }
+
     /// Fraction of the 5-hour window left, 0...1 (nil when unknown).
     var fiveHourLeft: Double? {
-        guard let q = state?.quota.fiveHour, q.known, let left = q.leftPct else { return nil }
+        guard let q = state?.quota.fiveHour else { return nil }
+        if q.isFresh { return 1 }
+        guard q.known, let left = q.leftPct else { return nil }
         return max(0, min(1, left / 100))
     }
 
     func refresh(forceQuota: Bool = false) async {
         let args = forceQuota ? ["state", "--refresh"] : ["state"]
+        if forceQuota { busy.insert("refresh") }
+        defer { if forceQuota { busy.remove("refresh") } }
         do {
             let result = try await Task.detached { try CLI.run(args) }.value
-            guard result.ok else { error = result.message; return }
+            guard result.ok else { error = result.message; if forceQuota { show(result.message) }; return }
             state = try JSONDecoder().decode(AppState.self, from: Data(result.out.utf8))
             error = nil
+            // Say what the button did; when the check failed, also say how old the numbers on screen are.
+            if forceQuota, let r = state?.quotaRefresh {
+                let age = state?.quota.age().map { " Showing numbers from \($0)." } ?? ""
+                show(r.ok ? "Quota updated from Anthropic just now." : r.message + age)
+            }
             if let p = awayProcess, !p.isRunning { awayProcess = nil }
         } catch {
             self.error = error.localizedDescription
         }
     }
 
-    /// Run a card action, show its message, then refresh.
-    func act(_ key: String, _ args: [String], stdin: String? = nil, cwd: String? = nil) async {
+    /// Run a card action, show its message, then refresh. Returns whether it worked.
+    @discardableResult
+    func act(_ key: String, _ args: [String], stdin: String? = nil, cwd: String? = nil) async -> Bool {
         busy.insert(key)
         defer { busy.remove(key) }
+        var ok = false
         do {
             let result = try await Task.detached { try CLI.run(args, stdin: stdin, cwd: cwd) }.value
+            ok = result.ok
             show(result.message)
         } catch {
             show(error.localizedDescription)
         }
         await refresh()
+        return ok
+    }
+
+    /// Keep, undo and run-again finish with the card: close it so you see it land in its new column.
+    func finish(_ key: String, _ args: [String], card id: String) async {
+        if await act(key, args), selectedCardID == id { selectedCardID = nil }
     }
 
     func show(_ message: String) {

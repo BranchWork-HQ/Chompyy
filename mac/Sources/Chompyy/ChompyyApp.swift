@@ -44,13 +44,16 @@ struct MenuPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 14) {
-                CookieView(left: store.fiveHourLeft, size: 64)
+                CookieView(left: store.fiveHourLeft, size: 64, mood: store.cookieMood)
                 VStack(alignment: .leading, spacing: 3) {
                     if let five = store.state?.quota.fiveHour, five.known, let left = five.leftPct {
                         Text("\(Int(left.rounded()))% left").font(.title2.weight(.semibold))
                         if let reset = five.resetDate {
                             Text("Resets at \(reset.formatted(date: .omitted, time: .shortened))").foregroundStyle(.secondary)
                         }
+                    } else if let five = store.state?.quota.fiveHour, five.isFresh {
+                        Text("100% left").font(.title2.weight(.semibold))
+                        Text(five.freshHint).font(.caption).foregroundStyle(.secondary).lineLimit(3)
                     } else {
                         Text("Window unknown").font(.title3.weight(.semibold))
                         Text(store.state?.quota.note ?? store.error ?? "Reading quota…")

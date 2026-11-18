@@ -117,15 +117,28 @@ export function keepCard(card: Card): string {
   if (!run.branch) return `Card #${card.id} ran in a draft folder; copy what you want from ${run.workdir}`;
   const root = gitRoot(card.cwd);
   if (!root) throw new Error(`${card.cwd} is no longer a git repo.`);
-  if (git(root, ['status', '--porcelain'])) {
-    throw new Error(`${root} has uncommitted changes. Commit or set them aside first, then run keep again.`);
+  // Your own unsaved work only blocks Keep when it touches the same files as the card (git's own rule),
+  // or when something is staged (git won't put unrelated staged changes into a merge commit).
+  const into = git(root, ['rev-parse', '--abbrev-ref', 'HEAD']);
+  const yours = [...new Set(git(root, ['status', '--porcelain', '--untracked-files=all']).split('\n').filter(Boolean)
+    .map((l) => l.trim().replace(/^\S+\s+/, '').replace(/^.* -> /, '')))];
+  if (yours.length) {
+    const theirs = new Set(git(root, ['diff', '--name-only', `HEAD...${run.branch}`]).split('\n').filter(Boolean));
+    const clash = yours.filter((f) => theirs.has(f));
+    const staged = git(root, ['diff', '--cached', '--name-only']).split('\n').filter(Boolean);
+    const list = (fs: string[]) => fs.slice(0, 3).join(', ') + (fs.length > 3 ? ` and ${fs.length - 3} more` : '');
+    if (clash.length) {
+      throw new Error(`Can't keep #${card.id} yet: it changes ${list(clash)}, and you have unsaved changes in ${clash.length === 1 ? 'that file' : 'those files'} in ${root} (branch ${into}). Commit or set them aside first, or press Undo to drop the card's work.`);
+    }
+    if (staged.length) {
+      throw new Error(`Can't keep #${card.id} yet: ${root} has staged changes (${list(staged)}) that a merge would mix in. Commit or unstage them first, or press Undo to drop the card's work.`);
+    }
   }
   commitLeftovers({ kind: 'worktree', dir: run.workdir }, card); // older runs may have left work uncommitted
   const loose = uncommittedWork(run.workdir);
   if (loose.length) {
     throw new Error(`The card's folder has uncommitted work that keep would lose: ${loose.slice(0, 5).join(', ')}. Commit it in ${run.workdir} first.`);
   }
-  const into = git(root, ['rev-parse', '--abbrev-ref', 'HEAD']);
   try {
     git(root, ['merge', '--no-ff', '-m', `Keep Chompyy card #${card.id}: ${card.title}`, run.branch]);
   } catch {
@@ -136,7 +149,8 @@ export function keepCard(card: Card): string {
   }
   removeWorktree(root, card);
   git(root, ['branch', '-d', run.branch]);
-  return `Kept #${card.id}: merged ${run.branch} into ${into}. Undo it with \`git -C ${root} reset --hard HEAD~1\`.`;
+  const note = yours.length ? ` Your ${yours.length} unsaved change${yours.length === 1 ? ' was' : 's were'} left as they were.` : '';
+  return `Kept #${card.id}: merged ${run.branch} into ${into}.${note} Undo it with \`git -C ${root} reset --hard HEAD~1\`.`;
 }
 
 /** Throw the run away: remove the worktree and branch (or the draft folder). */

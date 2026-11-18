@@ -1,5 +1,6 @@
 // What the Mac app reads (`chompyy state --json`) and the card actions it needs beyond the CLI's.
 // The app holds no logic of its own: it shows this JSON and calls chompyy commands.
+import { execFileSync } from 'node:child_process';
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { getCard, type BoardData, type Card } from './board.js';
@@ -24,6 +25,8 @@ export interface CardView extends Card {
   pictureStale: boolean;
   /** Expected cost from similar past runs, for cards that haven't run. */
   costRange: CostRange | null;
+  /** For cards waiting for review: the branch your folder is on, which Keep merges into. */
+  folderBranch: string | null;
 }
 
 export function cardView(card: Card, runs: RunRecord[] = readRuns()): CardView {
@@ -34,7 +37,17 @@ export function cardView(card: Card, runs: RunRecord[] = readRuns()): CardView {
     questionsText: qPath && existsSync(qPath) ? readFileSync(qPath, 'utf8') : null,
     pictureStale: Boolean(card.picture && card.picture.blueprintHash !== blueprintHash(card.blueprint)),
     costRange: card.run ? null : costRange(card, runs),
+    folderBranch: card.column === 'review' && card.run?.branch ? currentBranch(card.cwd) : null,
   };
+}
+
+/** The branch a folder is on (what Keep merges into), or null. */
+function currentBranch(cwd: string): string | null {
+  try {
+    return execFileSync('git', ['-C', cwd, 'rev-parse', '--abbrev-ref', 'HEAD'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() || null;
+  } catch {
+    return null;
+  }
 }
 
 export function appState(board: BoardData, snap: Snapshot | null, config: Config, now: Date) {

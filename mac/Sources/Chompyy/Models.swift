@@ -7,6 +7,13 @@ struct AppState: Decodable {
     let gate: Gate
     let cards: [Card]
     let coldStart: ColdStartState?
+    /// Set only after a forced refresh: what the live quota check did.
+    let quotaRefresh: QuotaRefresh?
+}
+
+struct QuotaRefresh: Decodable {
+    let ok: Bool
+    let message: String
 }
 
 struct Quota: Decodable {
@@ -16,6 +23,22 @@ struct Quota: Decodable {
     let note: String?
     let fiveHour: WindowView
     let sevenDay: WindowView
+
+    var capturedDate: Date? {
+        guard let capturedAt else { return nil }
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f.date(from: capturedAt) ?? ISO8601DateFormatter().date(from: capturedAt)
+    }
+
+    /// "just now", "4 min ago", "2 h ago": how old the numbers on screen are.
+    func age(now: Date = Date()) -> String? {
+        guard let d = capturedDate else { return nil }
+        let s = max(0, now.timeIntervalSince(d))
+        if s < 90 { return "just now" }
+        if s < 3600 { return "\(Int(s / 60)) min ago" }
+        return "\(Int(s / 3600)) h ago"
+    }
 }
 
 struct WindowView: Decodable {
@@ -28,6 +51,16 @@ struct WindowView: Decodable {
     let resetsAt: Double?
 
     var resetDate: Date? { resetsAt.map { Date(timeIntervalSince1970: $0) } }
+
+    /// The last window has reset and no new one has started: all of it is left, and the next
+    /// Claude Code message starts the clock. (Chompyy never sends one just to check.)
+    var isFresh: Bool { !known && reason == "stale" }
+
+    /// One line under the % for a fresh window.
+    var freshHint: String {
+        let at = resetDate.map { " · the last one reset at \($0.formatted(date: .omitted, time: .shortened))" } ?? ""
+        return "A new window starts with your next Claude Code message\(at)"
+    }
 }
 
 struct Gate: Decodable {
@@ -68,6 +101,8 @@ struct Card: Decodable, Identifiable, Hashable {
     let title: String
     let idea: String
     let cwd: String
+    /// The branch your folder is on now, which Keep merges into (cards waiting for review only).
+    let folderBranch: String?
     let column: String
     let blueprint: String?
     let blueprintError: String?

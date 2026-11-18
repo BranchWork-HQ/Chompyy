@@ -154,17 +154,17 @@ struct CardDetail: View {
                 } label: { Label("See the change", systemImage: "doc.text.magnifyingglass") }
                 Spacer()
                 Button {
-                    Task { await store.act("keep\(card.id)", ["keep", card.id]) }
+                    Task { await store.finish("keep\(card.id)", ["keep", card.id], card: card.id) }
                 } label: { Label("Keep", systemImage: "tray.and.arrow.down.fill") }
                 .buttonStyle(.borderedProminent).tint(Brand.ok)
                 Button {
-                    Task { await store.act("redo\(card.id)", ["redo", card.id]) }
+                    Task { await store.finish("redo\(card.id)", ["redo", card.id], card: card.id) }
                 } label: { Label("Run again", systemImage: "arrow.clockwise") }
                 .help("Throw this attempt away and run it again from your latest code (answers are kept)")
                 Button(role: .destructive) { confirmUndo = true } label: { Label("Undo", systemImage: "arrow.uturn.backward") }
                     .confirmationDialog("Throw this run away?", isPresented: $confirmUndo) {
                         Button("Undo the run", role: .destructive) {
-                            Task { await store.act("undo\(card.id)", ["undo", card.id]) }
+                            Task { await store.finish("undo\(card.id)", ["undo", card.id], card: card.id) }
                         }
                     } message: { Text("Removes its branch and folder. Your own branches are never touched.") }
             }
@@ -488,7 +488,7 @@ struct WhereItWorks: View {
             Label("Where it works", systemImage: "shield.lefthalf.filled").font(.headline)
             Text(explanation).font(.callout).foregroundStyle(.secondary)
             HStack(spacing: 6) {
-                pathRow("Your folder", (card.cwd as NSString).abbreviatingWithTildeInPath, "untouched until you press Keep")
+                pathRow("Your folder", (card.cwd as NSString).abbreviatingWithTildeInPath, card.folderBranch.map { "branch \($0) · Keep merges into it" } ?? "untouched until you press Keep")
             }
             HStack(spacing: 6) {
                 pathRow("Its copy", (copyPath as NSString).abbreviatingWithTildeInPath, "branch \(branch)")

@@ -52,9 +52,11 @@ describe('live quota', () => {
     const limited = async () => (calls++, { quota: { ...connected(0, 0), connection: 'transientFailure' as const, details: [] }, retryAfterSeconds: 300 });
     const r = await refreshLiveQuota({ now: NOW, fetchQuota: limited, force: true });
     expect(r.ok).toBe(false);
+    expect(r.message).toMatch(/limits how often quota can be checked; next check after/);
     expect(loadSnapshot()?.fiveHour?.usedPct).toBe(50);
-    await refreshLiveQuota({ now: new Date(NOW.getTime() + 60_000), fetchQuota: limited, force: true });
+    const again = await refreshLiveQuota({ now: new Date(NOW.getTime() + 60_000), fetchQuota: limited, force: true });
     expect(calls).toBe(1);
+    expect(again.message).toMatch(/next check after/);
   });
 
   it('logs blueprint edits as taste signals and refuses empty ones', () => {
