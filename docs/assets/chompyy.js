@@ -198,7 +198,7 @@ function mount(host) {
     let tx = 0, ty = 0;
     if (mouse && t - lastMove < 4 && !reduced) {
       const dx = mouse.x - (box.left + box.width / 2), dy = mouse.y - (box.top + box.height / 2);
-      const d = Math.hypot(dx, dy), reach = Math.min(1, d / (box.width * 2));
+      const d = Math.hypot(dx, dy), reach = Math.min(1, d / (box.width * 0.9));
       if (d > 0.1) { tx = dx / d * reach; ty = dy / d * reach; }
     }
     pupils.forEach((pp) => pp.step(tx, ty, dt));
@@ -209,8 +209,8 @@ function mount(host) {
     const yawS = Math.max(0.8, 1 - Math.abs(pose.yaw) * 0.005), pitchS = Math.max(0.9, 1 - Math.abs(pose.pitch) * 0.0025);
     [pose.l, pose.r].forEach((eye, i) => {
       const dir = i === 0 ? -1 : 1;
-      const x = dir * 21 + pose.gx + eye.x + pupils[i].x * 9;
-      const y = -10 + pose.gy + eye.y + pupils[i].y * 7;
+      const x = dir * 21 + pose.gx + eye.x + pupils[i].x * 24;
+      const y = -10 + pose.gy + eye.y + pupils[i].y * 20;
       const cx = x * yawS + pose.yaw * (y / 135) * 0.18 + pose.yaw * 0.16, cy = y * pitchS;
       const w = Math.max(2, 23 * eye.sx * yawS) * k, h = Math.max(2, 56 * eye.sy * pitchS) * k;
       const ex = ox + cx * k, ey = oy + cy * k;
