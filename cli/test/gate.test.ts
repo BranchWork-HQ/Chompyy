@@ -45,9 +45,23 @@ describe('budgetGate', () => {
     expect(budgetGate(snap(40, 40, 3600, 4.5 * day), { ...cfg, weeklyPace: false }, NOW).ok).toBe(true);
   });
 
-  it('closes without a snapshot or with a stale one: running would start a new window', () => {
+  it('closes without a snapshot', () => {
     expect(budgetGate(null, cfg, NOW).reasons[0]).toMatch(/no quota snapshot/);
-    expect(budgetGate(snap(10, 10, -5), cfg, NOW).reasons[0]).toMatch(/has reset/);
+  });
+
+  // 2026-11-18: "I pressed Away for 30m but nothing happened": the window had reset at 19:00 and the gate
+  // called it unknown. A reset window that nothing has restarted is a whole fresh window.
+  it('opens on a reset window when the week is known, and says it starts a fresh one', () => {
+    const day = 86_400;
+    const g = budgetGate(snap(10, 20, -5, 4.5 * day), cfg, NOW);
+    expect(g.ok).toBe(true);
+    expect(g.notes[0]).toMatch(/starts a fresh one/);
+    // the weekly checks still apply
+    expect(budgetGate(snap(10, 40, -5, 4.5 * day), cfg, NOW).reasons[0]).toMatch(/ahead of pace/);
+  });
+
+  it('stays closed on a reset window when weekly usage is unknown too', () => {
+    expect(budgetGate(snap(10, undefined, -5), cfg, NOW).reasons[0]).toMatch(/has reset and weekly usage is unknown/);
   });
 
   it('notes but allows an unknown weekly window', () => {

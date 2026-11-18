@@ -68,6 +68,18 @@ v1 triggers:
 
 Before offering, check the weekly limit by **staying on pace**: run only while weekly usage is behind an even pace through the week (2.5 days into a 7-day week, under ~36% used). That spends only what you haven't used so far and never borrows from the days ahead. A hard stop at 90% weekly used applies whatever the pace. (Decided 2026-11-14, replacing "keep 10% of the remaining weekly allowance", which shrinks as you spend.) An unused window is only lost if the weekly limit isn't binding, so measure how often that's true from real logs before claiming savings.
 
+### 5.2a Rolling daily allowance and `/away` slots
+
+Approved design, not built yet (FEATURES.md line 91, status 📋).
+
+- **Rule:** `today = remaining weekly ÷ days left` (FEATURES.md line 91). Example, using the §5.2 point of 2.5 days into a 7-day week: with 30% used, 70% remains over 4.5 days left, so today's allowance is 70 ÷ 4.5 ≈ 15.6% of the weekly limit. The figures are only there to show the arithmetic.
+- **Display only:** the allowance appears as an "on pace / ahead / behind" bar (FEATURES.md line 91). It doesn't change any gate: the stay-on-pace check and the 90% hard stop in §5.2 decide on their own (FEATURES.md lines 88–89).
+- **When the day ends:** at your bedtime, the same bedtime that sets quiet hours (FEATURES.md lines 91, 206). Allowance you didn't spend during the day carries into the night (FEATURES.md line 91). Still to confirm: what resets at bedtime, and what happens if no bedtime is set.
+- **`/away` slots:** a card starts only when both of these allow it (FEATURES.md line 90, §5.2 trigger 2):
+  1. the `/away <duration>` slot has room for the card, and
+  2. at least the 5-hour minimum is left (default 10%).
+  The weekly gates in §5.2 still apply (FEATURES.md lines 88–89). Still to confirm: the exact slot length, and how much room a card needs before it can start.
+
 ### 5.3 The board
 
 ```

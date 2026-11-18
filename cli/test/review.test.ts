@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
@@ -146,10 +146,41 @@ describe('keep and undo', () => {
     expect(commitLeftovers({ kind: 'worktree', dir }, card)).toBe(false);
   });
 
-  it('keep refuses when the repo has uncommitted changes', () => {
-    const { repo, card } = setup('7');
+  // 2026-11-18: Keep failed on cards #20 and #21 with "paths are ignored by one of your .gitignore files: .claude".
+  it('commitLeftovers works when the repo also gitignores .claude', () => {
+    const { card, git } = setup('20');
+    const dir = card.run!.workdir;
+    writeFileSync(join(dir, '.gitignore'), '.claude\n');
+    mkdirSync(join(dir, '.claude'), { recursive: true });
+    writeFileSync(join(dir, '.claude', 'settings.json'), '{}');
+    writeFileSync(join(dir, 'with space.md'), 'x\n');
+    expect(commitLeftovers({ kind: 'worktree', dir }, card)).toBe(true);
+    expect(git(dir, 'show', '--name-only', '--format=', 'HEAD').split('\n').sort()).toEqual(['.gitignore', 'with space.md']);
+    expect(uncommittedWork(dir)).toEqual([]);
+  });
+
+  it('keep works around your unsaved changes in other files, and leaves them alone', () => {
+    const { repo, card, git } = setup('7');
     writeFileSync(join(repo, 'README.md'), '# edited\n');
-    expect(() => keepCard(card)).toThrow(/uncommitted changes/);
+    writeFileSync(join(repo, 'scratch.txt'), 'mine\n');
+    expect(keepCard(card)).toMatch(/Kept #7: merged .* Your 2 unsaved changes were left as they were\./);
+    expect(readFileSync(join(repo, 'README.md'), 'utf8')).toBe('# edited\n');
+    expect(existsSync(join(repo, 'NEW.md'))).toBe(true);
+    expect(git(repo, 'status', '--porcelain')).toMatch(/README.md[\s\S]*scratch.txt/);
+  });
+
+  it('keep refuses when your unsaved changes touch the same files as the card', () => {
+    const { repo, card } = setup('7');
+    writeFileSync(join(repo, 'NEW.md'), 'mine\n');
+    expect(() => keepCard(card)).toThrow(/Can't keep #7 yet: it changes NEW.md, and you have unsaved changes in that file .*press Undo/);
+    expect(readFileSync(join(repo, 'NEW.md'), 'utf8')).toBe('mine\n');
+  });
+
+  it('keep refuses when something is staged', () => {
+    const { repo, card, git } = setup('7');
+    writeFileSync(join(repo, 'README.md'), '# staged\n');
+    git(repo, 'add', 'README.md');
+    expect(() => keepCard(card)).toThrow(/staged changes \(README.md\)/);
   });
 
   it('undo removes the branch and leaves your branch untouched', () => {
@@ -160,5 +191,19 @@ describe('keep and undo', () => {
     expect(existsSync(card.run!.workdir)).toBe(false);
     expect(git(repo, 'rev-parse', 'HEAD')).toBe(before);
     expect(existsSync(join(repo, 'NEW.md'))).toBe(false);
+  });
+});
+
+describe('report extras', () => {
+  it('puts the morning line on top and the one question and trends below', async () => {
+    const { morningLine } = await import('../src/report.js');
+    const card = { id: '1', title: 't', outcome: 'kept', run: { status: 'ok', durationMs: 60_000, finishedAt: '2026-11-13T00:00:00Z', cost: { fiveHourPct: 7.4, weeklyPct: 1 } } } as never;
+    const line = morningLine([card], { learned: 1, retired: 1, toAsk: 0 })!;
+    expect(line).toBe('Since last time: 1 card ran, 1 kept, using 7% of 5h windows · taste: 1 learned, 1 retired');
+    const text = formatReport([card], null, () => ({ files: [], questions: [] }), { header: [line], footer: ['💭 question'] });
+    expect(text.split('\n').slice(0, 2)).toEqual(['🍪 While you were away · 1 card', line]);
+    expect(text.endsWith('\n\n💭 question')).toBe(true);
+    expect(formatReport([], 'x', () => ({ files: [], questions: [] }), { footer: ['💭 q'] })).toBe('Nothing new since your last report.\n\n💭 q');
+    expect(morningLine([], { learned: 0, retired: 0, toAsk: 2 })).toBeNull();
   });
 });

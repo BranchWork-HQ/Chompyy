@@ -60,7 +60,7 @@ struct PictureWeb: NSViewRepresentable {
             source: "var s=document.createElement('style');s.textContent=`\(css)`;document.head.appendChild(s);" + Self.crop,
             injectionTime: .atDocumentEnd, forMainFrameOnly: true)
         config.userContentController.addUserScript(script)
-        let web = WKWebView(frame: .zero, configuration: config)
+        let web = PassThroughWebView(frame: .zero, configuration: config)
         web.navigationDelegate = context.coordinator
         web.setValue(false, forKey: "drawsBackground")
         web.loadFileURL(file, allowingReadAccessTo: file.deletingLastPathComponent())
@@ -95,5 +95,13 @@ struct PictureWeb: NSViewRepresentable {
                 decisionHandler(.allow)
             }
         }
+    }
+}
+
+/// The picture is sized to fit, so it never needs to scroll itself. Hand the wheel and trackpad
+/// scrolling to the card around it, so scrolling over the diagram scrolls the card instead of sticking.
+final class PassThroughWebView: WKWebView {
+    override func scrollWheel(with event: NSEvent) {
+        nextResponder?.scrollWheel(with: event)
     }
 }

@@ -1,9 +1,12 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { addCard, awayQueue, canMove, dropCard, formatBoard, loadBoard, moveCard, recoverRunning, updateBoard, type BoardData } from '../src/board.js';
+import { addCard, awayQueue, canMove, cardDir, claimDrafts, dropCard, formatBoard, formatCard, loadBoard, moveCard, noteDraftFailure, quotaWaitReason, recoverRunning, updateBoard, workspaceFolder, workspaceOf, type BoardData } from '../src/board.js';
+import { windowView } from '../src/quota.js';
+import { writeBlueprintFile } from '../src/blueprint.js';
+import { writeFileSync } from 'node:fs';
 import { cardsSince, rateCard, readTaste } from '../src/report.js';
-import { NOW, useTempHome } from './helpers.js';
+import { NOW, nowSec, useTempHome } from './helpers.js';
 
 const empty = (): BoardData => ({ nextId: 1, cards: [] });
 
@@ -75,6 +78,125 @@ describe('board', () => {
   });
 });
 
+describe('drafting with no quota left', () => {
+  const empty5h = windowView({ usedPct: 100, resetsAt: nowSec + 40 * 60 }, NOW);
+  const some5h = windowView({ usedPct: 60, resetsAt: nowSec + 40 * 60 }, NOW);
+
+  it('only waits when a running window has 0% left', () => {
+    expect(quotaWaitReason(empty5h)).toMatch(/^waiting for quota: the 5-hour window is used up, drafts after it resets at \d\d:\d\d$/);
+    expect(quotaWaitReason(some5h)).toBeNull();
+    expect(quotaWaitReason(windowView(undefined, NOW))).toBeNull();
+  });
+
+  it('a later card with 0% left gets the reason and no draft is started; it drafts once quota returns', () => {
+    const b = empty();
+    const c = addCard(b, 'parked idea', '/r', NOW);
+    expect(claimDrafts(b, NOW, quotaWaitReason(empty5h))).toEqual([]); // [] = no model call
+    expect(c.blueprintWaiting).toMatch(/waiting for quota/);
+    expect(c.draftingAt).toBeUndefined();
+
+    const later = new Date(NOW.getTime() + 41 * 60_000);
+    expect(claimDrafts(b, later, quotaWaitReason(some5h))).toEqual(['1']);
+    expect(c.draftingAt).toBe(later.toISOString());
+    expect(c.blueprintWaiting).toBeUndefined();
+  });
+
+  it('shows the reason instead of a bare "no blueprint"', () => {
+    const b = empty();
+    const c = addCard(b, 'parked idea', '/r', NOW);
+    claimDrafts(b, NOW, quotaWaitReason(empty5h));
+    expect(formatBoard(b)).toContain('[waiting for quota]');
+    expect(formatBoard(b)).not.toContain('no blueprint');
+    expect(formatCard(c)).toMatch(/\(no blueprint yet: waiting for quota: the 5-hour window is used up/);
+  });
+
+  it('a draft that hit the usage limit stays retryable (no blueprintError) and is picked up after the reset', () => {
+    const b = empty();
+    const c = addCard(b, 'parked idea', '/r', NOW);
+    claimDrafts(b, NOW, null);
+    const reset = new Date(NOW.getTime() + 40 * 60_000);
+    noteDraftFailure(b, '1', 'claude exited with 1: Claude AI usage limit reached|1763470800', true, reset);
+    expect(c.blueprintError).toBeUndefined();
+    expect(c.draftingAt).toBeUndefined();
+    expect(c.blueprintWaiting).toMatch(/usage limit was hit, retries after/);
+    expect(claimDrafts(b, new Date(NOW.getTime() + 5 * 60_000), null)).toEqual([]); // not before the reset
+    expect(claimDrafts(b, reset, null)).toEqual(['1']);
+  });
+
+  it('any other failure is still marked failed and not retried', () => {
+    const b = empty();
+    const c = addCard(b, 'parked idea', '/r', NOW);
+    noteDraftFailure(b, '1', 'claude exited with 1: auth error', false, NOW);
+    expect(c.blueprintError).toMatch(/auth error/);
+    expect(claimDrafts(b, NOW, null)).toEqual([]);
+    expect(formatBoard(b)).toContain('blueprint failed');
+  });
+});
+
+describe('workspaces', () => {
+  const home = useTempHome();
+
+  it('puts a card with no workspace in unsorted', () => {
+    const b = empty();
+    const card = addCard(b, 'no branch here', '/r', NOW);
+    expect(card.workspace).toBe('unsorted');
+    expect(workspaceOf({})).toBe('unsorted');
+    expect(workspaceOf({ workspace: '  ' })).toBe('unsorted');
+    expect(cardDir(card)).toBe(join(home(), 'cards', 'unsorted', '1'));
+  });
+
+  it('gives two workspaces separate folders, and writes the blueprint there', () => {
+    const b = empty();
+    const a = addCard(b, 'login fix', '/r', NOW, 'later', 'feat/login');
+    const c = addCard(b, 'docs typo', '/r', NOW, 'later', 'main');
+    expect(cardDir(a)).toBe(join(home(), 'cards', 'feat-login', '1'));
+    expect(cardDir(c)).toBe(join(home(), 'cards', 'main', '2'));
+    expect(cardDir(a, '/store')).toBe(join('/store', 'feat-login', '1'));
+    const path = writeBlueprintFile(a, '## Goal\nfix login');
+    expect(path).toBe(join(home(), 'cards', 'feat-login', '1', 'blueprint.md'));
+    expect(readFileSync(path, 'utf8')).toBe('## Goal\nfix login\n');
+  });
+
+  it('never makes a folder name that climbs out of the store', () => {
+    expect(workspaceFolder('../../etc')).toBe('etc');
+    expect(workspaceFolder('..')).toBe('unsorted');
+    expect(workspaceFolder('chompyy/19')).toBe('chompyy-19');
+  });
+
+  it('groups the listing under one header per workspace, unsorted last', () => {
+    const b = empty();
+    addCard(b, 'loose idea', '/r', NOW);
+    addCard(b, 'login fix', '/r', NOW, 'later', 'feat/login');
+    addCard(b, 'login test', '/r', NOW, 'later', 'feat/login').blueprint = 'bp';
+    moveCard(b, '3', 'approved', NOW);
+    addCard(b, 'docs typo', '/r', NOW, 'later', 'main');
+    const text = formatBoard(b);
+    const lines = text.split('\n');
+    const at = (s: string) => lines.findIndex((l) => l.includes(s));
+    expect(lines.filter((l) => /^\[/.test(l))).toEqual(['[feat/login] (2)', '[main] (1)', '[unsorted] (1)']);
+    expect(at('login fix')).toBeGreaterThan(at('[feat/login]'));
+    expect(at('login test')).toBeLessThan(at('[main]'));
+    expect(at('docs typo')).toBeGreaterThan(at('[main]'));
+    expect(at('loose idea')).toBeGreaterThan(at('[unsorted]'));
+    // A column filter leaves out workspaces with nothing in it.
+    expect(formatBoard(b, ['approved'])).toBe(`[feat/login] (1)\n✅ approved (1)\n${lines[at('login test')]}`);
+  });
+
+  it('still loads an old board whose cards have no workspace, as unsorted', () => {
+    const old = {
+      nextId: 2,
+      cards: [{ id: '1', title: 'old idea', idea: 'old idea', cwd: '/r', column: 'later', blueprint: null, createdAt: NOW.toISOString(), updatedAt: NOW.toISOString() }],
+    };
+    writeFileSync(join(home(), 'board.json'), JSON.stringify(old));
+    const b = loadBoard();
+    expect(b.cards[0]!.workspace).toBeUndefined();
+    expect(workspaceOf(b.cards[0]!)).toBe('unsorted');
+    expect(cardDir(b.cards[0]!)).toBe(join(home(), 'cards', 'unsorted', '1'));
+    expect(formatBoard(b)).toContain('[unsorted] (1)');
+    expect(formatCard(b.cards[0]!)).toContain('workspace: unsorted');
+  });
+});
+
 describe('rating', () => {
   const home = useTempHome();
 
@@ -114,12 +236,14 @@ describe('rating', () => {
 
 describe('recoverRunning', () => {
   useTempHome();
-  it('puts cards stuck in running back to approved', () => {
+  it('moves cards stuck in running to review as an error, with where their work is', () => {
     const b = { nextId: 3, cards: [
       { id: '1', title: 'a', idea: 'a', cwd: '/x', column: 'running', blueprint: 'bp', createdAt: '', updatedAt: '' },
       { id: '2', title: 'b', idea: 'b', cwd: '/x', column: 'review', blueprint: 'bp', createdAt: '', updatedAt: '' },
     ] } as unknown as BoardData;
-    expect(recoverRunning(b, NOW)).toEqual(['1']);
-    expect(b.cards.map((c) => c.column)).toEqual(['approved', 'review']);
+    expect(recoverRunning(b, NOW, () => ({ dir: '/wt/1', branch: 'chompyy/1' }))).toEqual(['1']);
+    expect(b.cards.map((c) => c.column)).toEqual(['review', 'review']);
+    expect(b.cards[0]!.run).toMatchObject({ status: 'error', workdir: '/wt/1', branch: 'chompyy/1', exitCode: null });
+    expect(b.cards[0]!.run!.summary).toMatch(/stopped in the middle/);
   });
 });

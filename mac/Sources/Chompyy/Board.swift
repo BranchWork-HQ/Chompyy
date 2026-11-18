@@ -25,14 +25,8 @@ struct BoardView: View {
                 .background(Brand.boardBackground)
             }
         }
+        .overlay { CardOverlay() }
         .overlay(alignment: .bottom) { Toast() }
-        .sheet(isPresented: Binding(get: { store.selectedCard != nil }, set: { if !$0 { store.selectedCardID = nil } })) {
-            if let card = store.selectedCard {
-                CardDetail(card: card)
-                    .environmentObject(store)
-                    .frame(minWidth: 680, idealWidth: 760, minHeight: 460, idealHeight: 620)
-            }
-        }
         .toolbar {
             ToolbarItemGroup {
                 ParkIdeaButton()
@@ -43,7 +37,10 @@ struct BoardView: View {
                 AwayMenu()
                 Button {
                     Task { await store.refresh(forceQuota: true) }
-                } label: { Label("Refresh", systemImage: "arrow.clockwise") }
+                } label: {
+                    if store.busy.contains("refresh") { ProgressView().controlSize(.small) } else { Label("Refresh", systemImage: "arrow.clockwise") }
+                }
+                .disabled(store.busy.contains("refresh"))
                 .help("Refresh the board and read live quota now")
             }
         }
@@ -61,13 +58,22 @@ struct QuotaHeader: View {
     var body: some View {
         let q = store.state?.quota
         HStack(spacing: 18) {
-            CookieView(left: store.fiveHourLeft, size: 54)
+            CookieView(left: store.fiveHourLeft, size: 54, mood: store.cookieMood)
             VStack(alignment: .leading, spacing: 4) {
                 if let five = q?.fiveHour, five.known, let left = five.leftPct {
                     Text("\(Int(left.rounded()))% of this window left")
                         .font(.title3.weight(.semibold))
                     Text("Resets \(relative(five.resetDate)) · about \(Int((five.pacePerHour ?? 0).rounded()))% per hour to use it all")
                         .foregroundStyle(.secondary)
+                    if let age = q?.age() {
+                        Text("Checked \(age)").font(.caption).foregroundStyle(.tertiary)
+                    }
+                } else if let five = q?.fiveHour, five.isFresh {
+                    Text("100% of a fresh window").font(.title3.weight(.semibold))
+                    Text(five.freshHint).foregroundStyle(.secondary)
+                    if let age = q?.age() {
+                        Text("Checked \(age)").font(.caption).foregroundStyle(.tertiary)
+                    }
                 } else {
                     Text("Window unknown").font(.title3.weight(.semibold))
                     Text(q?.note ?? "Refresh to read live quota from Anthropic.").foregroundStyle(.secondary)
@@ -146,27 +152,68 @@ struct GateBadge: View {
 struct ColumnView: View {
     @EnvironmentObject var store: Store
     let column: Column
+    /// Folded to a thin strip; remembered per column.
+    @AppStorage private var collapsed: Bool
+    @State private var showOlder = false
+    /// The Later column's "+" opens the same Park-an-idea box as the toolbar.
+    @State private var parking = false
+
+    init(column: Column) {
+        self.column = column
+        _collapsed = AppStorage(wrappedValue: false, "column.\(column.rawValue).collapsed")
+    }
+
+    /// Done keeps growing, so it shows the newest few and folds the rest behind a button.
+    private var recentLimit: Int? { column == .done ? 5 : nil }
 
     var body: some View {
-        let cards = store.cards(in: column)
-        VStack(alignment: .leading, spacing: 10) {
+        let all = store.cards(in: column)
+        if collapsed { strip(all) } else { full(all) }
+    }
+
+    private func full(_ all: [Card]) -> some View {
+        let sorted = column == .done ? all.sorted { $0.updatedAt > $1.updatedAt } : all
+        let shown = showOlder || recentLimit == nil ? sorted : Array(sorted.prefix(recentLimit!))
+        let older = sorted.count - shown.count
+        return VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 6) {
                 Image(systemName: column.symbol)
                 Text(column.title).font(.headline)
-                Text("\(cards.count)")
-                    .font(.caption.monospacedDigit())
-                    .padding(.horizontal, 6).padding(.vertical, 1)
-                    .background(.quaternary, in: Capsule())
+                countBadge(all)
                 Spacer()
+                if column == .later {
+                    draftAllButton(all)
+                    Button { parking = true } label: {
+                        Image(systemName: "plus").font(.caption.weight(.semibold))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .help("Park an idea for later")
+                    .popover(isPresented: $parking, arrowEdge: .bottom) {
+                        ParkIdeaPopover(open: $parking).environmentObject(store)
+                    }
+                }
+                Button { withAnimation(.easeOut(duration: 0.15)) { collapsed = true } } label: {
+                    Image(systemName: "chevron.right.2").font(.caption)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.tertiary)
+                .help("Fold \(column.title) into a thin strip")
             }
             Text(column.hint).font(.caption).foregroundStyle(.secondary)
             ScrollView {
                 LazyVStack(spacing: 10) {
-                    ForEach(cards) { card in
+                    ForEach(shown) { card in
                         CardTile(card: card, selected: store.selectedCardID == card.id)
                             .onTapGesture { store.selectedCardID = card.id }
                     }
-                    if cards.isEmpty {
+                    if older > 0 || (showOlder && recentLimit != nil && sorted.count > recentLimit!) {
+                        Button(showOlder ? "Show only the newest \(recentLimit!)" : "Show \(older) older") { showOlder.toggle() }
+                            .buttonStyle(.link)
+                            .font(.caption)
+                            .padding(.top, 2)
+                    }
+                    if all.isEmpty {
                         RoundedRectangle(cornerRadius: 12)
                             .strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [4]))
                             .foregroundStyle(.tertiary)
@@ -180,6 +227,82 @@ struct ColumnView: View {
         .padding(10)
         .background(Brand.columnBackground, in: RoundedRectangle(cornerRadius: 14))
     }
+
+    /// Drafts a blueprint for every later card that has none, one at a time (the CLI checks the 5-hour window).
+    private func draftAllButton(_ all: [Card]) -> some View {
+        let drafting = store.busy.contains("draftAllLater")
+        let waiting = all.filter { ($0.blueprint ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.count
+        return Button {
+            Task { await store.act("draftAllLater", ["blueprint", "--all-later", "--quiet"]) }
+        } label: {
+            if drafting { ProgressView().controlSize(.small) } else { Label("Draft all", systemImage: "wand.and.stars").font(.caption) }
+        }
+        .buttonStyle(.borderless)
+        .disabled(drafting || waiting == 0)
+        .help(waiting == 0 ? "Every card here has a blueprint" : "Draft blueprints for the \(waiting) card\(waiting == 1 ? "" : "s") here without one, while your 5-hour window is active")
+    }
+
+    /// The folded column: icon, count, name written sideways. Click anywhere on it to open it again.
+    private func strip(_ all: [Card]) -> some View {
+        VStack(spacing: 10) {
+            Image(systemName: column.symbol)
+            countBadge(all)
+            Text(column.title)
+                .font(.headline)
+                .fixedSize()
+                .rotationEffect(.degrees(90))
+                .frame(width: 20, height: 90)
+            Spacer()
+        }
+        .padding(.vertical, 12)
+        .frame(width: 44)
+        .frame(maxHeight: .infinity)
+        .background(Brand.columnBackground, in: RoundedRectangle(cornerRadius: 14))
+        .contentShape(RoundedRectangle(cornerRadius: 14))
+        .onTapGesture { withAnimation(.easeOut(duration: 0.15)) { collapsed = false } }
+        .help("Show \(column.title)")
+    }
+
+    /// The count; orange when something in here is waiting for you, so a folded column can't hide it.
+    private func countBadge(_ all: [Card]) -> some View {
+        let waiting = all.contains(where: \.needsYou)
+        return Text("\(all.count)")
+            .font(.caption.monospacedDigit())
+            .padding(.horizontal, 6).padding(.vertical, 1)
+            .background(waiting ? AnyShapeStyle(Brand.warn.opacity(0.25)) : AnyShapeStyle(.quaternary), in: Capsule())
+    }
+}
+
+/// The open card, over the board. Click the dimmed board around it, or press Esc, to close it.
+struct CardOverlay: View {
+    @EnvironmentObject var store: Store
+
+    var body: some View {
+        GeometryReader { geo in
+            if let card = store.selectedCard {
+                ZStack {
+                    Color.black.opacity(0.35)
+                        .contentShape(Rectangle())
+                        .onTapGesture { close() }
+                    CardDetail(card: card)
+                        .environmentObject(store)
+                        .frame(width: min(820, geo.size.width - 64), height: min(760, geo.size.height - 48))
+                        .background(Color(nsColor: .windowBackgroundColor))
+                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.primary.opacity(0.1)))
+                        .shadow(color: .black.opacity(0.35), radius: 24, y: 8)
+                    Button("Close card", action: close)
+                        .keyboardShortcut(.cancelAction)
+                        .opacity(0)
+                        .frame(width: 0, height: 0)
+                }
+                .transition(.opacity)
+            }
+        }
+        .animation(.easeOut(duration: 0.15), value: store.selectedCardID)
+    }
+
+    private func close() { store.selectedCardID = nil }
 }
 
 struct CardTile: View {
@@ -214,12 +337,26 @@ struct CardTile: View {
     @ViewBuilder private var status: some View {
         if card.needsYou && card.hasQuestions {
             pill("Has a question", "questionmark.bubble.fill", Brand.warn)
+        } else if card.needsYou && card.refreshing {
+            // Main moved on since it ran; Chompyy is bringing it up to date (refresh.ts), nothing for you to do.
+            pill(card.keepWhenRefreshed == true ? "Updating, then keeping…" : "Updating to main…", "arrow.triangle.2.circlepath", Brand.doughEdge)
+        } else if card.needsYou && card.refresh?.state == "waiting" && card.clashes {
+            pill("Updates after quota resets", "hourglass", .secondary)
+        } else if card.needsYou && card.refresh?.state == "failed" && card.clashes {
+            pill("Couldn't update to main", "exclamationmark.triangle", Brand.warn)
+        } else if card.needsYou && card.clashes {
+            pill("Behind main", "arrow.triangle.branch", .secondary)
+        } else if card.needsYou && card.measured == "failed" {
+            // Chompyy's own measurement (card vs main) leads; the agent's claim only shows when there's none.
+            pill("Broke something", "exclamationmark.triangle.fill", Brand.warn)
+        } else if card.needsYou && card.measured == "passed" {
+            pill("Nothing broke", "checkmark.seal.fill", Brand.ok)
         } else if card.needsYou && card.run?.checks?.result == "failed" {
-            pill("Checks fail", "exclamationmark.triangle.fill", Brand.warn)
+            pill("Says checks fail", "exclamationmark.triangle", Brand.warn)
         } else if card.needsYou && card.checksNotPassed {
             pill("Not checked", "magnifyingglass", Brand.warn)
         } else if card.needsYou && card.run?.checks?.result == "passed" {
-            pill("Checks pass", "checkmark.circle.fill", Brand.ok)
+            pill("Says checks pass", "checkmark.circle", Brand.ok)
         } else if card.needsYou {
             pill("Check it", "eyes", Brand.doughEdge)
         } else if let rating = card.rating {
@@ -250,62 +387,76 @@ struct CardTile: View {
     }
 }
 
-/// Park an idea without leaving the app. Asks which project folder it belongs to.
+/// Park an idea without leaving the app: the toolbar's way into `ParkIdeaPopover`.
 struct ParkIdeaButton: View {
     @EnvironmentObject var store: Store
     @State private var open = false
-    @State private var idea = ""
-    @AppStorage("lastProject") private var project = ""
-    @State private var projects: [Project] = []
 
     var body: some View {
         Button { open = true } label: { Label("Park an idea", systemImage: "plus") }
             .popover(isPresented: $open, arrowEdge: .bottom) {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Park an idea for later").font(.headline)
-                    TextField("e.g. add a CONTRIBUTING.md with 3 rules", text: $idea, axis: .vertical)
-                        .lineLimit(2...5)
-                        .textFieldStyle(.roundedBorder)
-                    HStack(spacing: 8) {
-                        Text("Project").font(.caption.weight(.semibold))
-                        Menu {
-                            ForEach(projects, id: \.path) { p in
-                                Button {
-                                    project = p.path
-                                } label: {
-                                    Text("\(p.name)  ·  \((p.path as NSString).deletingLastPathComponent.replacingOccurrences(of: NSHomeDirectory(), with: "~"))")
-                                }
-                            }
-                            if !projects.isEmpty { Divider() }
-                            Button("Other folder…") { choose() }
-                        } label: {
-                            Label(project.isEmpty ? "Pick a project" : (project as NSString).lastPathComponent, systemImage: "folder")
-                        }
-                        .fixedSize()
-                        Spacer()
-                    }
-                    if !project.isEmpty {
-                        Text((project as NSString).abbreviatingWithTildeInPath)
-                            .font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-                    }
-                    Text("Chompyy drafts a blueprint in the background. Approve it when it looks right.")
-                        .font(.caption).foregroundStyle(.secondary)
-                    HStack {
-                        Spacer()
-                        Button("Park it") {
-                            let text = idea
-                            idea = ""
-                            open = false
-                            Task { await store.act("later", ["later", text], cwd: project) }
-                        }
-                        .keyboardShortcut(.defaultAction)
-                        .disabled(idea.trimmingCharacters(in: .whitespaces).isEmpty || project.isEmpty)
-                    }
-                }
-                .padding(16)
-                .frame(width: 380)
-                .task { await loadProjects() }
+                ParkIdeaPopover(open: $open).environmentObject(store)
             }
+    }
+}
+
+/// The "Park an idea for later" box, shared by the toolbar button and the Later column's "+".
+/// Starts empty each time it opens, with the cursor in the idea field. Asks which project folder it belongs to.
+struct ParkIdeaPopover: View {
+    @EnvironmentObject var store: Store
+    @Binding var open: Bool
+    @State private var idea = ""
+    @AppStorage("lastProject") private var project = ""
+    @State private var projects: [Project] = []
+    @FocusState private var ideaFocused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Park an idea for later").font(.headline)
+            TextField("e.g. add a CONTRIBUTING.md with 3 rules", text: $idea, axis: .vertical)
+                .lineLimit(2...5)
+                .textFieldStyle(.roundedBorder)
+                .focused($ideaFocused)
+            HStack(spacing: 8) {
+                Text("Project").font(.caption.weight(.semibold))
+                Menu {
+                    ForEach(projects, id: \.path) { p in
+                        Button {
+                            project = p.path
+                        } label: {
+                            Text("\(p.name)  ·  \((p.path as NSString).deletingLastPathComponent.replacingOccurrences(of: NSHomeDirectory(), with: "~"))")
+                        }
+                    }
+                    if !projects.isEmpty { Divider() }
+                    Button("Other folder…") { choose() }
+                } label: {
+                    Label(project.isEmpty ? "Pick a project" : (project as NSString).lastPathComponent, systemImage: "folder")
+                }
+                .fixedSize()
+                Spacer()
+            }
+            if !project.isEmpty {
+                Text((project as NSString).abbreviatingWithTildeInPath)
+                    .font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+            }
+            Text("Chompyy drafts a blueprint in the background. Approve it when it looks right.")
+                .font(.caption).foregroundStyle(.secondary)
+            HStack {
+                Spacer()
+                Button("Park it") {
+                    let text = idea
+                    idea = ""
+                    open = false
+                    Task { await store.act("later", ["later", text], cwd: project) }
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(idea.trimmingCharacters(in: .whitespaces).isEmpty || project.isEmpty)
+            }
+        }
+        .padding(16)
+        .frame(width: 380)
+        .onAppear { ideaFocused = true }
+        .task { await loadProjects() }
     }
 
     /// Recent projects from Claude Code history, past cards and the usual code folders (`chompyy projects`).

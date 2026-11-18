@@ -108,3 +108,36 @@ describe('historyRetention', () => {
     expect(historyRetention(join(dir, 's.json'))).toEqual({ days: 365, isDefault: false });
   });
 });
+
+describe('pastes without markers', () => {
+  it('replaces stack traces, logs, code, diffs and fenced blocks, keeps what you typed', () => {
+    const trace = `why does this crash?
+TypeError: Cannot read properties of undefined (reading 'id')
+    at getUser (/Users/me/app/src/user.ts:12:7)
+    at handler (/Users/me/app/src/api.ts:40:3)
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+please fix it`;
+    expect(cleanPrompt(trace)).toBe("why does this crash? TypeError: Cannot read properties of undefined (reading 'id') [pasted text] please fix it");
+    const log = 'the server says:\n2026-11-01 10:00:01 INFO start\n2026-11-01 10:00:02 ERROR db down\n2026-11-01 10:00:03 WARN retry\nwhat now';
+    expect(cleanPrompt(log)).toBe('the server says: [pasted text] what now');
+    expect(cleanPrompt('look:\n```ts\nconst a = 1;\n```\nok?')).toBe('look: [pasted text] ok?');
+    const code = 'refactor this\nfunction f(a) {\n  if (a) {\n    return 1;\n  }\n}\nthanks';
+    expect(cleanPrompt(code)).toBe('refactor this [pasted text] thanks');
+    expect(cleanPrompt(`minified: ${'a=b;c=d;'.repeat(80)}`)).toBe('[pasted text]');
+  });
+
+  it('leaves ordinary multi-line messages alone', () => {
+    const typed = 'two things:\n- make the report shorter\n- add a dark mode\nand keep it simple';
+    expect(cleanPrompt(typed)).toBe('two things: - make the report shorter - add a dark mode and keep it simple');
+    expect(cleanPrompt('use pnpm, not npm.\nalso run the tests first.')).toBe('use pnpm, not npm. also run the tests first.');
+  });
+
+  it('redacts more kinds of secrets and phone numbers', () => {
+    expect(redact('stripe sk_live_abcdefghijklmnop1234 ok')).toBe('stripe [secret] ok');
+    expect(redact('db postgres://admin:hunter2@db.example.com:5432/app')).toBe('db postgres://[secret]@db.example.com:5432/app');
+    expect(redact('curl -H "Authorization: Bearer abcdefghijklmnopqrstu"')).toBe('curl -H "Authorization: Bearer [secret]"');
+    expect(redact('hook https://hooks.slack.com/services/T000/B000/XXXX')).toBe('hook [secret]');
+    expect(redact('call me on +44 20 7946 0958 or (415) 555-0132')).toBe('call me on [phone] or [phone]');
+    expect(redact('version 1.2.3 and port 5432, 2026-11-17')).toBe('version 1.2.3 and port 5432, 2026-11-17');
+  });
+});

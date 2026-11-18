@@ -3,6 +3,7 @@ import SwiftUI
 
 /// One card: the picture first (blueprint map), then the details, then the one thing to do.
 struct CardDetail: View {
+    @State private var allowed: Set<String> = []
     @EnvironmentObject var store: Store
     let card: Card
     @State private var editing = false
@@ -60,8 +61,35 @@ struct CardDetail: View {
                 Label("Suggested because: \(why)", systemImage: "clock.arrow.circlepath")
                     .font(.callout).foregroundStyle(Brand.doughEdge)
             }
+            if let plan = card.permissionPlan, !plan.isEmpty, column == .later || column == .suggested {
+                permissionPlan(plan)
+            }
             actions
         }
+    }
+
+    /// What the run may need beyond the box. Nothing is allowed unless you tick it; allowed commands still run
+    /// inside the box. An away run can't ask at 3 AM, so it asks here.
+    private func permissionPlan(_ plan: [PlannedPermission]) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("This run may need", systemImage: "lock.open").font(.headline)
+            ForEach(plan) { item in
+                Toggle(isOn: Binding(
+                    get: { allowed.contains(item.id) },
+                    set: { on in if on { allowed.insert(item.id) } else { allowed.remove(item.id) } }
+                )) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(item.label)
+                        Text(item.why).font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                .toggleStyle(.checkbox)
+            }
+            Text("Nothing is allowed unless you tick it. Allowed commands still run inside the sandbox.")
+                .font(.caption).foregroundStyle(.tertiary)
+        }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Brand.columnBackground))
     }
 
     @ViewBuilder private var actions: some View {
@@ -69,14 +97,16 @@ struct CardDetail: View {
             switch column {
             case .later, .suggested:
                 Button {
-                    Task { await store.act("approve\(card.id)", ["approve", card.id]) }
-                } label: { Label("Approve", systemImage: "checkmark") }
+                    let allow = (card.permissionPlan ?? []).filter { allowed.contains($0.id) }.flatMap { ["--allow", $0.id] }
+                    Task { await store.act("approve\(card.id)", ["approve", card.id] + allow) }
+                } label: { Label(allowed.isEmpty ? "Approve" : "Approve with \(allowed.count) allowed", systemImage: "checkmark") }
                 .buttonStyle(.borderedProminent).tint(Brand.ok)
                 .disabled(card.blueprint == nil)
                 .help(card.blueprint == nil ? "Needs a blueprint first" : "Run it on your next away run")
                 dropButton
             case .approved:
-                Text("Runs on your next away run.").font(.callout).foregroundStyle(.secondary)
+                Text(card.permissions?.isEmpty == false ? "Runs on your next away run, with \(card.permissions!.joined(separator: ", ")) allowed." : "Runs on your next away run.")
+                    .font(.callout).foregroundStyle(.secondary)
                 Spacer()
                 dropButton
             case .running:
@@ -101,6 +131,24 @@ struct CardDetail: View {
 
     // MARK: Review (the card needs you)
 
+    /// Main moved on since the card ran (other cards were kept): what Chompyy is doing about it (refresh.ts).
+    @ViewBuilder private var refreshNote: some View {
+        let files = (card.clashFiles ?? []).joined(separator: ", ")
+        if card.refreshing {
+            Label("Other cards were kept since this ran. Chompyy is bringing it up to date\(card.keepWhenRefreshed == true ? ", then keeping it if nothing broke" : "")…", systemImage: "arrow.triangle.2.circlepath")
+                .font(.callout).foregroundStyle(Brand.doughEdge)
+        } else if card.clashes, let r = card.refresh, r.state == "waiting" || r.state == "failed" {
+            Label("It clashes with main in \(files). \(r.state == "waiting" ? "Chompyy updates it when quota is back" : "Chompyy couldn't update it"): \(r.why ?? "")", systemImage: r.state == "failed" ? "exclamationmark.triangle" : "hourglass")
+                .font(.callout).foregroundStyle(r.state == "failed" ? Brand.warn : .secondary)
+        } else if card.clashes {
+            Label("Other cards were kept since this ran, and it now clashes with main in \(files). Press Update & keep: Chompyy fits the two together and checks it again.", systemImage: "arrow.triangle.branch")
+                .font(.callout).foregroundStyle(.secondary)
+        } else if let r = card.refresh, r.state == "done", r.by != nil {
+            Label("Up to date with main: \(r.why ?? "")", systemImage: "checkmark.circle")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
     private var reviewSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Label(card.hasQuestions ? "It has a question for you" : "It's done. Check it, then keep or undo",
@@ -108,13 +156,29 @@ struct CardDetail: View {
                 .font(.headline)
                 .foregroundStyle(card.hasQuestions ? Brand.warn : Brand.chocolate)
 
-            if let checks = card.run?.checks {
+            refreshNote
+
+            // Chompyy's measurement leads; the agent's own words are a claim, shown under it.
+            if let v = card.run?.verified, v.result != "not run" {
                 Label {
-                    Text(checks.result == "passed" ? "Its checks pass" : checks.result == "failed" ? "Its checks fail" : "It couldn't check its work")
+                    Text(v.result == "passed" ? "Chompyy checked it: nothing broke" : "Chompyy checked it: this change broke something")
+                        .font(.callout.weight(.semibold))
+                    + Text(v.why.isEmpty ? "" : ": \(v.why)").font(.callout)
+                } icon: {
+                    Image(systemName: v.result == "passed" ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
+                }
+                .foregroundStyle(v.result == "passed" ? Brand.ok : Brand.warn)
+                if let checks = card.run?.checks, !checks.why.isEmpty {
+                    Text("It said: \(checks.why)").font(.caption).foregroundStyle(.secondary)
+                }
+            } else if let checks = card.run?.checks {
+                Label {
+                    Text(checks.result == "passed" ? "It says its checks pass" : checks.result == "failed" ? "It says its checks fail" : "It couldn't check its work")
                         .font(.callout.weight(.semibold))
                     + Text(checks.why.isEmpty ? "" : ": \(checks.why)").font(.callout)
+                    + Text(card.run?.verified.map { " (Chompyy couldn't check it: \($0.why))" } ?? " (not checked by Chompyy)").font(.caption)
                 } icon: {
-                    Image(systemName: checks.result == "passed" ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                    Image(systemName: checks.result == "passed" ? "checkmark.circle" : "exclamationmark.triangle")
                 }
                 .foregroundStyle(checks.result == "passed" ? Brand.ok : Brand.warn)
             }
@@ -154,17 +218,19 @@ struct CardDetail: View {
                 } label: { Label("See the change", systemImage: "doc.text.magnifyingglass") }
                 Spacer()
                 Button {
-                    Task { await store.act("keep\(card.id)", ["keep", card.id]) }
-                } label: { Label("Keep", systemImage: "tray.and.arrow.down.fill") }
+                    Task { await store.finish("keep\(card.id)", ["keep", card.id], card: card.id) }
+                } label: { Label(card.clashes ? "Update & keep" : "Keep", systemImage: "tray.and.arrow.down.fill") }
                 .buttonStyle(.borderedProminent).tint(Brand.ok)
+                .disabled(card.refreshing || card.keepWhenRefreshed == true)
+                .help(card.clashes ? "Other cards were kept since this ran. Chompyy brings it up to date, checks it again, and keeps it if nothing broke." : "Merge it into \(card.folderBranch ?? "your branch")")
                 Button {
-                    Task { await store.act("redo\(card.id)", ["redo", card.id]) }
+                    Task { await store.finish("redo\(card.id)", ["redo", card.id], card: card.id) }
                 } label: { Label("Run again", systemImage: "arrow.clockwise") }
                 .help("Throw this attempt away and run it again from your latest code (answers are kept)")
                 Button(role: .destructive) { confirmUndo = true } label: { Label("Undo", systemImage: "arrow.uturn.backward") }
                     .confirmationDialog("Throw this run away?", isPresented: $confirmUndo) {
                         Button("Undo the run", role: .destructive) {
-                            Task { await store.act("undo\(card.id)", ["undo", card.id]) }
+                            Task { await store.finish("undo\(card.id)", ["undo", card.id], card: card.id) }
                         }
                     } message: { Text("Removes its branch and folder. Your own branches are never touched.") }
             }
@@ -488,7 +554,7 @@ struct WhereItWorks: View {
             Label("Where it works", systemImage: "shield.lefthalf.filled").font(.headline)
             Text(explanation).font(.callout).foregroundStyle(.secondary)
             HStack(spacing: 6) {
-                pathRow("Your folder", (card.cwd as NSString).abbreviatingWithTildeInPath, "untouched until you press Keep")
+                pathRow("Your folder", (card.cwd as NSString).abbreviatingWithTildeInPath, card.folderBranch.map { "Keep lands it on \($0); this folder is only changed if it has \($0) open" } ?? "untouched until you press Keep")
             }
             HStack(spacing: 6) {
                 pathRow("Its copy", (copyPath as NSString).abbreviatingWithTildeInPath, "branch \(branch)")
@@ -514,7 +580,7 @@ struct WhereItWorks: View {
         case "running":
             return "Working in its own copy right now. Open the copy to watch files appear; your folder isn't touched."
         default:
-            return card.outcome == "kept" ? "Kept: its branch was merged into your folder." : "Its work is in the copy on its own branch. Keep merges it into your folder; Undo deletes the copy."
+            return card.outcome == "kept" ? "Kept: its branch was merged into \(card.folderBranch ?? "your branch")." : "Its work is in the copy on its own branch, started from the latest \(card.folderBranch ?? "main"). Keep lands it on \(card.folderBranch ?? "your branch"); Undo deletes the copy."
         }
     }
 

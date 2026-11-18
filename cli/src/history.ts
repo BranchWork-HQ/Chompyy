@@ -41,12 +41,80 @@ const SECRET_PATTERNS: [RegExp, string | ((...m: string[]) => string)][] = [
   [/\bAIza[0-9A-Za-z_-]{35}\b/g, '[secret]'],
   [/\bxox[abprs]-[A-Za-z0-9-]{10,}/g, '[secret]'],
   [/\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g, '[secret]'], // JWT
+  [/\b(sk|rk|pk)_(live|test)_[A-Za-z0-9]{16,}/g, '[secret]'], // Stripe
+  [/\bglpat-[A-Za-z0-9_-]{20,}/g, '[secret]'], // GitLab
+  [/\bhf_[A-Za-z0-9]{30,}/g, '[secret]'], // Hugging Face
+  [/\bya29\.[A-Za-z0-9_-]{20,}/g, '[secret]'], // Google OAuth access token
+  [/\b(AccountKey|SharedAccessSignature|sig)=[A-Za-z0-9%+/=]{20,}/g, '[secret]'], // Azure
+  [/https:\/\/hooks\.slack\.com\/services\/[A-Za-z0-9/]+/g, '[secret]'],
+  [/https:\/\/(discord(app)?\.com)\/api\/webhooks\/[A-Za-z0-9/_-]+/g, '[secret]'],
+  // user:password@ in a URL: keep the scheme and host so the sentence still reads
+  [/\b([a-z][a-z0-9+.-]*:\/\/)[^\s/:@]+:[^\s/@]+@/gi, (_m, scheme) => `${scheme}[secret]@`],
+  [/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{16,}/g, (_m, kind) => `${kind} [secret]`],
   // keep "password=" so the sentence still reads
   [/\b(password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key)(\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s,;]+)/gi, (_m, name, sep) => `${name}${sep}[secret]`],
   // long random-looking strings (mixed case and digits), not paths or slugs
   [/[A-Za-z0-9+_=-]{32,}/g, (m) => (/[a-z]/.test(m) && /[A-Z]/.test(m) && /\d/.test(m) && (m.match(/-/g)?.length ?? 0) < 3 ? '[secret]' : m)],
   [/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, '[email]'],
+  // phone numbers: +44 20 7946 0958, (415) 555-0132, 415-555-0132
+  [/(\+\d{1,3}[\s.-]?)?(\(\d{2,4}\)[\s.-]?|\b\d{2,4}[\s.-])\d{3,4}[\s.-]\d{3,4}\b/g, '[phone]'],
 ];
+
+// ---------- pastes without markers ----------
+
+/** How much a line looks machine-made (log, stack trace, code, diff, JSON) rather than typed by a person. */
+function machineLine(line: string): boolean {
+  const t = line.trim();
+  if (!t) return false;
+  return (
+    /^\s*at\s+\S.*(\(|:\d+)/.test(line) || // JS/Java stack frame
+    /^\s*File ".*", line \d+/.test(line) || /^Traceback \(most recent call last\)/.test(t) ||
+    /^\d{4}-\d\d-\d\d[T ]\d\d:\d\d/.test(t) || /^\[?\d\d:\d\d:\d\d/.test(t) || // timestamped log
+    /^\[?(INFO|WARN|WARNING|ERROR|DEBUG|TRACE|FATAL)\b/.test(t) ||
+    /^(\+\+\+|---|@@|diff --git|index [0-9a-f]+)/.test(t) || /^[+-](?![+-])\S/.test(t) || // diff
+    /^[{}\[\]],?$/.test(t) || /^"[^"]+":\s/.test(t) || // JSON
+    /[;{}]$/.test(t) || /^(import|export|from|def|class|function|const|let|var|return|if|for|while|#include|package|func|fn|pub|use)\b.*[({:=;]/.test(t) ||
+    /^(\$|>>>|PS [A-Z]:\\|❯)\s/.test(t) || // shell or REPL prompt
+    /^\s{4,}\S/.test(line) || /^\t+\S/.test(line) || // indented block
+    /^[\w.-]+:\d+(:\d+)?\b/.test(t) // file:line
+  );
+}
+
+/**
+ * Replace pasted material that came in without Claude Code's paste markers: fenced code blocks, runs of 3+
+ * machine-made lines (logs, stack traces, code, diffs, JSON), and very long unbroken lines. Must run before
+ * whitespace is collapsed, because line breaks are what give a paste away.
+ */
+export function stripUnmarkedPastes(text: string): string {
+  let out = text.replace(/```[\s\S]*?(```|$)/g, '\n[pasted text]\n');
+  const lines = out.split('\n');
+  const kept: string[] = [];
+  for (let i = 0; i < lines.length; ) {
+    // Grow a block while most of its lines look machine-made (a blank or odd line inside is allowed).
+    let j = i;
+    let machine = 0;
+    while (j < lines.length) {
+      const isMachine = machineLine(lines[j]!);
+      const blank = !lines[j]!.trim();
+      if (!isMachine && !blank && (j - i < 1 || machine / (j - i + 1) < 0.6)) break;
+      if (isMachine) machine++;
+      j++;
+    }
+    // Don't end a block on a typed line: give trailing non-machine lines back.
+    while (j > i && !machineLine(lines[j - 1]!)) j--;
+    if (machine >= 3) {
+      if (kept.at(-1) !== '[pasted text]') kept.push('[pasted text]');
+      i = j;
+      continue;
+    }
+    const line = lines[i]!;
+    // One long line with few spaces: minified code, base64, a URL dump, a log line.
+    const spaces = (line.match(/\s/g) ?? []).length;
+    kept.push(line.length > 400 && spaces / line.length < 0.08 ? '[pasted text]' : line);
+    i++;
+  }
+  return kept.join('\n');
+}
 
 /** Remove things that look like secrets or personal contact details. */
 export function redact(text: string): string {
@@ -81,7 +149,8 @@ export function cleanPrompt(content: unknown): string | null {
   if (/^\s*(Caveat:|\[Request interrupted|This session is being continued from a previous conversation)/.test(text)) return null;
   text = text
     .replace(/<pasted_content[^>]*>[\s\S]*?<\/pasted_content[^>]*>/g, '[pasted text]')
-    .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '')
+    .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '');
+  text = stripUnmarkedPastes(text)
     .replace(/\[Image[^\]]*\]/g, '[image]')
     .replace(/\s+/g, ' ')
     .trim();

@@ -1,21 +1,26 @@
 #!/usr/bin/env node
 // chompyy: park ideas, blueprint them, run approved cards while you're away.
-import { spawn } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { execFileSync, spawn } from 'node:child_process';
+import { closeSync, existsSync, openSync, readFileSync } from 'node:fs';
+import { join, relative } from 'node:path';
 import { parseArgs } from 'node:util';
-import { away } from './away.js';
-import { draftBlueprint, draftFiveStarOptions, GENERIC_FIVE_STAR } from './blueprint.js';
-import { addCard, COLUMNS, dropCard, formatBoard, formatCard, getCard, loadBoard, moveCard, updateBoard, type Column } from './board.js';
-import { loadConfig } from './config.js';
+import { away, cacheEnv, runCard, type AwayDeps } from './away.js';
+import { formatPreflight, loadProfile, preflight, saveProfile } from './preflight.js';
+import { verifyCard } from './verifycard.js';
+import { parsePermission, recordNeeds } from './permissions.js';
+import { draftAllPlan, draftBlueprint, draftFiveStarOptions, GENERIC_FIVE_STAR, isUsageLimit, writeBlueprintFile } from './blueprint.js';
+import { addCard, awayQueue, claimDrafts, COLUMNS, dropCard, expireSuggested, formatBoard, formatCard, getCard, loadBoard, moveCard, noteDraftFailure, quotaWaitReason, recoverRunning, updateBoard, type Column } from './board.js';
+import { loadConfig, setConfig } from './config.js';
 import { formatDuration, parseDuration } from './duration.js';
 import { budgetGate } from './gate.js';
 import { chompyyHome, homePath } from './home.js';
-import { loadSnapshot, mergeSnapshot, parseStatusline, saveSnapshot, statusLineText, statusText, windowView } from './quota.js';
-import { cardsSince, formatReport, lastReportAt, markReported, rateCard, readTaste } from './report.js';
-import { changedFiles, diffCard, keepCard, questionsOf, undoCard } from './review.js';
-import { ClaudeRunner, claudeAvailable } from './runner.js';
-import { commitLeftovers, planWorkspace, prepareWorkspace } from './workspace.js';
-import { answerCard, appState, cardView, editBlueprint, recordCliLocation } from './appstate.js';
+import { loadSnapshot, mergeSnapshot, parseStatusline, saveSnapshot, statusLineText, statusText as baseStatusText, windowView, type Snapshot } from './quota.js';
+import { loadSamples } from './pacing.js';
+import { cardsSince, formatReport, lastReportAt, markReported, morningLine, rateCard, readTaste } from './report.js';
+import { changedFiles, diffCard, keepCard, overlaps, questionsOf, undoCard } from './review.js';
+import { CappedText, ClaudeRunner, claudeAvailable } from './runner.js';
+import { branchOf, commitLeftovers, gitRoot, planWorkspace, prepareWorkspace } from './workspace.js';
+import { answerCard, appState, cardView, currentBranch, editBlueprint, recordCliLocation } from './appstate.js';
 import { refreshLiveQuota } from './livequota.js';
 import { recentProjects } from './projects.js';
 import { cliVersion, installApp } from './macapp.js';
@@ -23,6 +28,14 @@ import { buildDigest, historyRetention, scanHistory } from './history.js';
 import { acceptColdStart, forgetColdStart, formatColdStart, loadColdStart, runColdStart } from './coldstart.js';
 import { keepHistory } from './claudesettings.js';
 import { blueprintHash, drawPicture } from './picture.js';
+import { costRange, formatCostRange, readRuns, trendLines } from './costs.js';
+import {
+  answerPreference, distill, distillDue, formatPrefs, formatQuestion, formatWhy, getPref, loadStore, nextQuestion,
+  readSignals, recordOutcome, retirePreference, syncTasteFile, tasteChangesSince, type Answer,
+} from './taste.js';
+import { clashOf, refreshCard, refreshGate, refreshClashing, withRefreshLock, type RefreshDeps } from './refresh.js';
+import { formatLive, keepAffectsLive, liveOff, liveSet, liveUpdateLocked, loadLive, startLiveUpdate } from './live.js';
+import { agentInstalled, awayRunning, bedtimeKey, decideTrigger, installAgent, loadTriggerState, markFired, noteTick, parseClock, takeAwayLock, uninstallAgent } from './triggers.js';
 
 const HELP = `chompyy: use the 5-hour window capacity that would reset unused
 
@@ -38,6 +51,7 @@ Board
   chompyy board [--column c]    cards by column (suggested later approved running review done)
   chompyy show <id>             one card: blueprint, last run, what the agent said
   chompyy blueprint <id>        (re)draft the blueprint with a cheap model  [--model haiku]
+        --all-later               draft every later card that has no blueprint yet, one at a time
   chompyy picture <id>          (re)draw the card's picture: a diagram of what it will do (diagram-design skill)
   chompyy approve <id>          later → approved (needs a blueprint)
   chompyy edit-blueprint <id>   replace the blueprint with text from stdin
@@ -51,14 +65,30 @@ Away
 Back
   chompyy report [--all]        what ran, and the one thing to do about each
   chompyy diff <id>             the change it made
-  chompyy keep <id>             merge its branch into your current branch
+  chompyy keep <id>             merge its branch into the branch it started from (and update the live app, if set)
+  chompyy refresh [<id>]        bring cards in review up to date with main (Chompyy does this by itself after each Keep)
   chompyy undo <id>             throw it away (removes its branch; yours are untouched)
   chompyy answer <id>           answer the run's questions (stdin); the card goes back to approved
   chompyy redo <id>             throw this attempt away and run it again from your latest code
   chompyy rate <id> <1-5> ["why"] [--to-five "change" ...]   rate a result; --to-five = what would have made it a 5
   chompyy five-star <id>        options for "what would have made it a 5?" (JSON)
-  chompyy taste                 show taste.md
   chompyy signals [--json]      everything Chompyy has recorded from you: ratings, edits, answers
+  chompyy trends                last 7 days vs the 7 before: cost per card, keep rate, rating, blueprint edits
+
+Taste (learned from what you keep, undo, edit and rate)
+  chompyy taste                 show taste.md
+  chompyy taste list            every preference: to ask, in taste.md, candidates, declined, retired
+  chompyy taste why <id>        the cards, edits and quotes behind a preference
+  chompyy taste yes|not-now|never <id>   answer a question (yes writes it to taste.md)
+  chompyy taste retire <id>     stop using a preference (kept, with the reason)
+  chompyy distill [--force]     read new signals and update preferences now (one model call; runs after away too)
+
+Triggers (start away runs on their own; the budget gate still decides every card)
+  chompyy triggers on|off       install or remove the macOS LaunchAgent that runs \`chompyy tick\` every 5 minutes
+  chompyy triggers              what is set, and what the last tick decided
+  chompyy bedtime <23:30|off>   run approved cards at bedtime (with the window that is left)
+  chompyy last-hour <on|off>    run approved cards in the last hour before a 5-hour reset
+  chompyy tick                  check the triggers once (what the LaunchAgent runs)
 
 Get to know you (cold start)
   chompyy history [--digest]    what Chompyy would read from your Claude Code history (local; --digest = the exact text it would send)
@@ -68,11 +98,18 @@ Get to know you (cold start)
 
 App
   chompyy app                   install (or update) the Mac app in ~/Applications and open it
+  chompyy live [set <repo>|update|off]   for Chompyy's own developers: the app runs from ~/.chompyy/live, which follows
+                                main and rebuilds (CLI, and the app if its code changed) after every Keep on main
   chompyy version               this CLI's version
   chompyy projects [--json]     recent project folders (from Claude Code history and past cards)
   chompyy state --json          everything the Mac app shows, in one JSON (board, show, status also take --json)
 
 State lives in ${chompyyHome()} (override with CHOMPYY_HOME).`;
+
+/** `chompyy status` text with pacing: burn-rate history and your bedtime. */
+function statusText(snap: Snapshot | null, now: Date): string {
+  return baseStatusText(snap, now, { samples: loadSamples(), bedtime: loadConfig().bedtime });
+}
 
 async function readStdin(): Promise<string> {
   if (process.stdin.isTTY) return '';
@@ -99,20 +136,25 @@ async function blueprintCard(id: string, model?: string): Promise<string> {
       const c = getCard(b, id);
       c.blueprint = text;
       delete c.blueprintError;
+      delete c.blueprintWaiting;
+      delete c.blueprintWaitUntil;
       delete c.draftingAt;
+      writeBlueprintFile(c, text);
       c.updatedAt = new Date().toISOString();
     });
     if (config.pictures && windowActive(new Date())) await pictureCard(id).catch(() => {});
     return text;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    updateBoard((b) => {
-      const c = getCard(b, id);
-      c.blueprintError = message;
-      delete c.draftingAt;
-    });
+    updateBoard((b) => noteDraftFailure(b, id, message, isUsageLimit(message), retryAfterLimit(new Date())));
     throw err;
   }
+}
+
+/** When to retry a draft that hit the usage limit: at the 5-hour reset if known, else in 30 minutes. */
+function retryAfterLimit(now: Date): Date {
+  const five = windowView(loadSnapshot()?.fiveHour, now);
+  return five.known ? new Date(five.resetsAt * 1000) : new Date(now.getTime() + 30 * 60_000);
 }
 
 /** Draw (or redraw) a card's picture with the diagram-design skill. Errors are kept on the card. */
@@ -154,24 +196,26 @@ function windowActive(now: Date): boolean {
   return windowView(loadSnapshot()?.fiveHour, now).known;
 }
 
+/** Why a draft must wait (the running window has 0% left), or null. A draft then would only hit the limit. */
+function quotaEmpty(now: Date): string | null {
+  return quotaWaitReason(windowView(loadSnapshot()?.fiveHour, now));
+}
+
 /**
  * Draft blueprints that are waiting, but only while a window is active: drafting is a model call, and
  * with no active window it would start a new 5-hour window. Called whenever quota is fresh.
  */
 function draftPending(now: Date): void {
+  const days = loadConfig().suggestedExpiryDays;
+  if (days > 0 && loadBoard().cards.some((c) => c.column === 'suggested')) updateBoard((b) => expireSuggested(b, now, days));
   if (!windowActive(now) || !claudeAvailable(loadConfig().claudeBin)) return;
-  const stale = now.getTime() - 3 * 60_000;
-  const ids = updateBoard((b) => {
-    const due = b.cards.filter(
-      (c) => (c.column === 'later' || c.column === 'suggested') && !c.blueprint && !c.blueprintError && !c.noAutoDraft && (!c.draftingAt || Date.parse(c.draftingAt) < stale),
-    );
-    for (const c of due) c.draftingAt = now.toISOString();
-    return due.map((c) => c.id);
-  });
+  // With 0% left the cards wait (and say so) instead of failing; they stay due and draft after the reset.
+  const waiting = quotaEmpty(now);
+  const ids = updateBoard((b) => claimDrafts(b, now, waiting));
   for (const id of ids) blueprintInBackground(id);
 
   // Pictures for cards whose blueprint is ready but not drawn yet, or changed since (an edit or a redraw).
-  if (!loadConfig().pictures) return;
+  if (!loadConfig().pictures || waiting) return;
   const toDraw = updateBoard((b) => {
     const due = b.cards.filter(
       (c) =>
@@ -201,12 +245,162 @@ function blueprintInBackground(id: string): void {
   child.unref();
 }
 
+/** Distil taste from new signals, but only inside an active window (a model call would otherwise start one). */
+async function distillNow(now: Date, force = false): Promise<string> {
+  const config = loadConfig();
+  if (!force && !windowActive(now)) return 'No active 5-hour window: distilling now would start one. It runs after your next away, or add --force.';
+  if (!claudeAvailable(config.claudeBin)) return `Can't find Claude Code (\`${config.claudeBin}\`).`;
+  const r = await distill(loadBoard(), new ClaudeRunner(config.claudeBin), { model: config.distillModel, cwd: chompyyHome(), now });
+  if (!r.read) return 'No new signals to learn from.';
+  const c = r.changes;
+  const parts = [`${c.added.length} new`, `${c.extended.length} with more evidence`, `${c.ready.length} ready to ask`, `${c.retired.length} retired`];
+  return `Read ${r.read} new signal(s): ${parts.join(', ')}${c.dropped ? ` (${c.dropped} thrown out for weak evidence)` : ''}. See \`chompyy taste list\`.`;
+}
+
+/** Keep a card: merge it, record it, update the live app, and bring the other cards in review up to date. */
+function keepNow(id: string, now: Date): void {
+  const kept = getCard(loadBoard(), id);
+  console.log(keepCard(kept));
+  updateBoard((b) => {
+    const card = getCard(b, id);
+    card.outcome = 'kept';
+    card.column = 'done';
+    delete card.keepWhenRefreshed;
+    card.updatedAt = now.toISOString();
+    recordOutcome(card, 'kept', now);
+    return card;
+  });
+  // If this landed on what the app runs from, bring the app up to date by itself (live.ts).
+  const landedOn = kept.run?.base?.branch ?? currentBranch(kept.cwd);
+  if (keepAffectsLive(loadLive(), kept.cwd, landedOn)) {
+    startLiveUpdate();
+    console.log('Updating the app with it in the background: the CLI in seconds, the Mac app in 1–2 minutes if its code changed (`chompyy live` shows progress).');
+  }
+  // Main moved: cards still in review may clash with it now. Chompyy brings them up to date (refresh.ts).
+  const clashing = loadBoard().cards.filter((c) => c.id !== id && clashOf(c));
+  if (clashing.length) {
+    startBackground(['refresh', '--clashing'], 'refresh.log');
+    console.log(`${clashing.map((c) => '#' + c.id).join(', ')} now clash${clashing.length === 1 ? 'es' : ''} with it; Chompyy is bringing ${clashing.length === 1 ? 'it' : 'them'} up to date.`);
+  }
+}
+
+/** Run a chompyy command in the background, detached, so it outlives this process (and an app restart). */
+function startBackground(args: string[], logName: string): void {
+  const out = openSync(homePath(logName), 'a');
+  spawn(process.execPath, [process.argv[1]!, ...args], { detached: true, stdio: ['ignore', out, out] }).unref();
+  closeSync(out);
+}
+
+function refreshDeps(config: ReturnType<typeof loadConfig>, freshQuota: (force?: boolean) => Promise<unknown>): RefreshDeps {
+  const a = awayDeps(config, freshQuota);
+  return {
+    runner: a.runner,
+    config,
+    now: () => new Date(),
+    snapshot: loadSnapshot,
+    out: (line) => console.log(`${new Date().toISOString().slice(0, 16)} ${line}`),
+    ...(a.verify ? { verify: a.verify } : {}),
+    ...(a.repoChecks ? { repoChecks: a.repoChecks } : {}),
+    keep: (id) => keepNow(id, new Date()),
+  };
+}
+
+/** An away run: one at a time (lock), then distil what the run taught, if anything. */
+/** What an away run (and each card's worker) needs from the real world. */
+function awayDeps(config: ReturnType<typeof loadConfig>, freshQuota: (force?: boolean) => Promise<unknown>): AwayDeps {
+  return {
+    runner: new ClaudeRunner(config.claudeBin),
+    config,
+    now: () => Date.now(),
+    snapshot: loadSnapshot,
+    plan: planWorkspace,
+    prepare: prepareWorkspace,
+    commitLeftovers,
+    wait: (ms) => new Promise((resolve) => setTimeout(resolve, Math.max(0, ms))),
+    recordNeeds: (card, needs) => {
+      const root = gitRoot(card.cwd);
+      if (!root) return;
+      const p = loadProfile(root) ?? { root, checks: [], updatedAt: new Date().toISOString() };
+      saveProfile({ ...p, needs: recordNeeds(p.needs ?? [], needs, card.id, new Date().toISOString()) });
+    },
+    repoChecks: (card) => {
+      const root = gitRoot(card.cwd);
+      const p = root ? loadProfile(root) : null;
+      return (p?.preflight?.results ?? []).filter((r) => r.verdict === 'ready').map((r) => ({ dir: r.check.dir, label: r.check.label }));
+    },
+    refreshQuota: async () => {
+      await freshQuota(true);
+    },
+    ...(config.independentCheck
+      ? {
+          verify: async (ws, card) => {
+            // Chompyy's own measurement: the repo's checks on the card and on the main it started from.
+            const root = gitRoot(card.cwd);
+            const cacheDir = homePath('cache', 'tools');
+            if (!root || ws.kind !== 'worktree') return undefined;
+            const baseCommit = ws.base?.commit ?? execFileSync('git', ['-C', root, 'merge-base', 'HEAD', ws.branch!], { encoding: 'utf8' }).trim();
+            return verifyCard({ root, dir: ws.dir, baseCommit, cacheDir, denyRead: config.denyReadPaths, timeoutMs: config.checkTimeoutMin * 60_000, now: () => new Date() });
+          },
+        }
+      : {}),
+    out: (line) => console.log(line),
+  };
+}
+
+/** The supervisor's side of a worker: run `chompyy run-card` and wait, killing it if it outlives its card. */
+function isolateCard(config: ReturnType<typeof loadConfig>) {
+  return (id: string, timeoutMs: number, trigger?: string) =>
+    new Promise<{ exitCode: number | null; signal: string | null; stderr: string }>((resolve) => {
+      const args = [process.argv[1]!, 'run-card', id, '--timeout', String(timeoutMs), ...(trigger ? ['--trigger', trigger] : [])];
+      const child = spawn(process.execPath, args, { stdio: ['ignore', 'inherit', 'pipe'], env: process.env });
+      const stderr = new CappedText(64 * 1024);
+      child.stderr!.setEncoding('utf8');
+      child.stderr!.on('data', (d: string) => {
+        stderr.push(d);
+        process.stderr.write(d);
+      });
+      // Watchdog: the card's cap, plus time for the independent check and committing, plus a margin.
+      const limit = timeoutMs + (config.independentCheck ? config.checkTimeoutMin * 60_000 : 0) + 5 * 60_000;
+      const dog = setTimeout(() => {
+        child.kill('SIGTERM'); // the worker stops its agent's process group on SIGTERM
+        setTimeout(() => child.kill('SIGKILL'), 10_000).unref();
+      }, limit);
+      child.on('close', (code, signal) => {
+        clearTimeout(dog);
+        resolve({ exitCode: code, signal, stderr: stderr.toString() });
+      });
+      child.on('error', (err) => {
+        clearTimeout(dog);
+        resolve({ exitCode: null, signal: null, stderr: String(err) });
+      });
+    });
+}
+
+async function runAway(ms: number, opts: { dryRun?: boolean; force?: boolean; trigger?: string }, now: Date, freshQuota: (force?: boolean) => Promise<unknown>): Promise<void> {
+  const config = loadConfig();
+  const release = opts.dryRun ? () => {} : takeAwayLock(now, opts.trigger ?? 'away');
+  try {
+    await away(ms, { ...awayDeps(config, freshQuota), isolate: isolateCard(config) }, opts);
+  } finally {
+    release();
+  }
+  if (!opts.dryRun && config.distillAfterAway && distillDue(loadBoard(), new Date(), 0)) {
+    try {
+      console.log(`Taste: ${await distillNow(new Date())}`);
+    } catch (err) {
+      console.log(`Taste: couldn't distil (${err instanceof Error ? err.message : err})`);
+    }
+  }
+}
+
 async function main(argv: string[]): Promise<void> {
   const { values, positionals } = parseArgs({
     args: argv,
     allowPositionals: true,
     options: {
       'no-blueprint': { type: 'boolean' },
+      'all-later': { type: 'boolean' },
+      clashing: { type: 'boolean' },
       wait: { type: 'boolean' },
       'dry-run': { type: 'boolean' },
       force: { type: 'boolean' },
@@ -221,6 +415,10 @@ async function main(argv: string[]): Promise<void> {
       digest: { type: 'boolean' },
       taste: { type: 'string' },
       cards: { type: 'string' },
+      ref: { type: 'string' },
+      allow: { type: 'string', multiple: true },
+      timeout: { type: 'string' },
+      trigger: { type: 'string' },
     },
   });
   const [command, ...args] = values.help ? ["help"] : positionals;
@@ -244,7 +442,7 @@ async function main(argv: string[]): Promise<void> {
         const parsed = parseStatusline(await readStdin(), now);
         const snap = mergeSnapshot(loadSnapshot(), { ...parsed, ...(parsed.fiveHour || parsed.sevenDay ? { source: 'statusline' as const } : {}) });
         saveSnapshot(snap);
-        console.log(statusLineText(snap, now));
+        console.log(statusLineText(snap, now, { samples: loadSamples(), color: true }));
       } catch {
         console.log('🍪');
       }
@@ -265,9 +463,33 @@ async function main(argv: string[]): Promise<void> {
       return;
     }
     case 'state': {
-      await freshQuota(Boolean(values.refresh));
+      const refreshed = await freshQuota(Boolean(values.refresh));
       draftPending(now);
-      return json(appState(loadBoard(), loadSnapshot(), loadConfig(), now));
+      // A card left in running by an away run that died shouldn't look like it's still working.
+      if (!awayRunning() && loadBoard().cards.some((c) => c.column === 'running')) updateBoard((b) => recoverRunning(b, now, planWorkspace));
+      // What the quota check just did, so the app's Refresh button can say it instead of looking dead.
+      const quotaRefresh = values.refresh ? (refreshed ? { ok: refreshed.ok, message: refreshed.message } : { ok: false, message: 'Live quota reading is off (quotaSource in config.json).' }) : null;
+      return json({ ...appState(loadBoard(), loadSnapshot(), loadConfig(), now), quotaRefresh });
+    }
+    case 'live': {
+      const sub = args[0] ?? 'status';
+      if (sub === 'set') {
+        const live = liveSet(need(args[1], 'chompyy live set <your Chompyy checkout> [branch]'), args[2] ?? 'main');
+        console.log(`Live copy at ${live.dir}, following ${live.branch}. Building it now…`);
+        liveUpdateLocked();
+        return console.log(formatLive(loadLive()));
+      }
+      if (sub === 'off') {
+        liveOff();
+        return console.log('The app no longer follows the live copy; it uses whichever chompyy CLI runs next.');
+      }
+      if (sub === 'update') {
+        const state = liveUpdateLocked();
+        if (!state) console.log('An update is already running; it will pick up the newest main when it finishes.');
+        if (state?.error) process.exitCode = 1;
+        return;
+      }
+      return console.log(formatLive(loadLive()));
     }
     case 'app': {
       console.log(`Downloading Chompyy ${cliVersion()} for Mac…`);
@@ -407,6 +629,7 @@ async function main(argv: string[]): Promise<void> {
         return;
       }
       const eligible = loadBoard().cards.filter((card) => card.column === 'approved' || card.column === 'later');
+      const runs = readRuns();
       if (!eligible.length) {
         console.log('\nNo cards to consider. Park an idea with `chompyy later "<idea>"`.');
         return;
@@ -416,13 +639,14 @@ async function main(argv: string[]): Promise<void> {
         const state = card.column === 'approved' ? 'approved · ready' : 'later · approve to run';
         console.log(`  #${card.id} ${card.title} [${state}]`);
         if (card.column === 'later' && !card.blueprint?.trim()) console.log('      blueprint needed before approval');
+        console.log(`      ${formatCostRange(costRange(card, runs))}`);
       }
       console.log('\nThis is a read-only list. Start selected work with `chompyy away <duration>`.');
       return;
     }
     case 'later': {
       const idea = need(args.join(' ').trim(), 'chompyy later "<idea>"');
-      const card = updateBoard((b) => addCard(b, idea, process.cwd(), now));
+      const card = updateBoard((b) => addCard(b, idea, process.cwd(), now, 'later', branchOf(process.cwd())));
       console.log(`📥 #${card.id} parked in later: ${card.title}`);
       if (values['no-blueprint']) {
         updateBoard((b) => {
@@ -447,6 +671,14 @@ async function main(argv: string[]): Promise<void> {
         console.log('   the blueprint waits until your 5-hour window is active (drafting now would start a new window)');
         return;
       }
+      const waiting = quotaEmpty(now);
+      if (waiting) {
+        updateBoard((b) => {
+          getCard(b, card.id).blueprintWaiting = waiting;
+        });
+        console.log(`   ${waiting}`);
+        return;
+      }
       updateBoard((b) => {
         getCard(b, card.id).draftingAt = now.toISOString();
       });
@@ -466,6 +698,8 @@ async function main(argv: string[]): Promise<void> {
       const card = getCard(loadBoard(), need(args[0], 'chompyy show <id>'));
       if (values.json) return json(cardView(card));
       console.log(formatCard(card));
+      if (!card.run) console.log(`\n${formatCostRange(costRange(card, readRuns()))}`);
+      else if (card.run.cost?.fiveHourPct != null) console.log(`used ${card.run.cost.fiveHourPct}% of the 5h window${card.run.trigger ? ` · started by the ${card.run.trigger} trigger` : ''}`);
       return;
     }
     case 'picture': {
@@ -477,19 +711,98 @@ async function main(argv: string[]): Promise<void> {
       return;
     }
     case 'blueprint': {
+      if (values['all-later']) {
+        await freshQuota();
+        if (!claudeAvailable(loadConfig().claudeBin)) throw new Error('claude CLI not found: drafting needs it.');
+        // Same rule as background drafting (card #20): with 0% left, every draft would only hit the limit.
+        const waiting = quotaEmpty(now);
+        if (waiting) {
+          updateBoard((b) => claimDrafts(b, now, waiting)); // marks the later cards "waiting for quota"
+          console.log(`Nothing drafted: ${waiting}. They draft on their own once quota is back.`);
+          return;
+        }
+        const plan = draftAllPlan(loadBoard(), windowActive(now), now);
+        if (!plan.ids.length) {
+          console.log(plan.message);
+          return;
+        }
+        // Mark them all first so background drafting and the app don't start a second draft of the same card.
+        updateBoard((b) => {
+          for (const id of plan.ids) getCard(b, id).draftingAt = new Date().toISOString();
+        });
+        const failed: string[] = [];
+        for (const [i, id] of plan.ids.entries()) {
+          updateBoard((b) => {
+            getCard(b, id).draftingAt = new Date().toISOString(); // fresh, so a long queue doesn't look stale
+          });
+          if (!values.quiet) console.log(`Drafting #${id} (${i + 1} of ${plan.ids.length})…`);
+          try {
+            await blueprintCard(id, values.model); // a failure is kept on the card as blueprintError
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            if (isUsageLimit(message)) {
+              // Out of quota mid-way: the rest would fail the same way. They wait for the reset instead (card #20).
+              const left = plan.ids.slice(i + 1);
+              updateBoard((b) => { for (const l of left) delete getCard(b, l).draftingAt; claimDrafts(b, new Date(), quotaEmpty(new Date()) ?? 'waiting for quota: the usage limit was hit'); });
+              console.log(`Drafted ${i} of ${plan.ids.length}: the usage limit was hit at #${id}. The rest draft on their own once quota is back.`);
+              process.exitCode = i === 0 ? 1 : 0;
+              return;
+            }
+            failed.push(id);
+            if (!values.quiet) console.log(`   #${id} failed: ${message}`);
+          }
+        }
+        const done = plan.ids.length - failed.length;
+        console.log(`Drafted ${done} of ${plan.ids.length} blueprint${plan.ids.length === 1 ? '' : 's'}${failed.length ? `; failed: ${failed.map((f) => '#' + f).join(', ')} (see each card)` : ''}.`);
+        if (done === 0) process.exitCode = 1;
+        return;
+      }
       const id = need(args[0], 'chompyy blueprint <id> [--model haiku]');
       const text = await blueprintCard(id, values.model);
       if (!values.quiet) console.log(text);
       return;
     }
     case 'approve': {
-      const card = updateBoard((b) => moveCard(b, need(args[0], 'chompyy approve <id>'), 'approved', now));
-      console.log(`✅ #${card.id} approved: ${card.title}`);
+      const id = need(args[0], 'chompyy approve <id> [--allow network:host] [--allow "command:swiftc *"]');
+      // The permission plan: what you allow here is all the run gets beyond the box's defaults (none by default).
+      const allow = values.allow ?? [];
+      const bad = allow.filter((a) => !parsePermission(a));
+      if (bad.length) throw new Error(`Not a permission: ${bad.join(', ')}. Use network:<domain> or "command:<program> *".`);
+      const card = updateBoard((b) => {
+        const c = moveCard(b, id, 'approved', now);
+        if (allow.length) c.permissions = [...new Set(allow)];
+        else delete c.permissions;
+        return c;
+      });
+      console.log(`✅ #${card.id} approved: ${card.title}${card.permissions?.length ? `\n   allowed: ${card.permissions.join(', ')}` : ''}`);
+      for (const o of overlaps(card, loadBoard().cards)) {
+        console.log(`   ⚠️  #${o.id} "${o.title}" may touch the same files (${o.files.slice(0, 3).join(', ')}). Keeping both can conflict; Run again fixes that.`);
+      }
       return;
     }
     case 'drop': {
       const card = updateBoard((b) => dropCard(b, need(args[0], 'chompyy drop <id>'), now));
       console.log(`🗑  #${card.id} dropped: ${card.title}`);
+      return;
+    }
+    case 'preflight': {
+      // Run the repo's checks on clean latest main, in the away box and outside it (research/away-readiness.md).
+      const root = gitRoot(args[0] ?? process.cwd());
+      if (!root) throw new Error('Not in a git repo. Usage: chompyy preflight [path-to-repo]');
+      const config = loadConfig();
+      console.log(`Checking ${root} on its latest main, in the away box and outside it…`);
+      const result = await preflight(root, { cacheDir: homePath('cache', 'tools'), denyRead: config.denyReadPaths, timeoutMs: config.checkTimeoutMin * 60_000, ...(values.ref ? { ref: values.ref } : {}) });
+      const before = loadProfile(root);
+      saveProfile({ root, checks: result.results.map((r) => r.check), updatedAt: result.at, preflight: result, ...(before?.needs ? { needs: before.needs } : {}) });
+      if (values.json) return json(result);
+      console.log(formatPreflight(result));
+      return;
+    }
+    case 'run-card': {
+      // A worker started by an away run: one card in its own process, so a crash ends only this card.
+      const id = need(args[0], 'chompyy run-card <id> --timeout <ms>');
+      const config = loadConfig();
+      await runCard(id, Number(values.timeout) || config.cardTimeoutMin * 60_000, awayDeps(config, freshQuota), values.trigger);
       return;
     }
     case 'away': {
@@ -499,28 +812,90 @@ async function main(argv: string[]): Promise<void> {
       const gate = budgetGate(loadSnapshot(), config, now);
       console.log(statusText(loadSnapshot(), now));
       console.log(`gate       ${gate.ok ? 'open' : values.force ? 'closed, forced open' : 'closed'}${[...gate.reasons, ...gate.notes].map((r) => `\n           · ${r}`).join('')}\n`);
-      await away(
-        ms,
-        {
-          runner: new ClaudeRunner(config.claudeBin),
-          config,
-          now: () => Date.now(),
-          snapshot: loadSnapshot,
-          plan: planWorkspace,
-          prepare: prepareWorkspace,
-          commitLeftovers,
-          refreshQuota: async () => {
-            await freshQuota(true);
-          },
-          out: (line) => console.log(line),
-        },
-        { dryRun: values['dry-run'], force: values.force },
-      );
+      await runAway(ms, { dryRun: values['dry-run'], force: values.force }, now, freshQuota);
+      return;
+    }
+    case 'tick': {
+      // Run by the LaunchAgent every 5 minutes. Prints one line per tick to tick.log.
+      await freshQuota();
+      const config = loadConfig();
+      const board = loadBoard();
+      // Refreshes that waited for quota (refresh.ts) go as soon as there is some again.
+      if (board.cards.some((c) => c.column === 'review' && c.refresh?.state === 'waiting') && !refreshGate(loadSnapshot(), now)) {
+        await withRefreshLock(() => refreshClashing(refreshDeps(config, freshQuota)));
+      }
+      const d = decideTrigger(now, loadSnapshot(), config, loadTriggerState().fired, awayQueue(board).length, Boolean(awayRunning()));
+      const stamp = now.toISOString().slice(0, 16);
+      if (!d.fire) {
+        noteTick(now, d.why);
+        // Nightly consolidation: at bedtime, distil taste even when no card runs.
+        if (config.bedtime && bedtimeKey(now, config.bedtime, config.bedtimeWindowMin) && !awayRunning() && windowActive(now) && distillDue(board, now, 12 * 3600_000)) {
+          console.log(`${stamp} bedtime · taste: ${await distillNow(now).catch((e) => String(e))}`);
+        } else if (values.json || process.stdout.isTTY) console.log(`${stamp} ${d.why}`);
+        return;
+      }
+      markFired(d.key, now, d.why);
+      console.log(`${stamp} ▶ ${d.why}: away for ${formatDuration(d.durationMs)}`);
+      await runAway(d.durationMs, { trigger: d.kind }, now, freshQuota);
+      return;
+    }
+    case 'triggers': {
+      const sub = args[0];
+      if (sub === 'on') {
+        const path = installAgent();
+        const c = loadConfig();
+        console.log(`Triggers on: ${path} runs \`chompyy tick\` every 5 minutes.`);
+        console.log(`  last hour before a reset: ${c.lastHourTrigger ? `on (with ≥${c.lastHourMinLeftPct}% left)` : 'off'} · bedtime: ${c.bedtime ?? 'not set (chompyy bedtime 23:30)'}`);
+        return;
+      }
+      if (sub === 'off') return console.log(uninstallAgent() ? 'Triggers off: removed the LaunchAgent.' : 'Triggers were already off.');
+      if (sub) throw new Error('Usage: chompyy triggers [on|off]');
+      const c = loadConfig();
+      const st = loadTriggerState();
+      if (values.json) return json({ installed: agentInstalled(), lastHour: c.lastHourTrigger, lastHourMinLeftPct: c.lastHourMinLeftPct, bedtime: c.bedtime, ...st });
+      console.log(`LaunchAgent  ${agentInstalled() ? 'on (every 5 minutes)' : 'off (turn on: chompyy triggers on)'}`);
+      console.log(`last hour    ${c.lastHourTrigger ? `on, with ≥${c.lastHourMinLeftPct}% of the window left` : 'off'}`);
+      console.log(`bedtime      ${c.bedtime ?? 'not set'}`);
+      if (st.lastTickAt) console.log(`last tick    ${st.lastTickAt.slice(0, 16).replace('T', ' ')}: ${st.lastDecision ?? ''}`);
+      return;
+    }
+    case 'bedtime': {
+      const v = need(args[0], 'chompyy bedtime <23:30|off>');
+      if (v === 'off') {
+        setConfig('bedtime', null);
+        return console.log('Bedtime trigger off.');
+      }
+      parseClock(v);
+      setConfig('bedtime', v);
+      console.log(`Bedtime set to ${v}: approved cards run then, with the window that is left.${agentInstalled() ? '' : ' Turn triggers on with `chompyy triggers on`.'}`);
+      return;
+    }
+    case 'last-hour': {
+      const v = need(args[0], 'chompyy last-hour <on|off>');
+      if (v !== 'on' && v !== 'off') throw new Error('Usage: chompyy last-hour <on|off>');
+      setConfig('lastHourTrigger', v === 'on');
+      console.log(`Last-hour trigger ${v}.${v === 'on' && !agentInstalled() ? ' Turn triggers on with `chompyy triggers on`.' : ''}`);
+      return;
+    }
+    case 'distill': {
+      console.log(await distillNow(now, Boolean(values.force)));
+      return;
+    }
+    case 'trends': {
+      const lines = trendLines(readRuns(), readSignals(), now);
+      console.log(lines.length ? lines.join('\n') : 'Not enough runs yet for trends (needs 3).');
       return;
     }
     case 'report': {
       const since = values.all ? null : lastReportAt();
-      console.log(formatReport(cardsSince(loadBoard(), since), since, (c) => ({ files: changedFiles(c), questions: questionsOf(c) })));
+      syncTasteFile(now);
+      const cards = cardsSince(loadBoard(), since);
+      const store = loadStore();
+      const signals = readSignals();
+      const morning = morningLine(cards, tasteChangesSince(store, since));
+      const question = nextQuestion(store, signals);
+      const footer = [...(question ? formatQuestion(question, signals) : []), ...trendLines(readRuns(), signals, now)];
+      console.log(formatReport(cards, since, (c) => ({ files: changedFiles(c), questions: questionsOf(c) }), { header: morning ? [morning] : [], footer }));
       markReported(now);
       return;
     }
@@ -530,14 +905,29 @@ async function main(argv: string[]): Promise<void> {
     }
     case 'keep': {
       const id = need(args[0], 'chompyy keep <id>');
-      console.log(keepCard(getCard(loadBoard(), id)));
-      updateBoard((b) => {
-        const card = getCard(b, id);
-        card.outcome = 'kept';
-        card.column = 'done';
-        card.updatedAt = now.toISOString();
-        return card;
+      const card = getCard(loadBoard(), id);
+      const clash = clashOf(card);
+      if (clash) {
+        // Don't hand the clash to you: Chompyy brings the card onto the new main, checks it, then keeps it (refresh.ts).
+        updateBoard((b) => {
+          getCard(b, id).keepWhenRefreshed = true;
+        });
+        startBackground(['refresh', '--clashing'], 'refresh.log');
+        console.log(`#${id} clashes with ${clash.branch} (${clash.files.join(', ')}): other cards were kept since it ran. Chompyy is bringing it up to date and will keep it once its checks pass.`);
+        return;
+      }
+      keepNow(id, now);
+      return;
+    }
+    case 'refresh': {
+      const config = loadConfig();
+      const deps = refreshDeps(config, freshQuota);
+      await freshQuota();
+      const ran = await withRefreshLock(async () => {
+        if (args[0]) await refreshCard(args[0], deps);
+        else await refreshClashing(deps);
       });
+      if (!ran) console.log('A refresh is already running; it will go round again to include this.');
       return;
     }
     case 'undo': {
@@ -548,6 +938,7 @@ async function main(argv: string[]): Promise<void> {
         card.outcome = 'undone';
         card.column = 'done';
         card.updatedAt = now.toISOString();
+        recordOutcome(card, 'undone', now);
         return card;
       });
       return;
@@ -580,6 +971,24 @@ async function main(argv: string[]): Promise<void> {
       return;
     }
     case 'taste': {
+      const sub = args[0];
+      const removed = syncTasteFile(now);
+      if (removed.length) console.log(`Retired ${removed.join(', ')}: you removed ${removed.length === 1 ? 'it' : 'them'} from taste.md.\n`);
+      if (sub === 'list') {
+        if (values.json) return json(loadStore());
+        return console.log(formatPrefs(loadStore(), readSignals()));
+      }
+      if (sub === 'why') return console.log(formatWhy(getPref(loadStore(), need(args[1], 'chompyy taste why <id>')), readSignals()));
+      if (sub === 'yes' || sub === 'not-now' || sub === 'never') {
+        const p = answerPreference(need(args[1], `chompyy taste ${sub} <id>`), sub as Answer, now);
+        const said = { yes: `✓ Added to taste.md: "${p.text}". Agents follow it from now on.`, 'not-now': `Okay, not now. Chompyy asks again only when there's more evidence.`, never: `🔕 Won't ask about "${p.text}" again.` };
+        return console.log(said[sub as Answer]);
+      }
+      if (sub === 'retire') {
+        const p = retirePreference(need(args[1], 'chompyy taste retire <id>'), now);
+        return console.log(`Retired ${p.id}: "${p.text}". It's kept in \`chompyy taste list\` with the reason.`);
+      }
+      if (sub) throw new Error('Usage: chompyy taste [list | why <id> | yes|not-now|never <id> | retire <id>]');
       const { path, text, created } = readTaste();
       if (created) console.log(`(created ${path})\n`);
       console.log(text);

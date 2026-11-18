@@ -38,7 +38,9 @@ describe('workspace', () => {
     const ws = prepareWorkspace(c);
     expect(existsSync(join(ws.dir, 'README.md'))).toBe(true);
     expect(execFileSync('git', ['-C', ws.dir, 'branch', '--show-current'], { encoding: 'utf8' }).trim()).toBe('chompyy/7');
-    expect(prepareWorkspace(c)).toEqual(ws); // second call is a no-op
+    expect(ws.base).toMatchObject({ ref: expect.stringMatching(/^(main|master)$/), branch: expect.stringMatching(/^(main|master)$/) });
+    expect(prepareWorkspace(c)).toMatchObject({ kind: ws.kind, dir: ws.dir, branch: ws.branch }); // second call reuses it
     git('worktree', 'remove', '--force', ws.dir);
   });
 });
+

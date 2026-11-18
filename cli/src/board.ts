@@ -1,6 +1,10 @@
 // The board (spec §5.3): cards in columns, stored in ~/.chompyy/board.json.
-import { appendJsonl, homePath, readJson, writeJson } from './home.js';
+import { mkdirSync } from 'node:fs';
+import { join } from 'node:path';
+import { appendJsonl, chompyyHome, homePath, readJson, writeJson } from './home.js';
 import type { PictureInfo } from './picture.js';
+import type { WindowView } from './quota.js';
+import type { Verified } from './verify.js';
 
 export const COLUMNS = ['suggested', 'later', 'approved', 'running', 'review', 'done'] as const;
 export type Column = (typeof COLUMNS)[number];
@@ -29,7 +33,7 @@ export interface Checks {
   why: string;
 }
 
-export type RunStatus = 'ok' | 'failed' | 'timeout' | 'questions' | 'error';
+export type RunStatus = 'ok' | 'failed' | 'timeout' | 'questions' | 'error' | 'stuck';
 
 export interface RunInfo {
   status: RunStatus;
@@ -39,10 +43,18 @@ export interface RunInfo {
   exitCode: number | null;
   workdir: string;
   branch?: string;
+  /** What the copy started from (the latest main) and the local branch Keep lands the work on. */
+  base?: { ref: string; commit: string; branch: string };
   /** First non-empty lines of the agent's final output. */
   summary: string;
   /** What the agent said about its own checks (its last "CHECKS:" line). */
   checks?: Checks;
+  /** Points of the 5-hour window and the week used during the run (null = window reset or quota unknown). */
+  cost?: { fiveHourPct: number | null; weeklyPct: number | null };
+  /** Chompyy ran the repo's tests itself after the run (sandboxed), instead of trusting the agent's word. */
+  verified?: Verified;
+  /** What started it: you (away) or a trigger. */
+  trigger?: string;
 }
 
 export interface Rating {
@@ -53,14 +65,39 @@ export interface Rating {
   at: string;
 }
 
+/**
+ * Chompyy bringing a card in review up to date after its main moved on (refresh.ts): another card was kept
+ * and now this one would clash with it.
+ */
+export interface Refresh {
+  state: 'waiting' | 'running' | 'done' | 'failed';
+  /** The main commit it was brought onto (done), or is being brought onto. */
+  onto?: string;
+  /** git merged it cleanly, or an agent resolved the clash. */
+  by?: 'git' | 'agent';
+  /** Plain words: why it waits or failed, or what was done. */
+  why?: string;
+  /** The files that clashed. */
+  files?: string[];
+  at: string;
+}
+
 export interface Card {
   id: string;
   title: string;
   idea: string;
   cwd: string;
+  /** The branch or workspace the card belongs to (the git branch it was created on); missing = `unsorted`. */
+  workspace?: string;
   column: Column;
   blueprint: string | null;
   blueprintError?: string;
+  /** Why the blueprint isn't drafted yet (the 5-hour quota is used up); it drafts once quota returns. */
+  blueprintWaiting?: string;
+  /** Don't retry the draft before this time (set when a draft hit the usage limit). */
+  blueprintWaitUntil?: string;
+  /** Permissions you allowed for this card's run when approving it ("network:host", "command:swiftc *"). */
+  permissions?: string[];
   /** When a background draft started (so the app doesn't start a second one). */
   draftingAt?: string;
   /** Parked with --no-blueprint: don't draft it automatically. */
@@ -72,6 +109,10 @@ export interface Card {
   run?: RunInfo;
   /** What the user decided after the run. */
   outcome?: 'kept' | 'undone';
+  /** Chompyy bringing this card up to date with main after another card was kept (refresh.ts). */
+  refresh?: Refresh;
+  /** You pressed Keep while it clashed: Chompyy keeps it by itself once it's refreshed and its checks pass. */
+  keepWhenRefreshed?: boolean;
   rating?: Rating;
   /** Your answers to the run's QUESTIONS.md; added to the task prompt on the next run. */
   answers?: { at: string; text: string }[];
@@ -118,7 +159,33 @@ export function titleFrom(idea: string): string {
   return first.length > 60 ? first.slice(0, 57).trimEnd() + '…' : first;
 }
 
-export function addCard(board: BoardData, idea: string, cwd: string, now: Date, column: Column = 'later'): Card {
+/** Where cards with no branch (or made before workspaces existed) are grouped. */
+export const UNSORTED = 'unsorted';
+
+/** The card's workspace; old cards and cards made outside a git branch are `unsorted`. */
+export function workspaceOf(card: Pick<Card, 'workspace'>): string {
+  return card.workspace?.trim() || UNSORTED;
+}
+
+/** A workspace name as one safe folder name: "feat/login" -> "feat-login"; nothing that could climb out. */
+export function workspaceFolder(workspace: string): string {
+  const safe = workspace.trim().replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^[.-]+|-+$/g, '');
+  return safe || UNSORTED;
+}
+
+/** The card's own folder, `<store>/<workspace>/<card-id>/` (store = ~/.chompyy/cards). Not created here. */
+export function cardDir(card: Pick<Card, 'id' | 'workspace'>, store = join(chompyyHome(), 'cards')): string {
+  return join(store, workspaceFolder(workspaceOf(card)), workspaceFolder(card.id));
+}
+
+/** Like cardDir, and makes sure the folder exists. */
+export function ensureCardDir(card: Pick<Card, 'id' | 'workspace'>): string {
+  const dir = cardDir(card);
+  mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+export function addCard(board: BoardData, idea: string, cwd: string, now: Date, column: Column = 'later', workspace?: string | null): Card {
   const text = idea.trim();
   if (!text) throw new Error('The idea is empty.');
   const at = now.toISOString();
@@ -127,6 +194,7 @@ export function addCard(board: BoardData, idea: string, cwd: string, now: Date, 
     title: titleFrom(text),
     idea: text,
     cwd,
+    workspace: workspace?.trim() || UNSORTED,
     column,
     blueprint: null,
     createdAt: at,
@@ -167,17 +235,113 @@ export function dropCard(board: BoardData, id: string, now: Date): Card {
   return card;
 }
 
+/**
+ * Suggested cards (Chompyy's ideas, not yours) that sat untouched for `days` are archived, so the column
+ * doesn't fill with stale guesses. Your own parked ideas never expire. Returns the archived cards.
+ */
+export function expireSuggested(board: BoardData, now: Date, days: number): Card[] {
+  if (days <= 0) return [];
+  const cutoff = now.getTime() - days * 24 * 3600_000;
+  const stale = board.cards.filter((c) => c.column === 'suggested' && Date.parse(c.updatedAt) < cutoff && !c.draftingAt && !c.drawingAt);
+  for (const c of stale) appendJsonl(homePath('archive.jsonl'), { ...c, droppedAt: now.toISOString(), expired: true });
+  board.cards = board.cards.filter((c) => !stale.includes(c));
+  return stale;
+}
+
 export function cardsIn(board: BoardData, column: Column): Card[] {
   return board.cards.filter((c) => c.column === column);
 }
 
+/** "14:05" in local time, from Unix seconds. */
+function clock(unixSec: number): string {
+  return new Date(unixSec * 1000).toTimeString().slice(0, 5);
+}
+
+/**
+ * Why drafting must wait, or null if it can go ahead. A running 5-hour window with 0% left means a draft
+ * would only fail on the usage limit, so the card waits instead of looking stuck.
+ */
+export function quotaWaitReason(five: WindowView): string | null {
+  if (!five.known || five.leftPct > 0) return null;
+  return `waiting for quota: the 5-hour window is used up, drafts after it resets at ${clock(five.resetsAt)}`;
+}
+
+/** A parked card with no blueprint that should be drafted now (not already drafting, not told to wait). */
+function needsDraft(c: Card, now: Date): boolean {
+  const stale = now.getTime() - 3 * 60_000;
+  return (
+    (c.column === 'later' || c.column === 'suggested') &&
+    !c.blueprint && !c.blueprintError && !c.noAutoDraft &&
+    (!c.draftingAt || Date.parse(c.draftingAt) < stale) &&
+    (!c.blueprintWaitUntil || Date.parse(c.blueprintWaitUntil) <= now.getTime())
+  );
+}
+
+/**
+ * Claim the cards whose blueprint should be drafted now: marks them drafting and returns their ids.
+ * With `waiting` set (no quota left), nothing is drafted: the cards get the reason instead and stay due,
+ * so a later pass drafts them once quota returns.
+ */
+export function claimDrafts(board: BoardData, now: Date, waiting: string | null): string[] {
+  const due = board.cards.filter((c) => needsDraft(c, now));
+  if (waiting) {
+    for (const c of due) c.blueprintWaiting = waiting;
+    return [];
+  }
+  for (const c of due) {
+    c.draftingAt = now.toISOString();
+    delete c.blueprintWaiting;
+    delete c.blueprintWaitUntil;
+  }
+  return due.map((c) => c.id);
+}
+
+/**
+ * Record a failed draft. A usage-limit failure isn't the card's fault, so it gets no blueprintError (which
+ * would stop retries): it waits and is retried after `retryAt`.
+ */
+export function noteDraftFailure(board: BoardData, id: string, message: string, usageLimit: boolean, retryAt: Date): void {
+  const c = getCard(board, id);
+  delete c.draftingAt;
+  if (usageLimit) {
+    delete c.blueprintError;
+    c.blueprintWaiting = `waiting for quota: the usage limit was hit, retries after ${clock(retryAt.getTime() / 1000)}`;
+    c.blueprintWaitUntil = retryAt.toISOString();
+  } else {
+    c.blueprintError = message;
+    delete c.blueprintWaiting;
+    delete c.blueprintWaitUntil;
+  }
+}
+
 /** Approved cards in the order they were approved: the away queue. */
-/** Cards stuck in running (the away run was stopped or crashed) go back to approved. Returns their ids. */
-export function recoverRunning(board: BoardData, now: Date): string[] {
+/**
+ * Cards stuck in running whose away run is gone (it crashed or was stopped) go to review as an error, with
+ * whatever they finished: put back in approved they would look untouched, and a card that crashes Chompyy
+ * would crash every away. `where` says where a card's work is. Returns their ids.
+ */
+export function recoverRunning(
+  board: BoardData,
+  now: Date,
+  where: (c: Card) => { dir: string; branch?: string } = () => ({ dir: '' }),
+  why = 'The away run stopped in the middle of this card (Chompyy crashed or was stopped), so it never finished.',
+): string[] {
   const stuck = cardsIn(board, 'running');
   for (const c of stuck) {
-    c.column = 'approved';
+    const ws = where(c);
+    const startedAt = c.updatedAt || now.toISOString();
+    c.column = 'review';
     c.updatedAt = now.toISOString();
+    c.run = {
+      status: 'error',
+      startedAt,
+      finishedAt: now.toISOString(),
+      durationMs: Math.max(0, now.getTime() - Date.parse(startedAt)) || 0,
+      exitCode: null,
+      workdir: ws.dir,
+      ...(ws.branch ? { branch: ws.branch } : {}),
+      summary: `${why} Anything it committed is on its branch; Run again to retry.`,
+    };
   }
   return stuck.map((c) => c.id);
 }
@@ -194,7 +358,7 @@ function shortPath(p: string): string {
 function cardLine(c: Card): string {
   const marks: string[] = [];
   if (c.column === 'later' || c.column === 'suggested') {
-    marks.push(c.blueprint ? 'blueprint ✓' : c.blueprintError ? 'blueprint failed' : 'no blueprint');
+    marks.push(c.blueprint ? 'blueprint ✓' : c.blueprintError ? 'blueprint failed' : c.blueprintWaiting ? 'waiting for quota' : 'no blueprint');
   }
   if (c.run) marks.push(c.run.status);
   if (c.rating) marks.push(`${'★'.repeat(c.rating.score)}`);
@@ -202,14 +366,27 @@ function cardLine(c: Card): string {
   return `  #${c.id.padEnd(3)} ${c.title}${tail}  ${shortPath(c.cwd)}`;
 }
 
+/** Workspace names in the order they should be listed: named ones A-Z, `unsorted` last. */
+export function workspacesOf(cards: Card[]): string[] {
+  const names = [...new Set(cards.map(workspaceOf))];
+  return names.sort((a, b) => (a === UNSORTED ? 1 : b === UNSORTED ? -1 : a.localeCompare(b)));
+}
+
+/** The board, one header per workspace (branch), and the columns inside each. */
 export function formatBoard(board: BoardData, columns: readonly Column[] = COLUMNS): string {
   if (board.cards.length === 0) return 'The board is empty. Park an idea with `chompyy later "<idea>"`.';
+  const shown = board.cards.filter((c) => columns.includes(c.column));
   const out: string[] = [];
-  for (const col of columns) {
-    const cards = cardsIn(board, col);
-    if (cards.length === 0) continue;
-    out.push(`${COLUMN_LABEL[col]} (${cards.length})`);
-    for (const c of cards) out.push(cardLine(c));
+  for (const ws of workspacesOf(shown)) {
+    const mine = shown.filter((c) => workspaceOf(c) === ws);
+    if (out.length) out.push('');
+    out.push(`[${ws}] (${mine.length})`);
+    for (const col of columns) {
+      const cards = mine.filter((c) => c.column === col);
+      if (cards.length === 0) continue;
+      out.push(`${COLUMN_LABEL[col]} (${cards.length})`);
+      for (const c of cards) out.push(cardLine(c));
+    }
   }
   return out.length ? out.join('\n') : `No cards in ${columns.join(', ')}.`;
 }
@@ -217,10 +394,10 @@ export function formatBoard(board: BoardData, columns: readonly Column[] = COLUM
 export function formatCard(c: Card): string {
   const lines = [
     `#${c.id} ${c.title}`,
-    `column: ${c.column} · cwd: ${shortPath(c.cwd)} · created ${c.createdAt}`,
+    `column: ${c.column} · workspace: ${workspaceOf(c)} · cwd: ${shortPath(c.cwd)} · created ${c.createdAt}`,
   ];
   if (c.idea !== c.title) lines.push('', c.idea);
-  lines.push('', c.blueprint ?? (c.blueprintError ? `(blueprint failed: ${c.blueprintError})` : '(no blueprint yet)'));
+  lines.push('', c.blueprint ?? (c.blueprintError ? `(blueprint failed: ${c.blueprintError})` : c.blueprintWaiting ? `(no blueprint yet: ${c.blueprintWaiting})` : '(no blueprint yet)'));
   if (c.run) {
     lines.push('', `last run: ${c.run.status} · ${c.run.workdir}${c.run.branch ? ` · branch ${c.run.branch}` : ''}`);
     if (c.run.summary) lines.push('', 'what the agent said:', ...c.run.summary.split('\n').map((l) => `  ${l}`));

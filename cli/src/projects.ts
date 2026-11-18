@@ -46,13 +46,14 @@ function cwdOf(file: string): string | null {
   }
 }
 
-export function recentProjects(board: BoardData, opts: { claudeDir?: string; home?: string; limit?: number } = {}): Project[] {
+export function recentProjects(board: BoardData, opts: { claudeDir?: string; home?: string; limit?: number; isTemp?: (p: string) => boolean } = {}): Project[] {
+  const temp = opts.isTemp ?? isTemp;
   const claudeDir = opts.claudeDir ?? join(homedir(), '.claude', 'projects');
   const seen = new Map<string, Project>();
   const add = (dir: string, at: number) => {
-    if (!dir || isTemp(dir) || !existsSync(dir)) return;
+    if (!dir || temp(dir) || !existsSync(dir)) return;
     const root = findGitRoot(dir);
-    if (!root || root === homedir() || isTemp(root)) return; // cards run best in git repos
+    if (!root || root === homedir() || temp(root)) return; // cards run best in git repos
     let path = root;
     try {
       path = realpathSync.native(root); // one entry per repo even when folder names differ in case (code vs Code)
