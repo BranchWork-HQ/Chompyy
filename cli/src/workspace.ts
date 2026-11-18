@@ -59,6 +59,13 @@ export function gitRoot(cwd: string): string | null {
   }
 }
 
+/** The git branch a folder is on, for a new card's workspace; null outside git or on a detached HEAD. */
+export function branchOf(cwd: string): string | null {
+  if (!existsSync(cwd)) return null;
+  const branch = tryGit(cwd, ['symbolic-ref', '--quiet', '--short', 'HEAD']);
+  return branch || null;
+}
+
 function branchExists(root: string, branch: string): boolean {
   try {
     git(root, ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`]);
