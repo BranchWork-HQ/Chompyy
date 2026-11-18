@@ -70,11 +70,18 @@ describe('verify: the card against the main it started from', () => {
     expect(v.outcomes![0]).toMatchObject({ card: 'failed', main: 'failed', newFailures: ['test/new.test.ts > b'], verdict: 'broke' });
   });
 
+  // 2026-11-18: git-heavy tests timed out on a busy Mac and the card looked broken. One retry tells flaky from broken.
+  it('retries a failing check once and calls it flaky when the retry passes', async () => {
+    let n = 0;
+    const v = await verifyCard(opts(repoWithCard(), async (_a: string[], cwd: string) => ({ code: cwd.includes('chompyy-vc-card-') && n++ === 0 ? 1 : 0, output: 'timeout', timedOut: false })));
+    expect(v).toMatchObject({ result: 'passed', why: 'cli: npm test (flaky: failed once, passed on retry) pass' });
+  });
+
   it('runs main once per commit: later cards from the same main reuse it', async () => {
     const r = repoWithCard();
     const calls: string[] = [];
     await verifyCard(opts(r, fake([1, ' FAIL  test/x.test.ts > y'], [1, ' FAIL  test/x.test.ts > y'], calls)));
     await verifyCard(opts(r, fake([1, ' FAIL  test/x.test.ts > y'], [1, ' FAIL  test/x.test.ts > y'], calls)));
-    expect(calls).toEqual(['card', 'main', 'card']);
+    expect(calls).toEqual(['card', 'card', 'main', 'main', 'card', 'card']); // each failure retried once; main's run reused
   });
 });

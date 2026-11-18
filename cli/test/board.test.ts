@@ -1,8 +1,10 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { addCard, awayQueue, canMove, claimDrafts, dropCard, formatBoard, formatCard, loadBoard, moveCard, noteDraftFailure, quotaWaitReason, recoverRunning, updateBoard, type BoardData } from '../src/board.js';
+import { addCard, awayQueue, canMove, cardDir, claimDrafts, dropCard, formatBoard, formatCard, loadBoard, moveCard, noteDraftFailure, quotaWaitReason, recoverRunning, updateBoard, workspaceFolder, workspaceOf, type BoardData } from '../src/board.js';
 import { windowView } from '../src/quota.js';
+import { writeBlueprintFile } from '../src/blueprint.js';
+import { writeFileSync } from 'node:fs';
 import { cardsSince, rateCard, readTaste } from '../src/report.js';
 import { NOW, nowSec, useTempHome } from './helpers.js';
 
@@ -128,6 +130,70 @@ describe('drafting with no quota left', () => {
     expect(c.blueprintError).toMatch(/auth error/);
     expect(claimDrafts(b, NOW, null)).toEqual([]);
     expect(formatBoard(b)).toContain('blueprint failed');
+  });
+});
+
+describe('workspaces', () => {
+  const home = useTempHome();
+
+  it('puts a card with no workspace in unsorted', () => {
+    const b = empty();
+    const card = addCard(b, 'no branch here', '/r', NOW);
+    expect(card.workspace).toBe('unsorted');
+    expect(workspaceOf({})).toBe('unsorted');
+    expect(workspaceOf({ workspace: '  ' })).toBe('unsorted');
+    expect(cardDir(card)).toBe(join(home(), 'cards', 'unsorted', '1'));
+  });
+
+  it('gives two workspaces separate folders, and writes the blueprint there', () => {
+    const b = empty();
+    const a = addCard(b, 'login fix', '/r', NOW, 'later', 'feat/login');
+    const c = addCard(b, 'docs typo', '/r', NOW, 'later', 'main');
+    expect(cardDir(a)).toBe(join(home(), 'cards', 'feat-login', '1'));
+    expect(cardDir(c)).toBe(join(home(), 'cards', 'main', '2'));
+    expect(cardDir(a, '/store')).toBe(join('/store', 'feat-login', '1'));
+    const path = writeBlueprintFile(a, '## Goal\nfix login');
+    expect(path).toBe(join(home(), 'cards', 'feat-login', '1', 'blueprint.md'));
+    expect(readFileSync(path, 'utf8')).toBe('## Goal\nfix login\n');
+  });
+
+  it('never makes a folder name that climbs out of the store', () => {
+    expect(workspaceFolder('../../etc')).toBe('etc');
+    expect(workspaceFolder('..')).toBe('unsorted');
+    expect(workspaceFolder('chompyy/19')).toBe('chompyy-19');
+  });
+
+  it('groups the listing under one header per workspace, unsorted last', () => {
+    const b = empty();
+    addCard(b, 'loose idea', '/r', NOW);
+    addCard(b, 'login fix', '/r', NOW, 'later', 'feat/login');
+    addCard(b, 'login test', '/r', NOW, 'later', 'feat/login').blueprint = 'bp';
+    moveCard(b, '3', 'approved', NOW);
+    addCard(b, 'docs typo', '/r', NOW, 'later', 'main');
+    const text = formatBoard(b);
+    const lines = text.split('\n');
+    const at = (s: string) => lines.findIndex((l) => l.includes(s));
+    expect(lines.filter((l) => /^\[/.test(l))).toEqual(['[feat/login] (2)', '[main] (1)', '[unsorted] (1)']);
+    expect(at('login fix')).toBeGreaterThan(at('[feat/login]'));
+    expect(at('login test')).toBeLessThan(at('[main]'));
+    expect(at('docs typo')).toBeGreaterThan(at('[main]'));
+    expect(at('loose idea')).toBeGreaterThan(at('[unsorted]'));
+    // A column filter leaves out workspaces with nothing in it.
+    expect(formatBoard(b, ['approved'])).toBe(`[feat/login] (1)\n✅ approved (1)\n${lines[at('login test')]}`);
+  });
+
+  it('still loads an old board whose cards have no workspace, as unsorted', () => {
+    const old = {
+      nextId: 2,
+      cards: [{ id: '1', title: 'old idea', idea: 'old idea', cwd: '/r', column: 'later', blueprint: null, createdAt: NOW.toISOString(), updatedAt: NOW.toISOString() }],
+    };
+    writeFileSync(join(home(), 'board.json'), JSON.stringify(old));
+    const b = loadBoard();
+    expect(b.cards[0]!.workspace).toBeUndefined();
+    expect(workspaceOf(b.cards[0]!)).toBe('unsorted');
+    expect(cardDir(b.cards[0]!)).toBe(join(home(), 'cards', 'unsorted', '1'));
+    expect(formatBoard(b)).toContain('[unsorted] (1)');
+    expect(formatCard(b.cards[0]!)).toContain('workspace: unsorted');
   });
 });
 

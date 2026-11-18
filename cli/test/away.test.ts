@@ -234,6 +234,61 @@ describe('permission plan in a run', () => {
   });
 });
 
+// 2026-11-18: "Going to sleep" would have stopped at ~23:40 when the window ran low and left the night unused.
+describe('a long away run waits out a 5-hour reset', () => {
+  const home = useTempHome();
+  const resetIn = 30 * MIN;
+  // Low window until the reset, a fresh one after it; the week is fine throughout.
+  const snapAt = (clock: () => number) => () => {
+    const resetsAt = Math.floor((NOW.getTime() + resetIn) / 1000);
+    const afterReset = clock() >= NOW.getTime() + resetIn;
+    return {
+      capturedAt: new Date(clock()).toISOString(),
+      fiveHour: afterReset ? { usedPct: 0, resetsAt: resetsAt + 5 * 3600 } : { usedPct: 95, resetsAt },
+      sevenDay: { usedPct: 1, resetsAt: resetsAt + 6 * 86_400 },
+    };
+  };
+
+  it('waits for the reset, then runs the cards', async () => {
+    let clockRef = () => 0;
+    const { deps, lines, advance } = setup(home, { cards: 2, snapshot: () => snapAt(clockRef)() });
+    clockRef = deps.now;
+    const waited: number[] = [];
+    deps.wait = async (ms) => {
+      waited.push(ms);
+      advance(ms);
+    };
+    const summary = await away(8 * 60 * MIN, deps);
+    expect(waited).toEqual([resetIn + 2 * MIN]);
+    expect(lines.some((l) => /Waiting for the 5-hour window to reset/.test(l))).toBe(true);
+    expect(summary.ran).toEqual(['1', '2']);
+  });
+
+  it("doesn't wait when the reset comes after the run's end", async () => {
+    let clockRef = () => 0;
+    const { deps } = setup(home, { cards: 1, snapshot: () => snapAt(clockRef)() });
+    clockRef = deps.now;
+    let waited = false;
+    deps.wait = async () => {
+      waited = true;
+    };
+    const summary = await away(20 * MIN, deps);
+    expect(waited).toBe(false);
+    expect(summary.stoppedBecause).toMatch(/5h window/);
+  });
+
+  it('never waits when the week is the problem', async () => {
+    const { deps } = setup(home, { cards: 1, snapshot: () => ({ capturedAt: NOW.toISOString(), fiveHour: { usedPct: 95, resetsAt: Math.floor(NOW.getTime() / 1000) + 1800 }, sevenDay: { usedPct: 99, resetsAt: Math.floor(NOW.getTime() / 1000) + 86_400 } }) });
+    let waited = false;
+    deps.wait = async () => {
+      waited = true;
+    };
+    const summary = await away(8 * 60 * MIN, deps);
+    expect(waited).toBe(false);
+    expect(summary.stoppedBecause).toMatch(/weekly/);
+  });
+});
+
 describe('sandbox', () => {
   const home = useTempHome();
   it('runs away cards sandboxed by default, allowing writes to the repo .git and the tool cache only', async () => {

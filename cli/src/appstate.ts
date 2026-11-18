@@ -19,6 +19,7 @@ import { agentInstalled, loadTriggerState } from './triggers.js';
 import { planFor, type PlannedPermission } from './permissions.js';
 import { loadProfile, preflightHosts } from './preflight.js';
 import { gitRoot } from './workspace.js';
+import { writeBlueprintFile } from './blueprint.js';
 
 export interface CardView extends Card {
   files: string[];
@@ -118,6 +119,7 @@ export function editBlueprint(board: BoardData, id: string, text: string, now: D
   delete card.blueprintError;
   delete card.blueprintWaiting;
   delete card.blueprintWaitUntil;
+  writeBlueprintFile(card, next);
   card.updatedAt = now.toISOString();
   appendJsonl(homePath('signals.jsonl'), { at: card.updatedAt, card: card.id, title: card.title, kind: 'blueprint-edit', before, after: next });
   return card;

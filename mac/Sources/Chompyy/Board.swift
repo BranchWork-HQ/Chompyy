@@ -155,6 +155,8 @@ struct ColumnView: View {
     /// Folded to a thin strip; remembered per column.
     @AppStorage private var collapsed: Bool
     @State private var showOlder = false
+    /// The Later column's "+" opens the same Park-an-idea box as the toolbar.
+    @State private var parking = false
 
     init(column: Column) {
         self.column = column
@@ -179,6 +181,17 @@ struct ColumnView: View {
                 Text(column.title).font(.headline)
                 countBadge(all)
                 Spacer()
+                if column == .later {
+                    Button { parking = true } label: {
+                        Image(systemName: "plus").font(.caption.weight(.semibold))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .help("Park an idea for later")
+                    .popover(isPresented: $parking, arrowEdge: .bottom) {
+                        ParkIdeaPopover(open: $parking).environmentObject(store)
+                    }
+                }
                 Button { withAnimation(.easeOut(duration: 0.15)) { collapsed = true } } label: {
                     Image(systemName: "chevron.right.2").font(.caption)
                 }
@@ -309,12 +322,17 @@ struct CardTile: View {
     @ViewBuilder private var status: some View {
         if card.needsYou && card.hasQuestions {
             pill("Has a question", "questionmark.bubble.fill", Brand.warn)
+        } else if card.needsYou && card.measured == "failed" {
+            // Chompyy's own measurement (card vs main) leads; the agent's claim only shows when there's none.
+            pill("Broke something", "exclamationmark.triangle.fill", Brand.warn)
+        } else if card.needsYou && card.measured == "passed" {
+            pill("Nothing broke", "checkmark.seal.fill", Brand.ok)
         } else if card.needsYou && card.run?.checks?.result == "failed" {
-            pill("Checks fail", "exclamationmark.triangle.fill", Brand.warn)
+            pill("Says checks fail", "exclamationmark.triangle", Brand.warn)
         } else if card.needsYou && card.checksNotPassed {
             pill("Not checked", "magnifyingglass", Brand.warn)
         } else if card.needsYou && card.run?.checks?.result == "passed" {
-            pill("Checks pass", "checkmark.circle.fill", Brand.ok)
+            pill("Says checks pass", "checkmark.circle", Brand.ok)
         } else if card.needsYou {
             pill("Check it", "eyes", Brand.doughEdge)
         } else if let rating = card.rating {
@@ -345,62 +363,76 @@ struct CardTile: View {
     }
 }
 
-/// Park an idea without leaving the app. Asks which project folder it belongs to.
+/// Park an idea without leaving the app: the toolbar's way into `ParkIdeaPopover`.
 struct ParkIdeaButton: View {
     @EnvironmentObject var store: Store
     @State private var open = false
-    @State private var idea = ""
-    @AppStorage("lastProject") private var project = ""
-    @State private var projects: [Project] = []
 
     var body: some View {
         Button { open = true } label: { Label("Park an idea", systemImage: "plus") }
             .popover(isPresented: $open, arrowEdge: .bottom) {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Park an idea for later").font(.headline)
-                    TextField("e.g. add a CONTRIBUTING.md with 3 rules", text: $idea, axis: .vertical)
-                        .lineLimit(2...5)
-                        .textFieldStyle(.roundedBorder)
-                    HStack(spacing: 8) {
-                        Text("Project").font(.caption.weight(.semibold))
-                        Menu {
-                            ForEach(projects, id: \.path) { p in
-                                Button {
-                                    project = p.path
-                                } label: {
-                                    Text("\(p.name)  ·  \((p.path as NSString).deletingLastPathComponent.replacingOccurrences(of: NSHomeDirectory(), with: "~"))")
-                                }
-                            }
-                            if !projects.isEmpty { Divider() }
-                            Button("Other folder…") { choose() }
-                        } label: {
-                            Label(project.isEmpty ? "Pick a project" : (project as NSString).lastPathComponent, systemImage: "folder")
-                        }
-                        .fixedSize()
-                        Spacer()
-                    }
-                    if !project.isEmpty {
-                        Text((project as NSString).abbreviatingWithTildeInPath)
-                            .font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-                    }
-                    Text("Chompyy drafts a blueprint in the background. Approve it when it looks right.")
-                        .font(.caption).foregroundStyle(.secondary)
-                    HStack {
-                        Spacer()
-                        Button("Park it") {
-                            let text = idea
-                            idea = ""
-                            open = false
-                            Task { await store.act("later", ["later", text], cwd: project) }
-                        }
-                        .keyboardShortcut(.defaultAction)
-                        .disabled(idea.trimmingCharacters(in: .whitespaces).isEmpty || project.isEmpty)
-                    }
-                }
-                .padding(16)
-                .frame(width: 380)
-                .task { await loadProjects() }
+                ParkIdeaPopover(open: $open).environmentObject(store)
             }
+    }
+}
+
+/// The "Park an idea for later" box, shared by the toolbar button and the Later column's "+".
+/// Starts empty each time it opens, with the cursor in the idea field. Asks which project folder it belongs to.
+struct ParkIdeaPopover: View {
+    @EnvironmentObject var store: Store
+    @Binding var open: Bool
+    @State private var idea = ""
+    @AppStorage("lastProject") private var project = ""
+    @State private var projects: [Project] = []
+    @FocusState private var ideaFocused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Park an idea for later").font(.headline)
+            TextField("e.g. add a CONTRIBUTING.md with 3 rules", text: $idea, axis: .vertical)
+                .lineLimit(2...5)
+                .textFieldStyle(.roundedBorder)
+                .focused($ideaFocused)
+            HStack(spacing: 8) {
+                Text("Project").font(.caption.weight(.semibold))
+                Menu {
+                    ForEach(projects, id: \.path) { p in
+                        Button {
+                            project = p.path
+                        } label: {
+                            Text("\(p.name)  ·  \((p.path as NSString).deletingLastPathComponent.replacingOccurrences(of: NSHomeDirectory(), with: "~"))")
+                        }
+                    }
+                    if !projects.isEmpty { Divider() }
+                    Button("Other folder…") { choose() }
+                } label: {
+                    Label(project.isEmpty ? "Pick a project" : (project as NSString).lastPathComponent, systemImage: "folder")
+                }
+                .fixedSize()
+                Spacer()
+            }
+            if !project.isEmpty {
+                Text((project as NSString).abbreviatingWithTildeInPath)
+                    .font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+            }
+            Text("Chompyy drafts a blueprint in the background. Approve it when it looks right.")
+                .font(.caption).foregroundStyle(.secondary)
+            HStack {
+                Spacer()
+                Button("Park it") {
+                    let text = idea
+                    idea = ""
+                    open = false
+                    Task { await store.act("later", ["later", text], cwd: project) }
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(idea.trimmingCharacters(in: .whitespaces).isEmpty || project.isEmpty)
+            }
+        }
+        .padding(16)
+        .frame(width: 380)
+        .onAppear { ideaFocused = true }
+        .task { await loadProjects() }
     }
 
     /// Recent projects from Claude Code history, past cards and the usual code folders (`chompyy projects`).

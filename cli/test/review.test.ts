@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
@@ -144,6 +144,19 @@ describe('keep and undo', () => {
     expect(git(dir, 'show', '--name-only', '--format=', 'HEAD')).toBe('LEFT.md');
     expect(uncommittedWork(dir)).toEqual([]);
     expect(commitLeftovers({ kind: 'worktree', dir }, card)).toBe(false);
+  });
+
+  // 2026-11-18: Keep failed on cards #20 and #21 with "paths are ignored by one of your .gitignore files: .claude".
+  it('commitLeftovers works when the repo also gitignores .claude', () => {
+    const { card, git } = setup('20');
+    const dir = card.run!.workdir;
+    writeFileSync(join(dir, '.gitignore'), '.claude\n');
+    mkdirSync(join(dir, '.claude'), { recursive: true });
+    writeFileSync(join(dir, '.claude', 'settings.json'), '{}');
+    writeFileSync(join(dir, 'with space.md'), 'x\n');
+    expect(commitLeftovers({ kind: 'worktree', dir }, card)).toBe(true);
+    expect(git(dir, 'show', '--name-only', '--format=', 'HEAD').split('\n').sort()).toEqual(['.gitignore', 'with space.md']);
+    expect(uncommittedWork(dir)).toEqual([]);
   });
 
   it('keep works around your unsaved changes in other files, and leaves them alone', () => {

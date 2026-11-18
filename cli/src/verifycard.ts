@@ -25,6 +25,8 @@ export interface CheckOutcome {
   /** Failing tests on the card that don't fail on main (when the output names tests). */
   newFailures: string[];
   verdict: 'ok' | 'broke' | 'same-as-main';
+  /** Failed once, passed on the retry. */
+  flaky?: boolean;
   tail?: string;
 }
 
@@ -76,11 +78,19 @@ function baselinePath(root: string, commit: string): string {
 
 async function runChecks(checks: RepoCheck[], dir: string, opts: VerifyCardOptions, exec: Exec) {
   const env = { ...process.env, ...cacheEnv(opts.cacheDir), CI: '1', NO_COLOR: '1', FORCE_COLOR: '0' };
-  const out: Record<string, { result: 'passed' | 'failed'; failures: string[]; output: string }> = {};
+  const out: Record<string, { result: 'passed' | 'failed'; failures: string[]; output: string; flaky?: boolean }> = {};
+  const once = (c: RepoCheck) => exec(c.argv, join(dir, c.dir), env, opts.timeoutMs, [dir, opts.cacheDir]).catch((err) => ({ code: null, output: String(err), timedOut: false }));
   for (const c of checks) {
-    const r = await exec(c.argv, join(dir, c.dir), env, opts.timeoutMs, [dir, opts.cacheDir]).catch((err) => ({ code: null, output: String(err), timedOut: false }));
+    let r = await once(c);
+    let flaky = false;
+    // A failure gets one retry: passing the second time means flaky (slow tests on a busy Mac), not broken.
+    if (r.code !== 0 || r.timedOut) {
+      const again = await once(c);
+      if (again.code === 0 && !again.timedOut) flaky = true;
+      r = again.code === 0 && !again.timedOut ? again : r;
+    }
     const passed = r.code === 0 && !r.timedOut;
-    out[key(c)] = { result: passed ? 'passed' : 'failed', failures: passed ? [] : failingTests(r.output), output: r.timedOut ? `${r.output}\n(timed out)` : r.output };
+    out[key(c)] = { result: passed ? 'passed' : 'failed', failures: passed ? [] : failingTests(r.output), output: r.timedOut ? `${r.output}\n(timed out)` : r.output, ...(flaky ? { flaky } : {}) };
   }
   return out;
 }
@@ -137,7 +147,7 @@ export async function verifyCard(opts: VerifyCardOptions): Promise<Verified & { 
     const outcomes: CheckOutcome[] = checks.map((c) => {
       const mine = onCard[key(c)]!;
       const theirs = main?.results[key(c)];
-      if (mine.result === 'passed') return { label: c.label, dir: c.dir, card: 'passed', main: theirs?.result ?? 'unknown', newFailures: [], verdict: 'ok' };
+      if (mine.result === 'passed') return { label: c.label, dir: c.dir, card: 'passed', main: theirs?.result ?? 'unknown', newFailures: [], verdict: 'ok', ...(mine.flaky ? { flaky: true } : {}) };
       if (!theirs || theirs.result === 'passed') {
         return { label: c.label, dir: c.dir, card: 'failed', main: theirs?.result ?? 'unknown', newFailures: mine.failures, verdict: 'broke', tail: tail(mine.output) };
       }
@@ -154,7 +164,7 @@ export async function verifyCard(opts: VerifyCardOptions): Promise<Verified & { 
       const detail = broke.map((o) => `${names(o)}${o.newFailures.length ? ` (${o.newFailures.slice(0, 3).join('; ')}${o.newFailures.length > 3 ? ` and ${o.newFailures.length - 3} more` : ''})` : ''}`).join(', ');
       return { result: 'failed', command: broke.map(names).join(', '), why: `this change broke ${detail}; it passes on main`, at, tail: broke[0]!.tail, outcomes };
     }
-    const okList = outcomes.filter((o) => o.verdict === 'ok').map(names);
+    const okList = outcomes.filter((o) => o.verdict === 'ok').map((o) => `${names(o)}${o.flaky ? ' (flaky: failed once, passed on retry)' : ''}`);
     const unnamed = same.some((o) => !o.newFailures.length && !failingTestsKnown(o));
     const why = same.length
       ? `${okList.length ? `${okList.join(', ')} pass` : 'nothing new fails'}; ${same.map(names).join(', ')} fail${same.length === 1 ? 's' : ''} the same way on main, so not because of this change${unnamed ? " (its output doesn't name tests, so this compares pass/fail only)" : ''}`

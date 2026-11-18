@@ -1,5 +1,7 @@
 // The board (spec §5.3): cards in columns, stored in ~/.chompyy/board.json.
-import { appendJsonl, homePath, readJson, writeJson } from './home.js';
+import { mkdirSync } from 'node:fs';
+import { join } from 'node:path';
+import { appendJsonl, chompyyHome, homePath, readJson, writeJson } from './home.js';
 import type { PictureInfo } from './picture.js';
 import type { WindowView } from './quota.js';
 import type { Verified } from './verify.js';
@@ -68,6 +70,8 @@ export interface Card {
   title: string;
   idea: string;
   cwd: string;
+  /** The branch or workspace the card belongs to (the git branch it was created on); missing = `unsorted`. */
+  workspace?: string;
   column: Column;
   blueprint: string | null;
   blueprintError?: string;
@@ -134,7 +138,33 @@ export function titleFrom(idea: string): string {
   return first.length > 60 ? first.slice(0, 57).trimEnd() + '…' : first;
 }
 
-export function addCard(board: BoardData, idea: string, cwd: string, now: Date, column: Column = 'later'): Card {
+/** Where cards with no branch (or made before workspaces existed) are grouped. */
+export const UNSORTED = 'unsorted';
+
+/** The card's workspace; old cards and cards made outside a git branch are `unsorted`. */
+export function workspaceOf(card: Pick<Card, 'workspace'>): string {
+  return card.workspace?.trim() || UNSORTED;
+}
+
+/** A workspace name as one safe folder name: "feat/login" -> "feat-login"; nothing that could climb out. */
+export function workspaceFolder(workspace: string): string {
+  const safe = workspace.trim().replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^[.-]+|-+$/g, '');
+  return safe || UNSORTED;
+}
+
+/** The card's own folder, `<store>/<workspace>/<card-id>/` (store = ~/.chompyy/cards). Not created here. */
+export function cardDir(card: Pick<Card, 'id' | 'workspace'>, store = join(chompyyHome(), 'cards')): string {
+  return join(store, workspaceFolder(workspaceOf(card)), workspaceFolder(card.id));
+}
+
+/** Like cardDir, and makes sure the folder exists. */
+export function ensureCardDir(card: Pick<Card, 'id' | 'workspace'>): string {
+  const dir = cardDir(card);
+  mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+export function addCard(board: BoardData, idea: string, cwd: string, now: Date, column: Column = 'later', workspace?: string | null): Card {
   const text = idea.trim();
   if (!text) throw new Error('The idea is empty.');
   const at = now.toISOString();
@@ -143,6 +173,7 @@ export function addCard(board: BoardData, idea: string, cwd: string, now: Date, 
     title: titleFrom(text),
     idea: text,
     cwd,
+    workspace: workspace?.trim() || UNSORTED,
     column,
     blueprint: null,
     createdAt: at,
@@ -314,14 +345,27 @@ function cardLine(c: Card): string {
   return `  #${c.id.padEnd(3)} ${c.title}${tail}  ${shortPath(c.cwd)}`;
 }
 
+/** Workspace names in the order they should be listed: named ones A-Z, `unsorted` last. */
+export function workspacesOf(cards: Card[]): string[] {
+  const names = [...new Set(cards.map(workspaceOf))];
+  return names.sort((a, b) => (a === UNSORTED ? 1 : b === UNSORTED ? -1 : a.localeCompare(b)));
+}
+
+/** The board, one header per workspace (branch), and the columns inside each. */
 export function formatBoard(board: BoardData, columns: readonly Column[] = COLUMNS): string {
   if (board.cards.length === 0) return 'The board is empty. Park an idea with `chompyy later "<idea>"`.';
+  const shown = board.cards.filter((c) => columns.includes(c.column));
   const out: string[] = [];
-  for (const col of columns) {
-    const cards = cardsIn(board, col);
-    if (cards.length === 0) continue;
-    out.push(`${COLUMN_LABEL[col]} (${cards.length})`);
-    for (const c of cards) out.push(cardLine(c));
+  for (const ws of workspacesOf(shown)) {
+    const mine = shown.filter((c) => workspaceOf(c) === ws);
+    if (out.length) out.push('');
+    out.push(`[${ws}] (${mine.length})`);
+    for (const col of columns) {
+      const cards = mine.filter((c) => c.column === col);
+      if (cards.length === 0) continue;
+      out.push(`${COLUMN_LABEL[col]} (${cards.length})`);
+      for (const c of cards) out.push(cardLine(c));
+    }
   }
   return out.length ? out.join('\n') : `No cards in ${columns.join(', ')}.`;
 }
@@ -329,7 +373,7 @@ export function formatBoard(board: BoardData, columns: readonly Column[] = COLUM
 export function formatCard(c: Card): string {
   const lines = [
     `#${c.id} ${c.title}`,
-    `column: ${c.column} · cwd: ${shortPath(c.cwd)} · created ${c.createdAt}`,
+    `column: ${c.column} · workspace: ${workspaceOf(c)} · cwd: ${shortPath(c.cwd)} · created ${c.createdAt}`,
   ];
   if (c.idea !== c.title) lines.push('', c.idea);
   lines.push('', c.blueprint ?? (c.blueprintError ? `(blueprint failed: ${c.blueprintError})` : c.blueprintWaiting ? `(no blueprint yet: ${c.blueprintWaiting})` : '(no blueprint yet)'));

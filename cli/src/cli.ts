@@ -8,7 +8,7 @@ import { away, cacheEnv, runCard, type AwayDeps } from './away.js';
 import { formatPreflight, loadProfile, preflight, saveProfile } from './preflight.js';
 import { verifyCard } from './verifycard.js';
 import { parsePermission, recordNeeds } from './permissions.js';
-import { draftBlueprint, draftFiveStarOptions, GENERIC_FIVE_STAR, isUsageLimit } from './blueprint.js';
+import { draftBlueprint, draftFiveStarOptions, GENERIC_FIVE_STAR, isUsageLimit, writeBlueprintFile } from './blueprint.js';
 import { addCard, awayQueue, claimDrafts, COLUMNS, dropCard, expireSuggested, formatBoard, formatCard, getCard, loadBoard, moveCard, noteDraftFailure, quotaWaitReason, recoverRunning, updateBoard, type Column } from './board.js';
 import { loadConfig, setConfig } from './config.js';
 import { formatDuration, parseDuration } from './duration.js';
@@ -19,7 +19,7 @@ import { loadSamples } from './pacing.js';
 import { cardsSince, formatReport, lastReportAt, markReported, morningLine, rateCard, readTaste } from './report.js';
 import { changedFiles, diffCard, keepCard, overlaps, questionsOf, undoCard } from './review.js';
 import { CappedText, ClaudeRunner, claudeAvailable } from './runner.js';
-import { commitLeftovers, gitRoot, planWorkspace, prepareWorkspace } from './workspace.js';
+import { branchOf, commitLeftovers, gitRoot, planWorkspace, prepareWorkspace } from './workspace.js';
 import { answerCard, appState, cardView, editBlueprint, recordCliLocation } from './appstate.js';
 import { refreshLiveQuota } from './livequota.js';
 import { recentProjects } from './projects.js';
@@ -133,6 +133,7 @@ async function blueprintCard(id: string, model?: string): Promise<string> {
       delete c.blueprintWaiting;
       delete c.blueprintWaitUntil;
       delete c.draftingAt;
+      writeBlueprintFile(c, text);
       c.updatedAt = new Date().toISOString();
     });
     if (config.pictures && windowActive(new Date())) await pictureCard(id).catch(() => {});
@@ -261,6 +262,7 @@ function awayDeps(config: ReturnType<typeof loadConfig>, freshQuota: (force?: bo
     plan: planWorkspace,
     prepare: prepareWorkspace,
     commitLeftovers,
+    wait: (ms) => new Promise((resolve) => setTimeout(resolve, Math.max(0, ms))),
     recordNeeds: (card, needs) => {
       const root = gitRoot(card.cwd);
       if (!root) return;
@@ -568,7 +570,7 @@ async function main(argv: string[]): Promise<void> {
     }
     case 'later': {
       const idea = need(args.join(' ').trim(), 'chompyy later "<idea>"');
-      const card = updateBoard((b) => addCard(b, idea, process.cwd(), now));
+      const card = updateBoard((b) => addCard(b, idea, process.cwd(), now, 'later', branchOf(process.cwd())));
       console.log(`📥 #${card.id} parked in later: ${card.title}`);
       if (values['no-blueprint']) {
         updateBoard((b) => {
