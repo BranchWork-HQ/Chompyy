@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <radialGradient id="d" cx="45%" cy="40%" r="65%"><stop offset="0" stop-color="#e2ab6b"/><stop offset="1" stop-color="#b37840"/></radialGradient>
+    <mask id="bite"><rect width="64" height="64" fill="#fff"/><circle cx="56" cy="9" r="10" fill="#000"/><circle cx="62" cy="21" r="7" fill="#000"/><circle cx="46" cy="2" r="7" fill="#000"/></mask>
+  </defs>
+  <g mask="url(#bite)">
+    <circle cx="32" cy="33" r="29" fill="url(#d)" stroke="#5c3a26" stroke-opacity=".35" stroke-width="1.5"/>
+    <g fill="#4d2e1c" opacity=".8">
+      <ellipse cx="17" cy="22" rx="3.6" ry="2.8" transform="rotate(20 17 22)"/>
+      <ellipse cx="44" cy="45" rx="3.8" ry="3" transform="rotate(-30 44 45)"/>
+      <ellipse cx="22" cy="49" rx="3" ry="2.4"/>
+      <ellipse cx="12" cy="38" rx="2.6" ry="2"/>
+      <ellipse cx="50" cy="30" rx="2.6" ry="2.1"/>
+      <ellipse cx="33" cy="55" rx="2.4" ry="1.9"/>
+      <ellipse cx="34" cy="12" rx="2.4" ry="1.9"/>
+    </g>
+  </g>
+  <rect x="23.5" y="24" width="5.5" height="14" rx="2.75" fill="#3d1c14"/>
+  <rect x="33.5" y="24" width="5.5" height="14" rx="2.75" fill="#3d1c14"/>
+</svg>

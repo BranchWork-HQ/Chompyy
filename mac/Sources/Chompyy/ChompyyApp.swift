@@ -10,6 +10,10 @@ struct ChompyyApp: App {
             renderCookieSheet(to: path)
             exit(0)
         }
+        if let dir = ProcessInfo.processInfo.environment["CHOMPYY_RENDER_FRAMES"] {
+            renderCookieFrames(to: dir)
+            exit(0)
+        }
     }
 
     var body: some Scene {
