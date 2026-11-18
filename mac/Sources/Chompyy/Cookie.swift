@@ -108,10 +108,16 @@ struct CookieShape: Shape {
     }
 
     /// Where the face sits: the middle of the piece left (unit coordinates), and how big it can be (0...1).
+    nonisolated(unsafe) private static var spots: [Int: (x: Double, y: Double, scale: Double)] = [:]
+
     static func faceSpot(left: Double) -> (x: Double, y: Double, scale: Double) {
         if left > 0.97 { return (0, 0.05, 1) }
+        let key = Int((left * 1000).rounded())
+        if let hit = spots[key] { return hit }
         let p = piece(bite(for: max(0.01, left)), n: 28)
-        return (p.cx, p.cy + 0.05, max(0.45, min(1, sqrt(left) * 1.1)))
+        let spot = (p.cx, p.cy + 0.05, max(0.45, min(1, sqrt(left) * 1.1)))
+        spots[key] = spot
+        return spot
     }
 }
 
@@ -155,35 +161,31 @@ struct CookieView: View {
     private var showsFace: Bool { mood != nil && size >= 40 }
     @State private var director = MascotDirector()
     @State private var eyes = EyeMotion()
+    @State private var visible = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    // Chip positions as fractions of the radius (x, y, size): a well-loaded cookie.
-    private static let chips: [(CGFloat, CGFloat, CGFloat)] = [
-        (-0.40, -0.30, 0.30), (0.20, -0.48, 0.26), (0.42, 0.10, 0.30), (-0.05, 0.08, 0.28),
-        (-0.50, 0.32, 0.24), (0.12, 0.52, 0.30), (-0.18, -0.70, 0.20), (0.68, -0.22, 0.20),
-        (-0.72, -0.05, 0.22), (0.55, 0.50, 0.24), (-0.28, 0.68, 0.22), (0.35, -0.75, 0.18),
-        (0.78, 0.18, 0.18), (-0.62, -0.55, 0.20), (0.02, -0.30, 0.18), (-0.30, 0.30, 0.16),
-        (0.30, 0.32, 0.16), (-0.82, 0.30, 0.16), (0.10, 0.82, 0.18), (0.62, -0.55, 0.16),
-    ]
 
     var body: some View {
         if showsFace {
-            TimelineView(.animation(minimumInterval: 1.0 / 60, paused: reduceMotion || still != nil)) { tl in
+            TimelineView(.animation(minimumInterval: 1.0 / 30, paused: reduceMotion || still != nil || !visible)) { tl in
                 let t = tl.date.timeIntervalSinceReferenceDate
                 let pose = still.map { MascotDirector.pose(named: $0) }
                     ?? director.step(t, energy: left ?? 1, reducedMotion: reduceMotion)
                 let pupils = (still != nil || reduceMotion) ? [CGPoint.zero, .zero] : eyes.step(t, size: size)
-                cookie(pose: pose, pupils: pupils)
+                ZStack {
+                    dough(face: true) // the same every frame: drawn once, then only moved
+                    MascotEyes(pose: pose, pupils: pupils, center: CGPoint(x: spot.x, y: spot.y), scale: spot.scale, size: size)
+                }
                     .rotationEffect(.degrees(pose.roll))
                     .scaleEffect(x: 1 + pose.squash * 0.5, y: 1 - pose.squash, anchor: .bottom)
                     .offset(y: pose.lift * size / 220)
             }
-            .background { if still == nil { EyeAnchor(motion: eyes) } } // can't draw in snapshots
+            // Finds the face on screen for the mouse, and pauses the animation while the window is hidden.
+            .background { if still == nil { EyeAnchor(motion: eyes) { visible = $0 } } } // can't draw in snapshots
             .frame(width: size, height: size)
             .animation(.spring(duration: 0.6), value: eaten)
             .accessibilityLabel(label)
         } else {
-            cookie(pose: nil, pupils: [])
+            dough(face: false)
                 .frame(width: size, height: size)
                 .opacity(left == nil ? 0.45 : 1)
                 .animation(.spring(duration: 0.6), value: eaten)
@@ -195,30 +197,51 @@ struct CookieView: View {
         left.map { "Cookie, \(Int($0 * 100)) percent of the 5-hour window left" } ?? "Cookie, quota unknown"
     }
 
-    private func cookie(pose: MascotPose?, pupils: [CGPoint]) -> some View {
+    private var spot: (x: Double, y: Double, scale: Double) { CookieShape.faceSpot(left: left ?? 1) }
+
+    /// The cookie without the eyes. With a face, chips near the eyes are left out so the eyes never read as chips.
+    private func dough(face: Bool) -> some View {
+        CookieDough(eaten: eaten, size: size, face: face, spot: CGPoint(x: spot.x, y: spot.y), scale: spot.scale)
+            .equatable()
+            .drawingGroup() // one bitmap instead of 20 shapes redrawn every frame
+    }
+}
+
+struct CookieDough: View, Equatable {
+    let eaten: Double
+    let size: CGFloat
+    let face: Bool
+    let spot: CGPoint
+    let scale: Double
+
+    // Chip positions as fractions of the radius (x, y, size): a well-loaded cookie.
+    static let chips: [(CGFloat, CGFloat, CGFloat)] = [
+        (-0.40, -0.30, 0.30), (0.20, -0.48, 0.26), (0.42, 0.10, 0.30), (-0.05, 0.08, 0.28),
+        (-0.50, 0.32, 0.24), (0.12, 0.52, 0.30), (-0.18, -0.70, 0.20), (0.68, -0.22, 0.20),
+        (-0.72, -0.05, 0.22), (0.55, 0.50, 0.24), (-0.28, 0.68, 0.22), (0.35, -0.75, 0.18),
+        (0.78, 0.18, 0.18), (-0.62, -0.55, 0.20), (0.02, -0.30, 0.18), (-0.30, 0.30, 0.16),
+        (0.30, 0.32, 0.16), (-0.82, 0.30, 0.16), (0.10, 0.82, 0.18), (0.62, -0.55, 0.16),
+    ]
+
+    var body: some View {
         let shape = CookieShape(eaten: eaten)
-        let spot = CookieShape.faceSpot(left: left ?? 1)
-        return ZStack {
+        ZStack {
             shape.fill(RadialGradient(colors: [Brand.dough, Brand.doughEdge], center: .center, startRadius: 0, endRadius: size * 0.6))
             ZStack {
                 ForEach(0..<Self.chips.count, id: \.self) { i in
                     let (x, y, s) = Self.chips[i]
-                    // No chips around the eyes, so the eyes never read as chips.
-                    let nearFace = pose != nil && abs(Double(x) - spot.x) < 0.55 * spot.scale && abs(Double(y) - spot.y + 0.05) < 0.45 * spot.scale
+                    let nearFace = face && abs(Double(x - spot.x)) < 0.55 * scale && abs(Double(y - spot.y) + 0.05) < 0.45 * scale
                     Ellipse()
                         .fill(Brand.chip)
                         .frame(width: size * s * 0.42, height: size * s * 0.34)
                         .rotationEffect(.degrees(Double(i) * 37))
                         .offset(x: x * size / 2, y: y * size / 2)
-                        .opacity(nearFace ? 0 : pose != nil ? 0.8 : 1)
+                        .opacity(nearFace ? 0 : face ? 0.8 : 1)
                 }
             }
             .frame(width: size, height: size)
             .clipShape(shape)
             shape.stroke(Brand.chocolate.opacity(0.35), lineWidth: max(0.5, size / 40))
-            if let pose {
-                MascotEyes(pose: pose, pupils: pupils, center: CGPoint(x: spot.x, y: spot.y), scale: spot.scale, size: size)
-            }
         }
         .frame(width: size, height: size)
     }
@@ -286,15 +309,38 @@ final class EyeMotion {
     }
 }
 
-/// Lets the face find itself on screen, so the eyes can follow the mouse.
+/// Lets the face find itself on screen, so the eyes can follow the mouse, and says when its window is hidden
+/// (closed, minimised or covered), so the animation can pause instead of drawing for nobody.
 struct EyeAnchor: NSViewRepresentable {
     let motion: EyeMotion
+    var onVisible: (Bool) -> Void = { _ in }
+
+    final class Anchor: NSView {
+        var onVisible: (Bool) -> Void = { _ in }
+        private var token: NSObjectProtocol?
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let token { NotificationCenter.default.removeObserver(token) }
+            guard let window else { return }
+            token = NotificationCenter.default.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: window, queue: .main) { [weak self] _ in
+                guard let self, let w = self.window else { return }
+                self.onVisible(w.occlusionState.contains(.visible))
+            }
+            onVisible(window.occlusionState.contains(.visible))
+        }
+        deinit { if let token { NotificationCenter.default.removeObserver(token) } }
+    }
+
     func makeNSView(context: Context) -> NSView {
-        let v = NSView()
+        let v = Anchor()
+        v.onVisible = onVisible
         motion.anchor = v
         return v
     }
-    func updateNSView(_ nsView: NSView, context: Context) { motion.anchor = nsView }
+    func updateNSView(_ nsView: NSView, context: Context) {
+        (nsView as? Anchor)?.onVisible = onVisible
+        motion.anchor = nsView
+    }
 }
 
 /// The menu bar icon: the same cookie, rendered small.
