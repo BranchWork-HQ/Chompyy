@@ -386,3 +386,64 @@ func renderCookieSheet(to path: String) {
         try? png.write(to: URL(fileURLWithPath: path))
     }
 }
+
+/// Frames of a real performance for the website and slides: `CHOMPYY_RENDER_FRAMES=/dir Chompyy` writes
+/// PNGs at 30 fps and quits (turn them into video with ffmpeg). Two scenes, back to back:
+/// 1. a fresh window, lively, the eyes following a cursor that drifts around;
+/// 2. the window being used up from 100% to 12%, the tempo slowing down as it goes.
+@MainActor
+func renderCookieFrames(to dir: String, width: CGFloat = 960, height: CGFloat = 540) {
+    try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+    let director = MascotDirector()
+    var pupils = [GooglyPupil(pull: 160, drag: 9, bounce: 0.55), GooglyPupil(pull: 150, drag: 8, bounce: 0.6)]
+    let size: CGFloat = 300
+    let bg = Color(red: 0.09, green: 0.08, blue: 0.07)
+    let fps = 30.0, scene1 = 9.0, scene2 = 9.0
+    let total = Int((scene1 + scene2) * fps)
+    let center = CGPoint(x: width / 2, y: height / 2)
+    for f in 0..<total {
+        let t = Double(f) / fps
+        let inScene2 = t >= scene1
+        let left = inScene2 ? 1 - 0.88 * min(1, (t - scene1) / (scene2 - 1)) : 0.93
+        // The cursor: wanders on a looping path in scene 1, rests in scene 2 (so the expressions lead).
+        let mouse = CGPoint(x: center.x + CGFloat(sin(t * 0.9) * 360 + sin(t * 2.3) * 60),
+                            y: center.y + CGFloat(sin(t * 0.7 + 1) * 200))
+        let rel = CGPoint(x: mouse.x - center.x, y: mouse.y - center.y)
+        let d = hypot(rel.x, rel.y)
+        let reach = min(1, d / (size * 2))
+        let want = inScene2 || d < 0.1 ? CGPoint.zero : CGPoint(x: rel.x / d * reach, y: rel.y / d * reach)
+        for i in pupils.indices { pupils[i].step(to: want, dt: 1 / fps) }
+        let pose = director.step(t, energy: left, reducedMotion: false)
+        let spot = CookieShape.faceSpot(left: left)
+        let eaten = 1 - left
+        let frame = ZStack {
+            bg
+            ZStack {
+                CookieDough(eaten: eaten, size: size, face: true, spot: CGPoint(x: spot.x, y: spot.y), scale: spot.scale)
+                MascotEyes(pose: pose, pupils: pupils.map(\.p), center: CGPoint(x: spot.x, y: spot.y), scale: spot.scale, size: size)
+            }
+            .frame(width: size, height: size)
+            .rotationEffect(.degrees(pose.roll))
+            .scaleEffect(x: 1 + pose.squash * 0.5, y: 1 - pose.squash, anchor: .bottom)
+            .offset(y: pose.lift * size / 220)
+            if inScene2 {
+                Text("\(Int((left * 100).rounded()))% of the 5-hour window left")
+                    .font(.system(size: 26, weight: .semibold, design: .rounded))
+                    .foregroundStyle(Brand.cream.opacity(0.85))
+                    .offset(y: size / 2 + 48)
+            } else {
+                Image(systemName: "cursorarrow")
+                    .font(.system(size: 34))
+                    .foregroundStyle(.white)
+                    .shadow(radius: 2)
+                    .position(x: mouse.x + 10, y: mouse.y + 14)
+            }
+        }
+        .frame(width: width, height: height)
+        let renderer = ImageRenderer(content: frame)
+        renderer.scale = 2
+        if let tiff = renderer.nsImage?.tiffRepresentation, let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) {
+            try? png.write(to: URL(fileURLWithPath: String(format: "%@/f%04d.png", dir, f)))
+        }
+    }
+}
