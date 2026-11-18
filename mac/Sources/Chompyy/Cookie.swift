@@ -148,8 +148,8 @@ enum CookieMood: String {
 
 /// A chocolate-chip cookie that gets eaten as the 5-hour window is used, with Chompyy's eyes when there's room.
 /// `left` is the fraction left (1 = whole cookie); nil = unknown (drawn faded). With `mood` set (any mood: it
-/// only switches the face on), the eyes perform: random expressions, quick and lively while the window is
-/// fresh, slower and calmer as it gets used up. They follow your mouse throughout.
+/// only switches the face on), the eyes perform: random expressions, quick and lively at every quota level.
+/// They follow your mouse throughout.
 struct CookieView: View {
     var left: Double?
     var size: CGFloat = 64
@@ -169,7 +169,7 @@ struct CookieView: View {
             TimelineView(.animation(minimumInterval: 1.0 / 30, paused: reduceMotion || still != nil || !visible)) { tl in
                 let t = tl.date.timeIntervalSinceReferenceDate
                 let pose = still.map { MascotDirector.pose(named: $0) }
-                    ?? director.step(t, energy: left ?? 1, reducedMotion: reduceMotion)
+                    ?? director.step(t, reducedMotion: reduceMotion)
                 let pupils = (still != nil || reduceMotion) ? [CGPoint.zero, .zero] : eyes.step(t, size: size)
                 ZStack {
                     dough(face: true) // the same every frame: drawn once, then only moved
@@ -397,7 +397,7 @@ func renderCookieSheet(to path: String) {
 /// Frames of a real performance for the website and slides: `CHOMPYY_RENDER_FRAMES=/dir Chompyy` writes
 /// PNGs at 30 fps and quits (turn them into video with ffmpeg). Two scenes, back to back:
 /// 1. a fresh window, lively, the eyes following a cursor that drifts around;
-/// 2. the window being used up from 100% to 12%, the tempo slowing down as it goes.
+/// 2. the window being used up from 100% to 12%, the cookie getting eaten (same lively tempo).
 @MainActor
 func renderCookieFrames(to dir: String, width: CGFloat = 960, height: CGFloat = 540) {
     try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
@@ -420,7 +420,7 @@ func renderCookieFrames(to dir: String, width: CGFloat = 960, height: CGFloat = 
         let reach = min(1, d / (size * 2))
         let want = inScene2 || d < 0.1 ? CGPoint.zero : CGPoint(x: rel.x / d * reach, y: rel.y / d * reach)
         for i in pupils.indices { pupils[i].step(to: want, dt: 1 / fps) }
-        let pose = director.step(t, energy: left, reducedMotion: false)
+        let pose = director.step(t, reducedMotion: false)
         let spot = CookieShape.faceSpot(left: left)
         let eaten = 1 - left
         let frame = ZStack {

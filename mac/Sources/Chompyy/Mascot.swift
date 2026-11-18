@@ -3,7 +3,7 @@ import SwiftUI
 // Chompyy's eyes and how they perform, ported from open-mascot-studio (github.com/0oooh/open-mascot-studio,
 // MIT, © 2026 0oooh): its capsule eyes, its 16 expressions (each eye posed on its own, plus gaze and a little
 // body language), its easing curves, blink shape, ambient breathing and the tremble / drift motions.
-// Chompyy's own part is the director: it picks expressions at random, and how often depends on energy.
+// Chompyy's own part is the director: it picks expressions at random, at one lively tempo.
 
 /// One eye's pose: scale, offset (design units) and rotation (degrees). From open-mascot's `eyePose`.
 struct EyePose {
@@ -47,9 +47,8 @@ enum MascotEasing {
     }
 }
 
-/// Picks and plays expressions. Energy (0…1, the share of the window left) sets the tempo: a fresh window
-/// swaps expressions every second or so with springy moves; a nearly used one holds each for many seconds
-/// and moves gently.
+/// Picks and plays expressions at one lively tempo: a new expression every second or so, with springy moves.
+/// The tempo doesn't depend on how much of the window is left (user, 2026-11-19: same energetic vibe always).
 final class MascotDirector {
     static let expressions: [String: MascotExpression] = {
         func e(_ sx: Double = 1, _ sy: Double = 1, _ x: Double = 0, _ y: Double = 0, _ r: Double = 0) -> EyePose { EyePose(sx: sx, sy: sy, x: x, y: y, rot: r) }
@@ -82,47 +81,43 @@ final class MascotDirector {
     private var stepStart: Double?
     private var hold = 2.0
     private var transition = 0.6
-    private var springy = true
     private var blinkStart = -10.0
     private var nextBlink = 0.0
     private var echo = false
 
     /// The pose to draw now.
-    func step(_ now: Double, energy rawEnergy: Double, reducedMotion: Bool) -> MascotPose {
-        let energy = MascotEasing.clamp(rawEnergy)
-        if stepStart == nil { stepStart = now; plan(energy) }
+    func step(_ now: Double, reducedMotion: Bool) -> MascotPose {
+        if stepStart == nil { stepStart = now; plan() }
         var local = now - stepStart!
         if local > hold + transition { // the move is done: pick the next expression
             current = next
             stepStart = now
             local = 0
-            plan(energy)
+            plan()
         }
         var pose = Self.pose(named: current)
         var layers: [(MascotExpression, Double)] = [(Self.expressions[current]!, 1)]
         if local > hold {
             let k = (local - hold) / transition
-            let eased = springy ? MascotEasing.spring(k) : MascotEasing.gentle(k)
+            let eased = MascotEasing.spring(k)
             pose = .lerp(pose, Self.pose(named: next), eased)
             layers = [(Self.expressions[current]!, 1 - eased), (Self.expressions[next]!, eased)]
         }
         if reducedMotion { return pose }
-        pose = ambient(pose, now, amount: 0.3 + 0.45 * energy, energy: energy)
+        pose = ambient(pose, now, amount: 0.75)
         for (expr, strength) in layers { pose = Self.motion(pose, expr, now, strength) }
         return pose
     }
 
     /// Choose the next expression and the tempo for it.
-    private func plan(_ energy: Double) {
+    private func plan() {
         next = Self.order.filter { $0 != current }.randomElement() ?? "neutral"
-        let calm = 1 - energy
-        hold = (0.7 + calm * calm * 9.5) * .random(in: 0.7...1.3) // ~1 s when fresh, ~10 s near the end
-        transition = 0.32 + calm * 0.5
-        springy = energy > 0.5
+        hold = 0.7 * .random(in: 0.7...1.3) // ~1 s per expression, whatever the quota
+        transition = 0.32
     }
 
     /// open-mascot's ambient layer: breathing, a little sway, and blinks.
-    private func ambient(_ source: MascotPose, _ now: Double, amount: Double, energy: Double) -> MascotPose {
+    private func ambient(_ source: MascotPose, _ now: Double, amount: Double) -> MascotPose {
         var p = source
         p.lift += sin(now * 0.79 + 0.4) * 2.1 * amount
         p.roll += sin(now * 0.53 + 1.1) * 0.72 * amount
@@ -131,11 +126,11 @@ final class MascotDirector {
         p.gazeX += sin(now * 0.29 + 0.7) * 0.42 * amount
         p.gazeY += sin(now * 0.23 + 2.7) * 0.3 * amount
 
-        // Blinks: brighter (more often, sometimes a double) with more energy, calmer as the window runs out.
+        // Blinks: every 4-7 s, sometimes a double.
         if now > nextBlink {
             blinkStart = now
-            echo = energy > 0.6 && Double.random(in: 0...1) < 0.3
-            nextBlink = now + (energy > 0.6 ? .random(in: 3.9...6.9) : energy > 0.25 ? .random(in: 4.3...7.2) : .random(in: 5.3...7.9))
+            echo = Double.random(in: 0...1) < 0.3
+            nextBlink = now + .random(in: 3.9...6.9)
         }
         func shape(_ k: Double) -> Double { // open-mascot's blink curve: snap shut, hold, ease open
             if k < 0.23 { return MascotEasing.quick(k / 0.23) }
