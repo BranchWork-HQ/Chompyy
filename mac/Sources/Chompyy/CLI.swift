@@ -29,12 +29,22 @@ enum CLI {
 
     private struct Location: Decodable { let node: String; let script: String }
 
+    /// Where the CLI is: the one you installed (it records itself in ~/.chompyy/cli.json each time it runs), else
+    /// the copy bundled inside the app (Contents/Resources/node + cli/), so a downloaded app works on its own.
     private static func location() throws -> Location {
+        let fm = FileManager.default
         let url = home.appendingPathComponent("cli.json")
-        guard let data = try? Data(contentsOf: url),
-              let loc = try? JSONDecoder().decode(Location.self, from: data),
-              FileManager.default.fileExists(atPath: loc.node) else { throw Failure.notFound }
-        return loc
+        if let data = try? Data(contentsOf: url),
+           let loc = try? JSONDecoder().decode(Location.self, from: data),
+           fm.fileExists(atPath: loc.node), fm.fileExists(atPath: loc.script) {
+            return loc
+        }
+        if let res = Bundle.main.resourceURL {
+            let node = res.appendingPathComponent("node").path
+            let script = res.appendingPathComponent("cli/dist/cli.js").path
+            if fm.isExecutableFile(atPath: node), fm.fileExists(atPath: script) { return Location(node: node, script: script) }
+        }
+        throw Failure.notFound
     }
 
     /// Run a command and wait for it. Call off the main thread.
