@@ -12,7 +12,9 @@ import { cacheEnv } from './away.js';
 import { diagnose, type FixKind } from './catalog.js';
 import { homePath, readJson, writeJson } from './home.js';
 import { detectCheck, run, sandboxProfile } from './verify.js';
-import { linkDependencies } from './workspace.js';
+import { setupDependencies } from './deps.js';
+import { latestMain } from './workspace.js';
+export { latestMain };
 
 export interface RepoCheck {
   /** Folder inside the repo ('' = the top). */
@@ -108,25 +110,6 @@ export function profilePath(root: string): string {
 export const loadProfile = (root: string): RepoProfile | null => readJson<RepoProfile | null>(profilePath(root), null);
 export const saveProfile = (p: RepoProfile) => writeJson(profilePath(p.root), p);
 
-/**
- * The latest main, as interactive Claude would see it: fetch the remote (Chompyy, outside the box, may use the
- * network) and use its default branch; with no remote, the local main/master; failing that, HEAD.
- */
-export function latestMain(root: string, fetch = true): { ref: string; commit: string; note?: string } {
-  let note: string | undefined;
-  const hasOrigin = (tryGit(root, ['remote']) ?? '').split('\n').includes('origin');
-  if (hasOrigin && fetch && tryGit(root, ['fetch', '--quiet', 'origin']) === null) note = "couldn't fetch origin; used what's already here";
-  const candidates = hasOrigin
-    ? [tryGit(root, ['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD']), 'origin/main', 'origin/master', 'main', 'master']
-    : ['main', 'master'];
-  for (const ref of candidates) {
-    if (!ref) continue;
-    const commit = tryGit(root, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`]);
-    if (commit) return { ref, commit, ...(note ? { note } : {}) };
-  }
-  return { ref: 'HEAD', commit: git(root, ['rev-parse', 'HEAD']), note: note ?? 'no main branch found; used HEAD' };
-}
-
 export interface PreflightOptions {
   cacheDir: string;
   denyRead: string[];
@@ -155,7 +138,7 @@ export async function preflight(root: string, opts: PreflightOptions): Promise<P
   git(root, ['worktree', 'add', '--detach', '--quiet', dir, base.commit]);
   const results: CheckResult[] = [];
   try {
-    linkDependencies(root, dir);
+    setupDependencies(root, dir, basename(profilePath(root), '.json'), { env: cacheEnv(opts.cacheDir) });
     const checks = detectChecks(dir, opts.cacheDir);
     const env = { ...process.env, ...cacheEnv(opts.cacheDir), CI: '1', NO_COLOR: '1', FORCE_COLOR: '0' };
     const exec = opts.exec ?? ((argv, cwd, e, t, boxed) => run(boxed ? ['/usr/bin/sandbox-exec', '-p', sandboxProfile({ writable: [dir, opts.cacheDir], denyRead: opts.denyRead }), ...argv] : argv, cwd, e, t));

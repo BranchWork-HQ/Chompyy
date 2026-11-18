@@ -1,20 +1,53 @@
 // Where a card runs (spec §5.5): its own git worktree on chompyy/<id>, or a draft folder.
-import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync } from 'node:fs';
+import { basename, join } from 'node:path';
 import type { Card } from './board.js';
+import { setupDependencies, type DepsStep } from './deps.js';
 import { homePath } from './home.js';
 
 export interface Workspace {
   kind: 'worktree' | 'draft';
   dir: string;
   branch?: string;
+  /** What the copy started from: the latest main (ref, commit) and the local branch Keep lands it on. */
+  base?: { ref: string; commit: string; branch: string };
+  /** Where each package folder's dependencies came from (setup stage). */
+  setup?: DepsStep[];
   /** The repo's shared .git folder: commits in a worktree write here. */
   gitDir?: string;
 }
 
 function git(cwd: string, args: string[]): string {
   return execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+}
+
+const tryGit = (cwd: string, args: string[]): string | null => {
+  try {
+    return git(cwd, args);
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * The latest main, as interactive Claude would see it: fetch the remote (Chompyy, outside the box, may use the
+ * network) and use its default branch; with no remote, the local main/master; failing that, HEAD.
+ */
+export function latestMain(root: string, fetch = true): { ref: string; commit: string; note?: string } {
+  let note: string | undefined;
+  const hasOrigin = (tryGit(root, ['remote']) ?? '').split('\n').includes('origin');
+  if (hasOrigin && fetch && tryGit(root, ['fetch', '--quiet', 'origin']) === null) note = "couldn't fetch origin; used what's already here";
+  const candidates = hasOrigin
+    ? [tryGit(root, ['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD']), 'origin/main', 'origin/master', 'main', 'master']
+    : ['main', 'master'];
+  for (const ref of candidates) {
+    if (!ref) continue;
+    const commit = tryGit(root, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`]);
+    if (commit) return { ref, commit, ...(note ? { note } : {}) };
+  }
+  return { ref: 'HEAD', commit: git(root, ['rev-parse', 'HEAD']), note: note ?? 'no main branch found; used HEAD' };
 }
 
 export function gitRoot(cwd: string): string | null {
@@ -42,7 +75,7 @@ export function planWorkspace(card: Card): Workspace {
   return { kind: 'draft', dir: homePath('runs', card.id, 'work') };
 }
 
-export function prepareWorkspace(card: Card): Workspace {
+export function prepareWorkspace(card: Card, opts: { fetch?: boolean } = {}): Workspace {
   const plan = planWorkspace(card);
   if (plan.kind === 'draft') {
     mkdirSync(plan.dir, { recursive: true });
@@ -51,47 +84,17 @@ export function prepareWorkspace(card: Card): Workspace {
   const root = gitRoot(card.cwd)!;
   const branch = plan.branch!;
   const gitDir = git(root, ['rev-parse', '--path-format=absolute', '--git-common-dir']);
-  if (existsSync(plan.dir)) return { ...plan, gitDir }; // a rerun keeps working in the same worktree
-  // New branch from the repo's current HEAD; on a rerun after the folder was removed, reuse the branch.
-  const args = branchExists(root, branch) ? ['worktree', 'add', plan.dir, branch] : ['worktree', 'add', '-b', branch, plan.dir, 'HEAD'];
+  // A rerun keeps working in the same worktree, from the same base as before.
+  if (existsSync(plan.dir)) return { ...plan, gitDir, ...(card.run?.base ? { base: card.run.base } : {}) };
+  // Same code as prompting Claude directly: a new card starts from the latest main (fetched), not from whatever
+  // this folder has checked out. On a rerun after the folder was removed, it reuses its branch.
+  const base = latestMain(root, opts.fetch ?? true);
+  const local = base.ref.replace(/^origin\//, '');
+  const args = branchExists(root, branch) ? ['worktree', 'add', plan.dir, branch] : ['worktree', 'add', '-b', branch, plan.dir, base.commit];
   git(root, args);
-  linkDependencies(root, plan.dir);
-  return { ...plan, gitDir };
-}
-
-/**
- * Give a fresh worktree the dependencies the repo already has installed, so the agent doesn't try to download
- * them (away runs have no network: on 2026-11-18 `npm ci` retried for minutes against the sandbox). Each
- * node_modules is cloned copy-on-write (APFS `cp -c`: near-zero disk, and the agent can't change yours).
- * Returns the folders it filled.
- */
-function isEmptyOrMissing(dir: string): boolean {
-  try {
-    return readdirSync(dir).length === 0;
-  } catch {
-    return true;
-  }
-}
-
-export function linkDependencies(root: string, worktree: string, maxDepth = 3): string[] {
-  const filled: string[] = [];
-  const walk = (rel: string, depth: number) => {
-    const src = join(root, rel);
-    const dst = join(worktree, rel, 'node_modules');
-    if (existsSync(join(src, 'package.json')) && existsSync(join(src, 'node_modules')) && existsSync(join(worktree, rel)) && isEmptyOrMissing(dst)) {
-      if (existsSync(dst)) rmSync(dst, { recursive: true, force: true }); // an empty one left by an aborted install
-      const r = spawnSync('cp', ['-cR', join(src, 'node_modules'), dst], { stdio: 'ignore', timeout: 120_000 });
-      if (r.status === 0) filled.push(rel || '.');
-    }
-    if (depth >= maxDepth) return;
-    let entries: string[] = [];
-    try {
-      entries = readdirSync(src, { withFileTypes: true }).filter((d) => d.isDirectory() && !d.name.startsWith('.') && d.name !== 'node_modules').map((d) => d.name);
-    } catch {}
-    for (const name of entries) walk(rel ? join(rel, name) : name, depth + 1);
-  };
-  walk('', 0);
-  return filled;
+  const repoKey = `${basename(root)}-${createHash('sha256').update(root).digest('hex').slice(0, 8)}`;
+  const setup = setupDependencies(root, plan.dir, repoKey, { env: { npm_config_cache: homePath('cache', 'tools', 'npm') } });
+  return { ...plan, gitDir, base: { ref: base.ref, commit: base.commit, branch: local === 'HEAD' ? '' : local }, setup };
 }
 
 /** Files a run may leave that never belong in the user's repo. */

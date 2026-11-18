@@ -1,6 +1,6 @@
 # Away readiness: same results as prompting Claude directly, in a safe box
 
-Status: agreed with the user on 2026-11-18. Step 1 done (`chompyy preflight`); steps 2–6 next. Build against this; don't patch around it.
+Status: agreed with the user on 2026-11-18. Steps 1–2 done (`chompyy preflight`; fresh base + setup); steps 3–6 next. Build against this; don't patch around it.
 
 ## Why
 
@@ -54,6 +54,14 @@ box (two tests write to `$HOME`), `swift build` fails only in the box (SwiftPM n
 `~/Library`). Fixed through the system: the tests now use temp folders (and the sandbox test skips where
 sandboxes can't nest), and Swift runs as `swift build --disable-sandbox` with caches in the box. Result:
 **away-ready: yes**, and the agent's prompt now lists those proven commands.
+
+## Step 2 result (2026-11-18)
+Every new card starts from the latest main (Chompyy fetches origin first), records that base, and Keep lands
+the work on that branch: in the folder that has it open, or in a temporary copy so your folders aren't touched.
+Dependencies come from a setup step: your installed packages when the lockfile matches, else a snapshot
+installed once per lockfile (`--ignore-scripts` + rebuild, with network, outside the box) and cloned for every
+later card. Real dry run on the -release repo: first card installed once (3.3 s), second cloned (1.5 s), and
+the copy had the fold toggle that card #17 couldn't find on the old checkout.
 
 ## Prior art
 - OpenAI Codex cloud: a setup script runs with internet, then the agent works with internet off.

@@ -40,6 +40,8 @@ export interface RunInfo {
   exitCode: number | null;
   workdir: string;
   branch?: string;
+  /** What the copy started from (the latest main) and the local branch Keep lands the work on. */
+  base?: { ref: string; commit: string; branch: string };
   /** First non-empty lines of the agent's final output. */
   summary: string;
   /** What the agent said about its own checks (its last "CHECKS:" line). */

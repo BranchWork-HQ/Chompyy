@@ -273,6 +273,8 @@ export async function runCard(id: string, timeoutMs: number, deps: AwayDeps, tri
 
   try {
     ws = deps.prepare(card);
+    if (ws.base) out(`  from ${ws.base.ref} @ ${ws.base.commit.slice(0, 7)}`);
+    for (const s of ws.setup ?? []) if (s.source !== 'kept') out(`  deps in ${s.dir}: ${s.source}${s.note ? ` (${s.note})` : ''}`);
     const prompt = taskPrompt(card, ws.dir, (deps.taste ?? tasteForPrompt)(), deps.repoChecks?.(card) ?? []);
     const cacheDir = homePath('cache', 'tools');
     mkdirSync(cacheDir, { recursive: true });
@@ -354,6 +356,7 @@ export async function runCard(id: string, timeoutMs: number, deps: AwayDeps, tri
       exitCode,
       workdir: ws?.dir ?? '',
       ...(ws?.branch ? { branch: ws.branch } : {}),
+      ...(ws?.base ? { base: ws.base } : {}),
       summary: summaryText,
       ...(checks ? { checks } : {}),
       cost,
