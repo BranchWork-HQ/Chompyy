@@ -353,6 +353,13 @@ func cookieMenuImage(left: Double?) -> NSImage {
     return image
 }
 
+/// The text beside the menu bar cookie, like a battery percentage: "73%", or "—" when unknown.
+/// `left` is the 0...1 fraction from `Store.fiveHourLeft`; rounds the same way as the popover's "% left".
+func menuBarTitle(left: Double?) -> String {
+    guard let left else { return "—" }
+    return "\(Int((left * 100).rounded()))%"
+}
+
 /// A sheet of every expression, for checking the look without the app:
 /// `CHOMPYY_RENDER_COOKIES=/path/sheet.png Chompyy` writes it and quits.
 @MainActor
