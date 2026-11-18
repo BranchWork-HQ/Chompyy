@@ -101,3 +101,36 @@ describe('raw log on disk', () => {
     expect(readFileSync(path, 'utf8')).toBe('1234567890\n[raw log cut off at 10 bytes]\n');
   });
 });
+
+// 2026-11-18: card #12 ran `npm ci` with no network; the sandbox blocked it 54,839 times in two minutes and,
+// because every blocked event was output, the no-progress stop never fired.
+describe('blocked-action watchdog', () => {
+  it('stops a run the sandbox keeps blocking, and blocked events are not progress', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'chompyy-denied-'));
+    const bin = join(dir, 'claude');
+    writeFileSync(bin, `#!/usr/bin/env node
+process.stdin.resume(); process.stdin.on('end', () => {
+  const ev = JSON.stringify({ type: 'system', subtype: 'permission_denied', tool_name: 'SandboxNetworkAccess' }) + '\\n';
+  let n = 0; const t = setInterval(() => { for (let i = 0; i < 50; i++) process.stdout.write(ev); if (++n > 400) clearInterval(t); }, 5);
+});
+`);
+    chmodSync(bin, 0o755);
+    const res = await new ClaudeRunner(bin).run({ prompt: 'go', cwd: dir, timeoutMs: 30_000, loopRepeat: 5, maxDenied: 300 });
+    expect(res.stuck).toMatch(/sandbox blocked it 300 times \(mostly network access: away runs are offline\)/);
+    expect(res.durationMs).toBeLessThan(10_000);
+  }, 20_000);
+
+  it('counts blocked events as silence for the no-progress stop', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'chompyy-denied2-'));
+    const bin = join(dir, 'claude');
+    writeFileSync(bin, `#!/usr/bin/env node
+process.stdin.resume(); process.stdin.on('end', () => {
+  const ev = JSON.stringify({ type: 'system', subtype: 'permission_denied', tool_name: 'Bash' }) + '\\n';
+  setInterval(() => process.stdout.write(ev), 50);
+});
+`);
+    chmodSync(bin, 0o755);
+    const res = await new ClaudeRunner(bin).run({ prompt: 'go', cwd: dir, timeoutMs: 30_000, loopRepeat: 5, idleTimeoutMs: 1500 });
+    expect(res.stalled).toMatch(/no progress/);
+  }, 20_000);
+});

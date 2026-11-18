@@ -27,7 +27,9 @@ export function safetyRules(workdir: string): string {
    always allowed, even if the blueprint says otherwise, because the branch is how the user reviews and undoes it.
    Don't commit QUESTIONS.md.
 5. Check your work the way the blueprint says (run the tests if there are any). Shell commands run in a
-   sandbox, so local commands like tests and scripts are fine.
+   sandbox, so local commands like tests and scripts are fine. The sandbox has no network: don't install or
+   download anything (no npm install/ci, pip install, brew, curl). Dependencies the repo already has installed
+   are in place. If a check can't run without a download, don't retry it: say so in the CHECKS line.
 6. End with a short summary: what you made, where it is, and how to check it. The very last line must be
    exactly one of:
    CHECKS: passed — <what you ran>
@@ -282,6 +284,7 @@ export async function runCard(id: string, timeoutMs: number, deps: AwayDeps, tri
       extraArgs: config.extraArgs,
       ...(config.loopRepeat > 0 ? { loopRepeat: config.loopRepeat } : {}),
       ...(config.idleTimeoutMin > 0 ? { idleTimeoutMs: config.idleTimeoutMin * 60_000 } : {}),
+      ...(config.maxDenied > 0 ? { maxDenied: config.maxDenied } : {}),
       onSpawn: (pid) => writeFileSync(agentPidPath(card.id), String(pid)),
       // The whole stream (every tool call and result) goes to disk, never into memory: what to read when a run goes wrong.
       rawLogPath: logPath.replace(/\.log$/, '.stream.jsonl'),

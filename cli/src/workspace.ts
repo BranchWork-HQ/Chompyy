@@ -1,6 +1,7 @@
 // Where a card runs (spec §5.5): its own git worktree on chompyy/<id>, or a draft folder.
-import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
 import type { Card } from './board.js';
 import { homePath } from './home.js';
 
@@ -54,7 +55,43 @@ export function prepareWorkspace(card: Card): Workspace {
   // New branch from the repo's current HEAD; on a rerun after the folder was removed, reuse the branch.
   const args = branchExists(root, branch) ? ['worktree', 'add', plan.dir, branch] : ['worktree', 'add', '-b', branch, plan.dir, 'HEAD'];
   git(root, args);
+  linkDependencies(root, plan.dir);
   return { ...plan, gitDir };
+}
+
+/**
+ * Give a fresh worktree the dependencies the repo already has installed, so the agent doesn't try to download
+ * them (away runs have no network: on 2026-11-18 `npm ci` retried for minutes against the sandbox). Each
+ * node_modules is cloned copy-on-write (APFS `cp -c`: near-zero disk, and the agent can't change yours).
+ * Returns the folders it filled.
+ */
+function isEmptyOrMissing(dir: string): boolean {
+  try {
+    return readdirSync(dir).length === 0;
+  } catch {
+    return true;
+  }
+}
+
+export function linkDependencies(root: string, worktree: string, maxDepth = 3): string[] {
+  const filled: string[] = [];
+  const walk = (rel: string, depth: number) => {
+    const src = join(root, rel);
+    const dst = join(worktree, rel, 'node_modules');
+    if (existsSync(join(src, 'package.json')) && existsSync(join(src, 'node_modules')) && existsSync(join(worktree, rel)) && isEmptyOrMissing(dst)) {
+      if (existsSync(dst)) rmSync(dst, { recursive: true, force: true }); // an empty one left by an aborted install
+      const r = spawnSync('cp', ['-cR', join(src, 'node_modules'), dst], { stdio: 'ignore', timeout: 120_000 });
+      if (r.status === 0) filled.push(rel || '.');
+    }
+    if (depth >= maxDepth) return;
+    let entries: string[] = [];
+    try {
+      entries = readdirSync(src, { withFileTypes: true }).filter((d) => d.isDirectory() && !d.name.startsWith('.') && d.name !== 'node_modules').map((d) => d.name);
+    } catch {}
+    for (const name of entries) walk(rel ? join(rel, name) : name, depth + 1);
+  };
+  walk('', 0);
+  return filled;
 }
 
 /** Files a run may leave that never belong in the user's repo. */

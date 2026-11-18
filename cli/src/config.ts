@@ -44,6 +44,8 @@ export interface Config {
   loopRepeat: number;
   /** Stop a card whose agent prints nothing for this many minutes, and move on to the next; 0 = off. */
   idleTimeoutMin: number;
+  /** Stop a card after the sandbox or permissions blocked it this many times; 0 = off. */
+  maxDenied: number;
   /** Suggested cards you haven't touched for this many days are archived; 0 = never. */
   suggestedExpiryDays: number;
   /** Domains sandboxed commands may reach (e.g. "registry.npmjs.org"). Empty = no network. */
@@ -133,6 +135,7 @@ export const DEFAULT_CONFIG: Config = {
   checkCommands: {},
   loopRepeat: 5,
   idleTimeoutMin: 15,
+  maxDenied: 300,
   suggestedExpiryDays: 14,
   quotaSource: 'api',
   extraArgs: [],

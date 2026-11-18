@@ -27,6 +27,8 @@ export interface RunRequest {
   loopRepeat?: number;
   /** Stop the run when the agent prints nothing for this long (a hung command or a stalled agent); 0/unset = off. */
   idleTimeoutMs?: number;
+  /** Stop the run after the sandbox or permissions blocked it this many times (it's stuck on something it can't do); 0/unset = off. */
+  maxDenied?: number;
   /** Called with the agent's pid (its process group) as soon as it starts. */
   onSpawn?: (pid: number) => void;
   /** Also write the raw output to this file, up to `rawLogMaxBytes`: memory stays small, the full trail is on disk. */
@@ -290,6 +292,8 @@ export class ClaudeRunner implements Runner {
       let timedOut = false;
       let stuck: string | undefined;
       const final = new FinalText();
+      let denied = 0;
+      const deniedTools = new Map<string, number>();
       const raw = new RawLog(req.rawLogPath, req.rawLogMaxBytes);
       const watch = req.loopRepeat ? new LoopWatch(req.loopRepeat) : null;
       const lines = new LineReader((line) => {
@@ -301,6 +305,20 @@ export class ClaudeRunner implements Runner {
           return;
         }
         final.feed(event);
+        const ev = event as { type?: string; subtype?: string; tool_name?: string };
+        if (ev.type === 'system' && ev.subtype === 'permission_denied') {
+          // A blocked action isn't progress. Thousands of them (npm retrying with no network) mean it's stuck.
+          denied++;
+          deniedTools.set(ev.tool_name ?? '?', (deniedTools.get(ev.tool_name ?? '?') ?? 0) + 1);
+          if (req.maxDenied && denied >= req.maxDenied && !stuck) {
+            const top = [...deniedTools.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? '?';
+            stuck = `the sandbox blocked it ${denied} times (mostly ${top === 'SandboxNetworkAccess' ? 'network access: away runs are offline' : top})`;
+            killAll('SIGTERM');
+            setTimeout(() => killAll('SIGKILL'), 5000).unref();
+          }
+          return;
+        }
+        poke();
         const why = stuck ? null : watch!.feed(event);
         if (why) {
           stuck = why;
@@ -324,7 +342,7 @@ export class ClaudeRunner implements Runner {
       };
       poke();
       child.stdout.on('data', (d: string) => {
-        poke();
+        if (!watch) poke(); // with stream-json, a line counts as progress only if it isn't a blocked action
         raw.write(d);
         if (watch) lines.push(d);
         else text.push(d);
