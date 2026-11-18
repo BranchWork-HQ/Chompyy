@@ -7,6 +7,7 @@ import { appendJsonl, homePath, readJson, writeJson } from './home.js';
 import { buildDigest, pickPrompts, type HistoryScan, type Session } from './history.js';
 import { insertUnderHeading, readTaste } from './taste.js';
 import type { Runner } from './runner.js';
+import { branchOf } from './workspace.js';
 
 export type ProposalStatus = 'proposed' | 'accepted' | 'declined';
 
@@ -200,7 +201,7 @@ export function acceptColdStart(choice: { taste: string[]; cards: string[] }, no
   }
   const made: Card[] = updateBoard((b: BoardData) =>
     cardsNow.map((p) => {
-      const card = addCard(b, p.idea, p.project, now, 'suggested');
+      const card = addCard(b, p.idea, p.project, now, 'suggested', branchOf(p.project));
       card.title = p.title;
       card.why = p.why;
       card.source = 'history';

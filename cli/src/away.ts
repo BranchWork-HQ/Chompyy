@@ -1,7 +1,7 @@
 // Away run (spec §5.2, §5.5, §5.6): approved cards, one at a time, headless, inside the window.
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { awayQueue, loadBoard, recoverRunning, updateBoard, getCard, type Card, type Checks, type RunStatus } from './board.js';
+import { awayQueue, ensureCardDir, loadBoard, recoverRunning, updateBoard, getCard, type Card, type Checks, type RunStatus } from './board.js';
 import type { Config } from './config.js';
 import { formatDuration } from './duration.js';
 import { budgetGate } from './gate.js';
@@ -285,7 +285,8 @@ export async function runCard(id: string, timeoutMs: number, deps: AwayDeps, tri
   });
   out(`▶ #${card.id} ${card.title} (up to ${formatDuration(timeoutMs)})`);
 
-  const logPath = homePath('runs', card.id, `${stamp(startedMs)}.log`);
+  // Run output lives in the card's folder, under its workspace: <store>/<workspace>/<id>/.
+  const logPath = join(ensureCardDir(card), `${stamp(startedMs)}.log`);
   let ws: Workspace | null = null;
   let status: RunStatus;
   let exitCode: number | null = null;
