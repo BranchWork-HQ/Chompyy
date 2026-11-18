@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { blueprintPrompt, cleanBlueprint, draftBlueprint } from '../src/blueprint.js';
+import { blueprintPrompt, cleanBlueprint, draftAllPlan, draftBlueprint, laterToDraft } from '../src/blueprint.js';
+import type { BoardData, Card } from '../src/board.js';
 import { claudeArgs, type RunRequest, type Runner } from '../src/runner.js';
 
 const fake = (output: string, exitCode = 0) => {
@@ -67,5 +68,44 @@ describe('five-star options', () => {
     expect(await draftFiveStarOptions({ idea: 'quiz', blueprint: 'bp' }, runner, { model: 'haiku', cwd: '/tmp' })).toEqual([
       'Put the answers in a separate file', 'Harder questions', 'Link each question to the Tour page', 'More code snippets',
     ]);
+  });
+});
+
+describe('draft all later', () => {
+  const now = new Date('2026-11-18T12:00:00Z');
+  const mk = (id: string, extra: Partial<Card> = {}): Card => ({
+    id, title: id, idea: id, cwd: '/repo', column: 'later', blueprint: null,
+    createdAt: now.toISOString(), updatedAt: now.toISOString(), ...extra,
+  });
+  const board: BoardData = {
+    nextId: 9,
+    cards: [
+      mk('1'), // later, no blueprint: picked
+      mk('2', { blueprint: '## Goal\nedited by hand' }), // has a blueprint (edited): left alone
+      mk('3', { blueprintError: 'timed out' }), // failed before: retried
+      mk('4', { draftingAt: new Date(now.getTime() - 30_000).toISOString() }), // drafting now: skipped
+      mk('5', { draftingAt: new Date(now.getTime() - 10 * 60_000).toISOString() }), // stale draft: picked
+      mk('6', { column: 'suggested' }), // not later
+      mk('7', { column: 'approved' }), // not later
+      mk('8', { blueprint: '   ' }), // blank counts as none
+    ],
+  };
+
+  it('picks only later cards with no blueprint that are not being drafted', () => {
+    expect(laterToDraft(board, now).map((c) => c.id)).toEqual(['1', '3', '5', '8']);
+  });
+
+  it('drafts nothing with no active window and says why', () => {
+    const plan = draftAllPlan(board, false, now);
+    expect(plan.ids).toEqual([]);
+    expect(plan.message).toMatch(/No active 5-hour window/);
+  });
+
+  it('with a window, plans the picked cards; with none to draft, says so', () => {
+    expect(draftAllPlan(board, true, now)).toEqual({ ids: ['1', '3', '5', '8'] });
+    const allDone: BoardData = { nextId: 2, cards: [mk('1', { blueprint: '## Goal\nx' })] };
+    const plan = draftAllPlan(allDone, true, now);
+    expect(plan.ids).toEqual([]);
+    expect(plan.message).toMatch(/already has a blueprint/);
   });
 });

@@ -1,5 +1,5 @@
 // Blueprint (spec §5.4): the scope agreed before a card runs, drafted by a cheap model.
-import type { Card } from './board.js';
+import type { BoardData, Card } from './board.js';
 import type { Runner } from './runner.js';
 
 export const BLUEPRINT_SECTIONS = ['Goal', 'Scope', 'Out of scope', 'Shape', "How it's checked"] as const;
@@ -79,6 +79,32 @@ export async function draftBlueprint(
   if (result.timedOut) throw new Error('Blueprint model timed out.');
   if (result.exitCode !== 0) throw new Error(`claude exited with ${result.exitCode}: ${result.stderr.trim().slice(0, 300)}`);
   return cleanBlueprint(result.output);
+}
+
+/** A draft that started this long ago and never finished (its process died) counts as not drafting. */
+const DRAFT_STALE_MS = 3 * 60_000;
+
+/**
+ * Later cards "Draft all" should draft: no blueprint yet and not being drafted right now.
+ * Cards with a blueprint (edited ones too) are left alone; a card whose last draft failed is retried.
+ */
+export function laterToDraft(board: BoardData, now: Date = new Date()): Card[] {
+  return board.cards.filter(
+    (c) =>
+      c.column === 'later' &&
+      !c.blueprint?.trim() &&
+      (!c.draftingAt || Date.parse(c.draftingAt) < now.getTime() - DRAFT_STALE_MS),
+  );
+}
+
+/**
+ * The plan for `chompyy blueprint --all-later`: which cards to draft, or why it drafts nothing.
+ * Same gate as background drafting: with no active 5-hour window a model call would start a new one.
+ */
+export function draftAllPlan(board: BoardData, windowActive: boolean, now: Date = new Date()): { ids: string[]; message?: string } {
+  if (!windowActive) return { ids: [], message: 'No active 5-hour window: drafting now would start one. Nothing drafted; try again while you are using Claude Code.' };
+  const ids = laterToDraft(board, now).map((c) => c.id);
+  return ids.length ? { ids } : { ids, message: 'Every later card already has a blueprint (or is being drafted).' };
 }
 
 /** Generic options when a card-specific list can't be made (e.g. no active window). */

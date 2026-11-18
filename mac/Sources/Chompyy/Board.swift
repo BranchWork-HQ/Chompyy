@@ -179,6 +179,7 @@ struct ColumnView: View {
                 Text(column.title).font(.headline)
                 countBadge(all)
                 Spacer()
+                if column == .later { draftAllButton(all) }
                 Button { withAnimation(.easeOut(duration: 0.15)) { collapsed = true } } label: {
                     Image(systemName: "chevron.right.2").font(.caption)
                 }
@@ -212,6 +213,20 @@ struct ColumnView: View {
         .frame(minWidth: 170, maxWidth: .infinity)
         .padding(10)
         .background(Brand.columnBackground, in: RoundedRectangle(cornerRadius: 14))
+    }
+
+    /// Drafts a blueprint for every later card that has none, one at a time (the CLI checks the 5-hour window).
+    private func draftAllButton(_ all: [Card]) -> some View {
+        let drafting = store.busy.contains("draftAllLater")
+        let waiting = all.filter { ($0.blueprint ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.count
+        return Button {
+            Task { await store.act("draftAllLater", ["blueprint", "--all-later", "--quiet"]) }
+        } label: {
+            if drafting { ProgressView().controlSize(.small) } else { Label("Draft all", systemImage: "wand.and.stars").font(.caption) }
+        }
+        .buttonStyle(.borderless)
+        .disabled(drafting || waiting == 0)
+        .help(waiting == 0 ? "Every card here has a blueprint" : "Draft blueprints for the \(waiting) card\(waiting == 1 ? "" : "s") here without one, while your 5-hour window is active")
     }
 
     /// The folded column: icon, count, name written sideways. Click anywhere on it to open it again.
