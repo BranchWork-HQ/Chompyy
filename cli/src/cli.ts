@@ -8,7 +8,7 @@ import { away, cacheEnv, runCard, type AwayDeps } from './away.js';
 import { formatPreflight, loadProfile, preflight, saveProfile } from './preflight.js';
 import { verifyCard } from './verifycard.js';
 import { parsePermission, recordNeeds } from './permissions.js';
-import { draftBlueprint, draftFiveStarOptions, GENERIC_FIVE_STAR, isUsageLimit, writeBlueprintFile } from './blueprint.js';
+import { draftAllPlan, draftBlueprint, draftFiveStarOptions, GENERIC_FIVE_STAR, isUsageLimit, writeBlueprintFile } from './blueprint.js';
 import { addCard, awayQueue, claimDrafts, COLUMNS, dropCard, expireSuggested, formatBoard, formatCard, getCard, loadBoard, moveCard, noteDraftFailure, quotaWaitReason, recoverRunning, updateBoard, type Column } from './board.js';
 import { loadConfig, setConfig } from './config.js';
 import { formatDuration, parseDuration } from './duration.js';
@@ -49,6 +49,7 @@ Board
   chompyy board [--column c]    cards by column (suggested later approved running review done)
   chompyy show <id>             one card: blueprint, last run, what the agent said
   chompyy blueprint <id>        (re)draft the blueprint with a cheap model  [--model haiku]
+        --all-later               draft every later card that has no blueprint yet, one at a time
   chompyy picture <id>          (re)draw the card's picture: a diagram of what it will do (diagram-design skill)
   chompyy approve <id>          later → approved (needs a blueprint)
   chompyy edit-blueprint <id>   replace the blueprint with text from stdin
@@ -345,6 +346,7 @@ async function main(argv: string[]): Promise<void> {
     allowPositionals: true,
     options: {
       'no-blueprint': { type: 'boolean' },
+      'all-later': { type: 'boolean' },
       wait: { type: 'boolean' },
       'dry-run': { type: 'boolean' },
       force: { type: 'boolean' },
@@ -635,6 +637,52 @@ async function main(argv: string[]): Promise<void> {
       return;
     }
     case 'blueprint': {
+      if (values['all-later']) {
+        await freshQuota();
+        if (!claudeAvailable(loadConfig().claudeBin)) throw new Error('claude CLI not found: drafting needs it.');
+        // Same rule as background drafting (card #20): with 0% left, every draft would only hit the limit.
+        const waiting = quotaEmpty(now);
+        if (waiting) {
+          updateBoard((b) => claimDrafts(b, now, waiting)); // marks the later cards "waiting for quota"
+          console.log(`Nothing drafted: ${waiting}. They draft on their own once quota is back.`);
+          return;
+        }
+        const plan = draftAllPlan(loadBoard(), windowActive(now), now);
+        if (!plan.ids.length) {
+          console.log(plan.message);
+          return;
+        }
+        // Mark them all first so background drafting and the app don't start a second draft of the same card.
+        updateBoard((b) => {
+          for (const id of plan.ids) getCard(b, id).draftingAt = new Date().toISOString();
+        });
+        const failed: string[] = [];
+        for (const [i, id] of plan.ids.entries()) {
+          updateBoard((b) => {
+            getCard(b, id).draftingAt = new Date().toISOString(); // fresh, so a long queue doesn't look stale
+          });
+          if (!values.quiet) console.log(`Drafting #${id} (${i + 1} of ${plan.ids.length})…`);
+          try {
+            await blueprintCard(id, values.model); // a failure is kept on the card as blueprintError
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            if (isUsageLimit(message)) {
+              // Out of quota mid-way: the rest would fail the same way. They wait for the reset instead (card #20).
+              const left = plan.ids.slice(i + 1);
+              updateBoard((b) => { for (const l of left) delete getCard(b, l).draftingAt; claimDrafts(b, new Date(), quotaEmpty(new Date()) ?? 'waiting for quota: the usage limit was hit'); });
+              console.log(`Drafted ${i} of ${plan.ids.length}: the usage limit was hit at #${id}. The rest draft on their own once quota is back.`);
+              process.exitCode = i === 0 ? 1 : 0;
+              return;
+            }
+            failed.push(id);
+            if (!values.quiet) console.log(`   #${id} failed: ${message}`);
+          }
+        }
+        const done = plan.ids.length - failed.length;
+        console.log(`Drafted ${done} of ${plan.ids.length} blueprint${plan.ids.length === 1 ? '' : 's'}${failed.length ? `; failed: ${failed.map((f) => '#' + f).join(', ')} (see each card)` : ''}.`);
+        if (done === 0) process.exitCode = 1;
+        return;
+      }
       const id = need(args[0], 'chompyy blueprint <id> [--model haiku]');
       const text = await blueprintCard(id, values.model);
       if (!values.quiet) console.log(text);
