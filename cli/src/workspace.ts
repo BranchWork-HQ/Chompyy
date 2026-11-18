@@ -59,6 +59,13 @@ export function gitRoot(cwd: string): string | null {
   }
 }
 
+/** The git branch a folder is on, for a new card's workspace; null outside git or on a detached HEAD. */
+export function branchOf(cwd: string): string | null {
+  if (!existsSync(cwd)) return null;
+  const branch = tryGit(cwd, ['symbolic-ref', '--quiet', '--short', 'HEAD']);
+  return branch || null;
+}
+
 function branchExists(root: string, branch: string): boolean {
   try {
     git(root, ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`]);
@@ -110,21 +117,36 @@ export const JUNK_FILES = ['.DS_Store', 'Thumbs.db', 'desktop.ini'];
  */
 export function commitLeftovers(ws: Workspace, card: Pick<Card, 'id' | 'title'>): boolean {
   if (ws.kind !== 'worktree' || !existsSync(ws.dir)) return false;
-  const excludes = [...NEVER_COMMIT.map((p) => `:(exclude)${p}`), ...JUNK_FILES.map((f) => `:(exclude,glob)**/${f}`)];
-  git(ws.dir, ['add', '-A', '--', '.', ...excludes]);
+  // Add exactly the changed files we want, by name. Naming excluded paths instead (":(exclude).claude") makes git
+  // fail outright when the repo also gitignores them (Keep broke this way on 2026-11-18).
+  const files = changedPaths(ws.dir).filter((f) => !neverCommit(f));
+  for (let i = 0; i < files.length; i += 200) git(ws.dir, ['add', '-A', '--', ...files.slice(i, i + 200)]);
   const staged = git(ws.dir, ['diff', '--cached', '--name-only']);
   if (!staged) return false;
   git(ws.dir, ['-c', 'user.name=Chompyy', '-c', 'user.email=chompyy@localhost', 'commit', '--no-verify', '-m', `Chompyy card #${card.id}: ${card.title}\n\nCommitted by Chompyy: the agent left these changes uncommitted.`]);
   return true;
 }
 
+/** Files that never belong in your repo: QUESTIONS.md, .claude/, and OS clutter. */
+function neverCommit(f: string): boolean {
+  return NEVER_COMMIT.some((n) => f === n || f.startsWith(`${n}/`)) || JUNK_FILES.some((j) => f === j || f.endsWith(`/${j}`));
+}
+
+/** Every changed or new (not ignored) file in a folder, exact paths (NUL-separated, so spaces and quotes are safe). */
+function changedPaths(dir: string): string[] {
+  const out = execFileSync('git', ['-C', dir, 'status', '--porcelain', '-z', '--untracked-files=all'], { encoding: 'utf8' });
+  const parts = out.split('\0').filter(Boolean);
+  const paths: string[] = [];
+  for (let i = 0; i < parts.length; i++) {
+    const entry = parts[i]!;
+    paths.push(entry.slice(3));
+    if (/^[RC]/.test(entry)) paths.push(parts[++i]!); // a rename lists the old path next
+  }
+  return paths;
+}
+
 /** Uncommitted changes in a worktree that keep would lose (ignores QUESTIONS.md and .claude). */
 export function uncommittedWork(dir: string): string[] {
   if (!existsSync(dir)) return [];
-  return git(dir, ['status', '--porcelain'])
-    .split('\n')
-    .filter(Boolean)
-    .map((l) => l.replace(/^\s*\S{1,2}\s+/, '')) // the helper trims, so the first line may lose its leading space
-    .filter((f) => !NEVER_COMMIT.some((n) => f === n || f.startsWith(`${n}/`)))
-    .filter((f) => !JUNK_FILES.some((j) => f === j || f.endsWith(`/${j}`)));
+  return [...new Set(changedPaths(dir))].filter((f) => !neverCommit(f));
 }

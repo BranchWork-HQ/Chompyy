@@ -7,6 +7,15 @@ import type { Card } from './board.js';
 import { homePath } from './home.js';
 import { commitLeftovers, gitRoot, uncommittedWork } from './workspace.js';
 
+/**
+ * What a card's changes are measured from: the commit it started from (the latest main at the time), so the
+ * list shows only the card's own work. Measuring from your folder's HEAD showed 56 files for a 6-file card when
+ * the folder sat on an older commit (2026-11-18). Older cards without a base fall back to HEAD.
+ */
+function since(run: { base?: { commit: string } }): string {
+  return run.base?.commit ?? 'HEAD';
+}
+
 function git(cwd: string, args: string[]): string {
   return execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 }
@@ -61,7 +70,7 @@ export function changedFiles(card: Card): string[] {
     if (run.branch) {
       const root = gitRoot(card.cwd);
       if (!root) return [];
-      return git(root, ['diff', '--name-only', `HEAD...${run.branch}`]).split('\n').filter(Boolean);
+      return git(root, ['diff', '--name-only', `${since(run)}...${run.branch}`]).split('\n').filter(Boolean);
     }
     return readdirSync(run.workdir, { recursive: true, withFileTypes: true })
       .filter((d) => d.isFile())
@@ -104,7 +113,7 @@ export function diffCard(card: Card): string {
   if (!run.branch) return `Card #${card.id} ran in a draft folder, not a git repo. Its files are in ${run.workdir}`;
   const root = gitRoot(card.cwd);
   if (!root) throw new Error(`${card.cwd} is no longer a git repo.`);
-  return git(root, ['diff', '--stat', '--patch', `HEAD...${run.branch}`]) || 'No changes on the branch.';
+  return git(root, ['diff', '--stat', '--patch', `${since(run)}...${run.branch}`]) || 'No changes on the branch.';
 }
 
 function removeWorktree(root: string, card: Card): void {
@@ -161,7 +170,7 @@ export function keepCard(card: Card): string {
   const yours = [...new Set(git(root, ['status', '--porcelain', '--untracked-files=all']).split('\n').filter(Boolean)
     .map((l) => l.trim().replace(/^\S+\s+/, '').replace(/^.* -> /, '')))];
   if (yours.length) {
-    const theirs = new Set(git(root, ['diff', '--name-only', `HEAD...${run.branch}`]).split('\n').filter(Boolean));
+    const theirs = new Set(git(root, ['diff', '--name-only', `${since(run)}...${run.branch}`]).split('\n').filter(Boolean));
     const clash = yours.filter((f) => theirs.has(f));
     const staged = git(root, ['diff', '--cached', '--name-only']).split('\n').filter(Boolean);
     const list = (fs: string[]) => fs.slice(0, 3).join(', ') + (fs.length > 3 ? ` and ${fs.length - 3} more` : '');

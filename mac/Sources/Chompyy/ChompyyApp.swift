@@ -31,19 +31,23 @@ struct ChompyyApp: App {
     }
 }
 
-/// The cookie in the menu bar. With CHOMPYY_OPEN_BOARD=1 the board opens at launch (for testing).
+/// The cookie in the menu bar, with the 5-hour window's percent left beside it (like a battery).
+/// With CHOMPYY_OPEN_BOARD=1 the board opens at launch (for testing).
 struct MenuBarIcon: View {
     let left: Double?
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        Image(nsImage: cookieMenuImage(left: left))
-            .task {
-                if ProcessInfo.processInfo.environment["CHOMPYY_OPEN_BOARD"] == "1" {
-                    openWindow(id: "board")
-                    NSApp.activate(ignoringOtherApps: true)
-                }
+        HStack(spacing: 4) {
+            Image(nsImage: cookieMenuImage(left: left))
+            Text(menuBarTitle(left: left))
+        }
+        .task {
+            if ProcessInfo.processInfo.environment["CHOMPYY_OPEN_BOARD"] == "1" {
+                openWindow(id: "board")
+                NSApp.activate(ignoringOtherApps: true)
             }
+        }
     }
 }
 

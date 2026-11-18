@@ -1,5 +1,7 @@
 // Blueprint (spec §5.4): the scope agreed before a card runs, drafted by a cheap model.
-import type { BoardData, Card } from './board.js';
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { ensureCardDir, type BoardData, type Card } from './board.js';
 import type { Runner } from './runner.js';
 
 export const BLUEPRINT_SECTIONS = ['Goal', 'Scope', 'Out of scope', 'Shape', "How it's checked"] as const;
@@ -51,6 +53,13 @@ can make, say so in Out of scope and plan to write that question to QUESTIONS.md
 
 Working directory: ${card.cwd}
 Idea: ${card.idea}`;
+}
+
+/** Keep a copy of the card's blueprint in its folder (`<store>/<workspace>/<id>/blueprint.md`). Returns the path. */
+export function writeBlueprintFile(card: Pick<Card, 'id' | 'workspace'>, text: string): string {
+  const path = join(ensureCardDir(card), 'blueprint.md');
+  writeFileSync(path, text.trim() + '\n');
+  return path;
 }
 
 /** Strip chatter before the first heading; insist on the Goal heading. */
