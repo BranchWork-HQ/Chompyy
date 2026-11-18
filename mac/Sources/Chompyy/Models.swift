@@ -82,6 +82,15 @@ struct RunInfo: Decodable {
     let verified: Verified?
 }
 
+/// Chompyy bringing a card in review up to date after other cards were kept (refresh.ts).
+struct Refresh: Decodable {
+    let state: String    // waiting | running | done | failed
+    let by: String?      // git | agent
+    let why: String?
+    let files: [String]?
+    let at: String
+}
+
 struct Checks: Decodable {
     let result: String   // passed | failed | not run
     let why: String
@@ -125,6 +134,11 @@ struct Card: Decodable, Identifiable, Hashable {
     /** What its run may need beyond the box (ticked when approving), and what you allowed. */
     let permissionPlan: [PlannedPermission]?
     let permissions: [String]?
+    /// Files that would clash with main if kept now; Chompyy brings the card up to date by itself.
+    let clashFiles: [String]?
+    let refresh: Refresh?
+    /// You pressed Keep while it clashed: it keeps itself once it's up to date and its checks pass.
+    let keepWhenRefreshed: Bool?
 
     static func == (a: Card, b: Card) -> Bool { a.id == b.id && a.updatedAt == b.updatedAt }
     func hash(into h: inout Hasher) { h.combine(id) }
@@ -138,6 +152,9 @@ struct Card: Decodable, Identifiable, Hashable {
     /// What Chompyy measured after the run (passed / failed), or nil when it couldn't check.
     var measured: String? { run?.verified.flatMap { $0.result == "not run" ? nil : $0.result } }
     var checksNotPassed: Bool { run?.status == "ok" && (run?.checks.map { $0.result != "passed" } ?? false) }
+
+    var clashes: Bool { !(clashFiles ?? []).isEmpty }
+    var refreshing: Bool { refresh?.state == "running" }
 
     var projectName: String { (cwd as NSString).lastPathComponent }
 }

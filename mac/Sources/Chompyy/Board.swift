@@ -337,6 +337,15 @@ struct CardTile: View {
     @ViewBuilder private var status: some View {
         if card.needsYou && card.hasQuestions {
             pill("Has a question", "questionmark.bubble.fill", Brand.warn)
+        } else if card.needsYou && card.refreshing {
+            // Main moved on since it ran; Chompyy is bringing it up to date (refresh.ts), nothing for you to do.
+            pill(card.keepWhenRefreshed == true ? "Updating, then keeping…" : "Updating to main…", "arrow.triangle.2.circlepath", Brand.doughEdge)
+        } else if card.needsYou && card.refresh?.state == "waiting" && card.clashes {
+            pill("Updates after quota resets", "hourglass", .secondary)
+        } else if card.needsYou && card.refresh?.state == "failed" && card.clashes {
+            pill("Couldn't update to main", "exclamationmark.triangle", Brand.warn)
+        } else if card.needsYou && card.clashes {
+            pill("Behind main", "arrow.triangle.branch", .secondary)
         } else if card.needsYou && card.measured == "failed" {
             // Chompyy's own measurement (card vs main) leads; the agent's claim only shows when there's none.
             pill("Broke something", "exclamationmark.triangle.fill", Brand.warn)

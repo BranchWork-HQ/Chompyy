@@ -65,6 +65,23 @@ export interface Rating {
   at: string;
 }
 
+/**
+ * Chompyy bringing a card in review up to date after its main moved on (refresh.ts): another card was kept
+ * and now this one would clash with it.
+ */
+export interface Refresh {
+  state: 'waiting' | 'running' | 'done' | 'failed';
+  /** The main commit it was brought onto (done), or is being brought onto. */
+  onto?: string;
+  /** git merged it cleanly, or an agent resolved the clash. */
+  by?: 'git' | 'agent';
+  /** Plain words: why it waits or failed, or what was done. */
+  why?: string;
+  /** The files that clashed. */
+  files?: string[];
+  at: string;
+}
+
 export interface Card {
   id: string;
   title: string;
@@ -92,6 +109,10 @@ export interface Card {
   run?: RunInfo;
   /** What the user decided after the run. */
   outcome?: 'kept' | 'undone';
+  /** Chompyy bringing this card up to date with main after another card was kept (refresh.ts). */
+  refresh?: Refresh;
+  /** You pressed Keep while it clashed: Chompyy keeps it by itself once it's refreshed and its checks pass. */
+  keepWhenRefreshed?: boolean;
   rating?: Rating;
   /** Your answers to the run's QUESTIONS.md; added to the task prompt on the next run. */
   answers?: { at: string; text: string }[];
