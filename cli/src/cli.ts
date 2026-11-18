@@ -257,6 +257,7 @@ function awayDeps(config: ReturnType<typeof loadConfig>, freshQuota: (force?: bo
     plan: planWorkspace,
     prepare: prepareWorkspace,
     commitLeftovers,
+    wait: (ms) => new Promise((resolve) => setTimeout(resolve, Math.max(0, ms))),
     recordNeeds: (card, needs) => {
       const root = gitRoot(card.cwd);
       if (!root) return;

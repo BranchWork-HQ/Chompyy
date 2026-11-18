@@ -309,12 +309,17 @@ struct CardTile: View {
     @ViewBuilder private var status: some View {
         if card.needsYou && card.hasQuestions {
             pill("Has a question", "questionmark.bubble.fill", Brand.warn)
+        } else if card.needsYou && card.measured == "failed" {
+            // Chompyy's own measurement (card vs main) leads; the agent's claim only shows when there's none.
+            pill("Broke something", "exclamationmark.triangle.fill", Brand.warn)
+        } else if card.needsYou && card.measured == "passed" {
+            pill("Nothing broke", "checkmark.seal.fill", Brand.ok)
         } else if card.needsYou && card.run?.checks?.result == "failed" {
-            pill("Checks fail", "exclamationmark.triangle.fill", Brand.warn)
+            pill("Says checks fail", "exclamationmark.triangle", Brand.warn)
         } else if card.needsYou && card.checksNotPassed {
             pill("Not checked", "magnifyingglass", Brand.warn)
         } else if card.needsYou && card.run?.checks?.result == "passed" {
-            pill("Checks pass", "checkmark.circle.fill", Brand.ok)
+            pill("Says checks pass", "checkmark.circle", Brand.ok)
         } else if card.needsYou {
             pill("Check it", "eyes", Brand.doughEdge)
         } else if let rating = card.rating {

@@ -135,6 +135,8 @@ struct Card: Decodable, Identifiable, Hashable {
     var needsYou: Bool { column == "review" && outcome == nil }
 
     /// Finished, but its own checks didn't pass.
+    /// What Chompyy measured after the run (passed / failed), or nil when it couldn't check.
+    var measured: String? { run?.verified.flatMap { $0.result == "not run" ? nil : $0.result } }
     var checksNotPassed: Bool { run?.status == "ok" && (run?.checks.map { $0.result != "passed" } ?? false) }
 
     var projectName: String { (cwd as NSString).lastPathComponent }
