@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 // chompyy: park ideas, blueprint them, run approved cards while you're away.
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { parseArgs } from 'node:util';
 import { away, cacheEnv, runCard, type AwayDeps } from './away.js';
 import { formatPreflight, loadProfile, preflight, saveProfile } from './preflight.js';
+import { verifyCard } from './verifycard.js';
 import { parsePermission, recordNeeds } from './permissions.js';
 import { draftBlueprint, draftFiveStarOptions, GENERIC_FIVE_STAR } from './blueprint.js';
 import { addCard, awayQueue, COLUMNS, dropCard, expireSuggested, formatBoard, formatCard, getCard, loadBoard, moveCard, recoverRunning, updateBoard, type Column } from './board.js';
@@ -19,7 +20,6 @@ import { cardsSince, formatReport, lastReportAt, markReported, morningLine, rate
 import { changedFiles, diffCard, keepCard, overlaps, questionsOf, undoCard } from './review.js';
 import { CappedText, ClaudeRunner, claudeAvailable } from './runner.js';
 import { commitLeftovers, gitRoot, planWorkspace, prepareWorkspace } from './workspace.js';
-import { verifyRun } from './verify.js';
 import { answerCard, appState, cardView, editBlueprint, recordCliLocation } from './appstate.js';
 import { refreshLiveQuota } from './livequota.js';
 import { recentProjects } from './projects.js';
@@ -273,21 +273,13 @@ function awayDeps(config: ReturnType<typeof loadConfig>, freshQuota: (force?: bo
     },
     ...(config.independentCheck
       ? {
-          verify: (ws, card) => {
+          verify: async (ws, card) => {
+            // Chompyy's own measurement: the repo's checks on the card and on the main it started from.
             const root = gitRoot(card.cwd);
             const cacheDir = homePath('cache', 'tools');
-            // A card made in a subfolder (e.g. cli/ of a repo) is checked there, with that folder's node_modules.
-            const sub = root ? relative(root, card.cwd) : '';
-            return verifyRun({
-              dir: sub && !sub.startsWith('..') ? join(ws.dir, sub) : ws.dir,
-              repoRoot: sub && !sub.startsWith('..') ? card.cwd : root,
-              cacheDir,
-              env: cacheEnv(cacheDir),
-              denyRead: config.denyReadPaths,
-              timeoutMs: config.checkTimeoutMin * 60_000,
-              override: root ? config.checkCommands[root] : undefined,
-              now: () => new Date(),
-            });
+            if (!root || ws.kind !== 'worktree') return undefined;
+            const baseCommit = ws.base?.commit ?? execFileSync('git', ['-C', root, 'merge-base', 'HEAD', ws.branch!], { encoding: 'utf8' }).trim();
+            return verifyCard({ root, dir: ws.dir, baseCommit, cacheDir, denyRead: config.denyReadPaths, timeoutMs: config.checkTimeoutMin * 60_000, now: () => new Date() });
           },
         }
       : {}),
