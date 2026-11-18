@@ -20,7 +20,7 @@ import { cardsSince, formatReport, lastReportAt, markReported, morningLine, rate
 import { changedFiles, diffCard, keepCard, overlaps, questionsOf, undoCard } from './review.js';
 import { CappedText, ClaudeRunner, claudeAvailable } from './runner.js';
 import { commitLeftovers, gitRoot, planWorkspace, prepareWorkspace } from './workspace.js';
-import { answerCard, appState, cardView, editBlueprint, recordCliLocation } from './appstate.js';
+import { answerCard, appState, cardView, currentBranch, editBlueprint, recordCliLocation } from './appstate.js';
 import { refreshLiveQuota } from './livequota.js';
 import { recentProjects } from './projects.js';
 import { cliVersion, installApp } from './macapp.js';
@@ -33,6 +33,7 @@ import {
   answerPreference, distill, distillDue, formatPrefs, formatQuestion, formatWhy, getPref, loadStore, nextQuestion,
   readSignals, recordOutcome, retirePreference, syncTasteFile, tasteChangesSince, type Answer,
 } from './taste.js';
+import { formatLive, keepAffectsLive, liveOff, liveSet, liveUpdateLocked, loadLive, startLiveUpdate } from './live.js';
 import { agentInstalled, awayRunning, bedtimeKey, decideTrigger, installAgent, loadTriggerState, markFired, noteTick, parseClock, takeAwayLock, uninstallAgent } from './triggers.js';
 
 const HELP = `chompyy: use the 5-hour window capacity that would reset unused
@@ -62,7 +63,7 @@ Away
 Back
   chompyy report [--all]        what ran, and the one thing to do about each
   chompyy diff <id>             the change it made
-  chompyy keep <id>             merge its branch into your current branch
+  chompyy keep <id>             merge its branch into the branch it started from (and update the live app, if set)
   chompyy undo <id>             throw it away (removes its branch; yours are untouched)
   chompyy answer <id>           answer the run's questions (stdin); the card goes back to approved
   chompyy redo <id>             throw this attempt away and run it again from your latest code
@@ -94,6 +95,8 @@ Get to know you (cold start)
 
 App
   chompyy app                   install (or update) the Mac app in ~/Applications and open it
+  chompyy live [set <repo>|update|off]   for Chompyy's own developers: the app runs from ~/.chompyy/live, which follows
+                                main and rebuilds (CLI, and the app if its code changed) after every Keep on main
   chompyy version               this CLI's version
   chompyy projects [--json]     recent project folders (from Claude Code history and past cards)
   chompyy state --json          everything the Mac app shows, in one JSON (board, show, status also take --json)
@@ -409,6 +412,26 @@ async function main(argv: string[]): Promise<void> {
       // What the quota check just did, so the app's Refresh button can say it instead of looking dead.
       const quotaRefresh = values.refresh ? (refreshed ? { ok: refreshed.ok, message: refreshed.message } : { ok: false, message: 'Live quota reading is off (quotaSource in config.json).' }) : null;
       return json({ ...appState(loadBoard(), loadSnapshot(), loadConfig(), now), quotaRefresh });
+    }
+    case 'live': {
+      const sub = args[0] ?? 'status';
+      if (sub === 'set') {
+        const live = liveSet(need(args[1], 'chompyy live set <your Chompyy checkout> [branch]'), args[2] ?? 'main');
+        console.log(`Live copy at ${live.dir}, following ${live.branch}. Building it now…`);
+        liveUpdateLocked();
+        return console.log(formatLive(loadLive()));
+      }
+      if (sub === 'off') {
+        liveOff();
+        return console.log('The app no longer follows the live copy; it uses whichever chompyy CLI runs next.');
+      }
+      if (sub === 'update') {
+        const state = liveUpdateLocked();
+        if (!state) console.log('An update is already running; it will pick up the newest main when it finishes.');
+        if (state?.error) process.exitCode = 1;
+        return;
+      }
+      return console.log(formatLive(loadLive()));
     }
     case 'app': {
       console.log(`Downloading Chompyy ${cliVersion()} for Mac…`);
@@ -766,7 +789,14 @@ async function main(argv: string[]): Promise<void> {
     }
     case 'keep': {
       const id = need(args[0], 'chompyy keep <id>');
-      console.log(keepCard(getCard(loadBoard(), id)));
+      const kept = getCard(loadBoard(), id);
+      console.log(keepCard(kept));
+      // If this landed on what the app runs from, bring the app up to date by itself (live.ts).
+      const landedOn = kept.run?.base?.branch ?? currentBranch(kept.cwd);
+      if (keepAffectsLive(loadLive(), kept.cwd, landedOn)) {
+        startLiveUpdate();
+        console.log('Updating the app with it in the background: the CLI in seconds, the Mac app in 1–2 minutes if its code changed (`chompyy live` shows progress).');
+      }
       updateBoard((b) => {
         const card = getCard(b, id);
         card.outcome = 'kept';
