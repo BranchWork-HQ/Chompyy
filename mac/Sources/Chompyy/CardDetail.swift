@@ -532,7 +532,7 @@ struct WhereItWorks: View {
             Label("Where it works", systemImage: "shield.lefthalf.filled").font(.headline)
             Text(explanation).font(.callout).foregroundStyle(.secondary)
             HStack(spacing: 6) {
-                pathRow("Your folder", (card.cwd as NSString).abbreviatingWithTildeInPath, card.folderBranch.map { "branch \($0) · Keep merges into it" } ?? "untouched until you press Keep")
+                pathRow("Your folder", (card.cwd as NSString).abbreviatingWithTildeInPath, card.folderBranch.map { "Keep lands it on \($0); this folder is only changed if it has \($0) open" } ?? "untouched until you press Keep")
             }
             HStack(spacing: 6) {
                 pathRow("Its copy", (copyPath as NSString).abbreviatingWithTildeInPath, "branch \(branch)")
@@ -558,7 +558,7 @@ struct WhereItWorks: View {
         case "running":
             return "Working in its own copy right now. Open the copy to watch files appear; your folder isn't touched."
         default:
-            return card.outcome == "kept" ? "Kept: its branch was merged into your folder." : "Its work is in the copy on its own branch. Keep merges it into your folder; Undo deletes the copy."
+            return card.outcome == "kept" ? "Kept: its branch was merged into \(card.folderBranch ?? "your branch")." : "Its work is in the copy on its own branch, started from the latest \(card.folderBranch ?? "main"). Keep lands it on \(card.folderBranch ?? "your branch"); Undo deletes the copy."
         }
     }
 

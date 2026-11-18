@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { Card } from '../src/board.js';
 import { setupDependencies } from '../src/deps.js';
-import { keepCard } from '../src/review.js';
+import { changedFiles, diffCard, keepCard } from '../src/review.js';
 import { prepareWorkspace } from '../src/workspace.js';
 import { useTempHome } from './helpers.js';
 
@@ -66,6 +66,9 @@ describe('keep lands the card on main', () => {
     const ws = prepareWorkspace(c, { fetch: false });
     writeFileSync(join(ws.dir, 'badge.txt'), '73%\n');
     gitIn(ws.dir)('add', '.'); gitIn(ws.dir)('commit', '-qm', 'badge');
+    // Only the card's own work: not the 30 commits between the folder's old checkout and latest main (2026-11-18).
+    expect(changedFiles(ranCard(c, ws))).toEqual(['badge.txt']);
+    expect(diffCard(ranCard(c, ws))).not.toContain('app.txt');
     const before = gitIn(cardsFolder)('rev-parse', 'HEAD');
     expect(keepCard(ranCard(c, ws))).toMatch(/merged chompyy\/12 into main \(none of your folders has main open/);
     expect(g('show', 'main:badge.txt')).toBe('73%');

@@ -6,7 +6,7 @@ import type { Config } from './config.js';
 import { formatDuration } from './duration.js';
 import { budgetGate } from './gate.js';
 import { homePath } from './home.js';
-import type { Snapshot } from './quota.js';
+import { windowView, type Snapshot } from './quota.js';
 import type { Runner } from './runner.js';
 import type { Workspace } from './workspace.js';
 import { recordRun, usedBetween } from './costs.js';
@@ -16,6 +16,8 @@ import type { Verified } from './verify.js';
 
 /** Don't start a card with less than this much time left in the away run. */
 export const MIN_CARD_MS = 2 * 60_000;
+/** After a 5-hour reset, wait this much longer before carrying on (the new window needs a moment to show up). */
+export const RESET_WAIT_MARGIN_MS = 2 * 60_000;
 
 export function safetyRules(workdir: string): string {
   return `You are running unattended while the user is away. Nobody can answer questions. Rules:
@@ -119,6 +121,8 @@ export interface AwayDeps {
   commitLeftovers?: (ws: Workspace, card: Card) => boolean;
   /** Before each card: read fresh quota, so the gate sees what earlier cards used. */
   refreshQuota?: () => Promise<void>;
+  /** Sleep (for waiting out a 5-hour reset during a long away run). Unset = stop instead of waiting. */
+  wait?: (ms: number) => Promise<void>;
   /** taste.md as agents should read it; defaults to the real one. */
   taste?: () => string;
   /** Remember what a run was blocked on, for the repo's next permission plan. */
@@ -198,7 +202,23 @@ export async function away(durationMs: number, deps: AwayDeps, opts: AwayOptions
     }
     // The previous card already read quota when it finished; don't ask twice in a row.
     if (!opts.dryRun && deps.refreshQuota && deps.now() - lastRefreshMs > 60_000) await deps.refreshQuota();
-    const gate = budgetGate(deps.snapshot(), config, new Date(deps.now()));
+    let gate = budgetGate(deps.snapshot(), config, new Date(deps.now()));
+    // The 5-hour window ran low but the run has time left (going to sleep): wait for the reset and carry on,
+    // instead of stopping at 23:40 and leaving the night unused. Weekly limits still stop it.
+    while (!gate.ok && !opts.force && !opts.dryRun && deps.wait) {
+      const five = windowView(deps.snapshot()?.fiveHour, new Date(deps.now()));
+      const onlyFiveHour = gate.reasons.every((r) => r.startsWith('5h window'));
+      if (!onlyFiveHour || !five.known) break;
+      const wakeAt = five.resetsAt * 1000 + RESET_WAIT_MARGIN_MS;
+      if (wakeAt + MIN_CARD_MS > deadline) break;
+      out(`  ⏸ ${gate.reasons.join('; ')}. Waiting for the 5-hour window to reset at ${new Date(five.resetsAt * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}, then carrying on.`);
+      await deps.wait(wakeAt - deps.now());
+      if (deps.refreshQuota) {
+        await deps.refreshQuota().catch(() => {});
+        lastRefreshMs = deps.now();
+      }
+      gate = budgetGate(deps.snapshot(), config, new Date(deps.now()));
+    }
     if (!gate.ok && !opts.force) {
       summary.stoppedBecause = gate.reasons.join('; ');
       break;
