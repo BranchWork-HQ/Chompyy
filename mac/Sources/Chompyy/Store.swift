@@ -96,12 +96,36 @@ final class Store: ObservableObject {
     func startAway(_ duration: String) {
         guard awayProcess == nil else { return }
         do {
-            awayProcess = try CLI.launch(["away", duration])
+            let p = try CLI.launch(["away", duration])
+            awayProcess = p
             show("Away for \(duration): approved cards run one at a time. Your Mac stays awake until it's done; keep it plugged in with the lid open.")
+            // When the run ends, say how it went: it may stop at once (the budget gate), and silence looks broken.
+            p.terminationHandler = { _ in
+                let summary = Store.awaySummary()
+                Task { @MainActor in
+                    self.awayProcess = nil
+                    self.show(summary)
+                    await self.refresh()
+                }
+            }
         } catch {
             show(error.localizedDescription)
         }
         Task { try? await Task.sleep(for: .seconds(2)); await refresh() }
+    }
+
+    /// The line that says how the last away run ended, from ~/.chompyy/app-away.log.
+    nonisolated static func awaySummary() -> String {
+        let log = CLI.home.appendingPathComponent("app-away.log")
+        let lines = ((try? String(contentsOf: log, encoding: .utf8)) ?? "").split(separator: "\n").map(String.init)
+        if let stopped = lines.last(where: { $0.hasPrefix("Stopped:") }) {
+            let ran = lines.last(where: { $0.hasPrefix("Done.") }) ?? ""
+            return "Away run stopped: \(stopped.dropFirst("Stopped: ".count))" + (ran.contains(" 0 card") || ran.isEmpty ? "" : " \(ran)")
+        }
+        if lines.contains(where: { $0.contains("No approved cards") }) { return "Nothing to run: approve a card first." }
+        if let done = lines.last(where: { $0.hasPrefix("Done.") }) { return "Away run finished. \(done.dropFirst("Done. ".count))" }
+        if let err = lines.last(where: { $0.lowercased().contains("error") }) { return "Away run failed: \(err)" }
+        return "Away run ended."
     }
 
     func stopAway() {
