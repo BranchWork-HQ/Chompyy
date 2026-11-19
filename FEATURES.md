@@ -41,7 +41,7 @@ The moment we design for: *"I noticed you undid 3 cards that added tests you did
 3. ✅ **History cold start** for Claude Code (§5.9): privacy notice → first taste.md + suggested cards, landing in the board (2026-11-17)
 4. 📋 **Foundation**: codeburn (spend, 42 tools, optimize, compare, guard) and CodexBar (limits for 114 providers, menu bar) — see [Foundation](#1-foundation-codeburn--codexbar)
 5. ✅ **Taste distiller**, triggers (last hour, bedtime), cost ranges, the "while you were away" trends (CLI, 2026-11-17; the Mac app doesn't show the taste question or cost ranges yet)
-6. 📋 **Optimization side**: cache-aware sessions, compression before history
+6. ◐ **Optimization side = the Detective** (decided 2026-11-17): find flaws in your setup and habits from local files, using knowledge distilled from the code of rtk, headroom, ponytail, caveman, token-optimizer and codeburn; findings become Advice cards; approved ones are applied while you're away (settings lane: backed-up diff; work lane: sandboxed card); "did it work?" re-measures. Steps: ✅ 1 rulebook ([research/detective/RULEBOOK.md](research/detective/RULEBOOK.md)) · 📋 2 `chompyy detect` · 📋 3 Advice cards · 📋 4 away-run lanes · 📋 5 did-it-work + taste. Also: cache-aware sessions, compression before history
 7. 📋 **More agents**: Cursor, Codex history and runners; calendar
 
 ---
@@ -59,7 +59,7 @@ Chompyy stands on two established MIT tools instead of rebuilding what they do w
 | **Plan pacing** | codeburn (`plan`), CodexBar (reset countdowns) | ◐ per-hour pace and weekly stay-on-pace gate ✅ for Claude Code |
 | **Menu bar app** (macOS; Linux in CodexBar) | CodexBar, codeburn `mac/` | 📋 |
 | **Dashboard** (terminal and web) | codeburn (`report`, `web`) | 📋 |
-| **optimize**: find token waste, audit startup costs | codeburn (`optimize`, `context`) | 📋 |
+| **optimize**: find token waste, audit startup costs | codeburn (`optimize`, `context`) | ◐ superseded by the detective: codeburn's 24 checks are one chapter of its [rulebook](research/detective/RULEBOOK.md) |
 | **compare** models on your own history | codeburn | 📋 |
 | **guard / budgets**: spending caps | codeburn (`budget`) | 📋 |
 | **Checks its own fixes** against later sessions | codeburn (`act report`) | ◐ ratings logged ✅; before/after numbers 📋 |
@@ -244,7 +244,7 @@ From the [research cards](research/atomic-knowledge.md); combined as a measured 
 | Keep the cache warm between turns (< 5 min) or a cheap keep-alive | 📋 | A5 |
 | State written to files; long session → fresh session from files, not compaction | 📋 | C5, D2, A10 |
 | Fail → rerun at higher effort, not a bigger model mid-session | 📋 | A12, A3 |
-| Startup cost audit and waste fixes | 📋 | via codeburn `optimize` |
+| Startup cost audit and waste fixes | ◐ | Detective rulebook ✅ (chapters 1–10: startup tax, cache, output, reading, loops, context, verbosity, clashes between optimizers, terms, measuring); `chompyy detect` 📋 |
 | Repo map: a compact outline of the codebase instead of reading whole files | 📋 | aider (Apache-2.0) |
 
 ## 9. Interfaces

@@ -72,14 +72,22 @@ describe('claudeArgs', () => {
       allowedTools: ['Read', 'Bash(npm test *)'],
       disallowedTools: ['Bash(git push *)'],
     });
-    expect(args.slice(0, 4)).toEqual(['-p', '--output-format', 'text', '--no-session-persistence']);
+    expect(args.slice(0, 5)).toEqual(['-p', '--output-format', 'text', '--no-session-persistence', '--strict-mcp-config']);
     expect(args.join(' ')).toContain('--model sonnet --max-turns 20 --permission-mode acceptEdits --permission-prompts none');
     expect(args.join(' ')).toContain('--allowedTools Read Bash(npm test *) --disallowedTools Bash(git push *)');
     expect(args).not.toContain('x'); // the prompt goes on stdin
   });
 
-  it('leaves out what is not set', () => {
-    expect(claudeArgs({ prompt: 'x', cwd: '/', timeoutMs: 1, model: null, maxTurns: null })).toEqual(['-p', '--output-format', 'text', '--no-session-persistence']);
+  it('leaves out what is not set, but always isolates from other tools\' hooks and MCP servers', () => {
+    expect(claudeArgs({ prompt: 'x', cwd: '/', timeoutMs: 1, model: null, maxTurns: null })).toEqual([
+      '-p', '--output-format', 'text', '--no-session-persistence', '--strict-mcp-config', '--settings', '{"disableAllHooks":true}',
+    ]);
+  });
+
+  it('keeps the sandbox settings and adds hooks off in the same --settings', () => {
+    const args = claudeArgs({ prompt: 'x', cwd: '/', timeoutMs: 1, settings: { sandbox: { enabled: true }, disableAllHooks: false } });
+    expect(args.filter((a) => a === '--settings')).toHaveLength(1);
+    expect(JSON.parse(args[args.indexOf('--settings') + 1])).toEqual({ sandbox: { enabled: true }, disableAllHooks: true });
   });
 });
 
