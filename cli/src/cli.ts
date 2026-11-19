@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // chompyy: park ideas, blueprint them, run approved cards while you're away.
 import { execFileSync, spawn } from 'node:child_process';
+import { backfillTokens, median } from './tokenstore.js';
+import { compact, formatTokens, totalTokens } from './tokens.js';
 import { closeSync, existsSync, openSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { parseArgs } from 'node:util';
@@ -73,6 +75,7 @@ Back
   chompyy rate <id> <1-5> ["why"] [--to-five "change" ...]   rate a result; --to-five = what would have made it a 5
   chompyy five-star <id>        options for "what would have made it a 5?" (JSON)
   chompyy signals [--json]      everything Chompyy has recorded from you: ratings, edits, answers
+  chompyy tokens [--json]       exact tokens and API-value cost of each run
   chompyy trends                last 7 days vs the 7 before: cost per card, keep rate, rating, blueprint edits
 
 Taste (learned from what you keep, undo, edit and rate)
@@ -700,6 +703,19 @@ async function main(argv: string[]): Promise<void> {
       console.log(formatCard(card));
       if (!card.run) console.log(`\n${formatCostRange(costRange(card, readRuns()))}`);
       else if (card.run.cost?.fiveHourPct != null) console.log(`used ${card.run.cost.fiveHourPct}% of the 5h window${card.run.trigger ? ` · started by the ${card.run.trigger} trigger` : ''}`);
+      return;
+    }
+    case 'tokens': {
+      // Exact tokens per run (tokens.ts). Runs from before 2026-11-19 are filled in from their saved stream logs.
+      const filled = backfillTokens();
+      const rows = readRuns().filter((r) => r.tokens);
+      if (values.json) return json(rows.map((r) => ({ at: r.at, card: r.card, title: r.title, status: r.status, ...r.tokens })));
+      if (filled) console.log(`Filled in exact tokens for ${filled} earlier run(s) from their logs.\n`);
+      if (!rows.length) return console.log('No runs with exact token counts yet: they are recorded from the next away run on.');
+      for (const r of rows.slice(-20)) console.log(`${r.at.slice(0, 16).replace('T', ' ')}  #${r.card.padEnd(4)} ${formatTokens(r.tokens!)}\n                    ${r.title}`);
+      const sum = rows.reduce((a, r) => a + r.tokens!.costUsd, 0);
+      const all = rows.reduce((a, r) => a + totalTokens(r.tokens!), 0);
+      console.log(`\n${rows.length} run(s): ${compact(all)} tokens, $${sum.toFixed(2)} at API prices (median $${median(rows.map((r) => r.tokens!.costUsd)).toFixed(2)} per run)`);
       return;
     }
     case 'picture': {

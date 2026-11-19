@@ -13,6 +13,7 @@ import { recordRun, usedBetween } from './costs.js';
 import { applyPermissions, type RunNeeds } from './permissions.js';
 import { tasteForPrompt } from './taste.js';
 import { boxTempDirs, type Verified } from './verify.js';
+import { formatTokens, type RunTokens } from './tokens.js';
 
 /** Don't start a card with less than this much time left in the away run. */
 export const MIN_CARD_MS = 2 * 60_000;
@@ -296,6 +297,7 @@ export async function runCard(id: string, timeoutMs: number, deps: AwayDeps, tri
   let summaryText = '';
   let checks: Checks | undefined;
   let verified: Verified | undefined;
+  let tokens: RunTokens | undefined;
   let log = '';
 
   try {
@@ -331,6 +333,8 @@ export async function runCard(id: string, timeoutMs: number, deps: AwayDeps, tri
     });
     rmSync(agentPidPath(card.id), { force: true });
     exitCode = result.exitCode;
+    tokens = result.tokens;
+    if (tokens) out(`  used ${formatTokens(tokens)}`);
     if (result.needs) {
       try {
         deps.recordNeeds?.(card, result.needs);
@@ -396,6 +400,7 @@ export async function runCard(id: string, timeoutMs: number, deps: AwayDeps, tri
       ...(checks ? { checks } : {}),
       cost,
       ...(verified ? { verified } : {}),
+      ...(tokens ? { tokens } : {}),
       ...(trigger ? { trigger } : {}),
     };
   });
@@ -408,6 +413,7 @@ export async function runCard(id: string, timeoutMs: number, deps: AwayDeps, tri
     status,
     durationMs: finishedMs - startedMs,
     ...cost,
+    ...(tokens ? { tokens } : {}),
   });
   out(`  → ${status} · ${formatDuration(finishedMs - startedMs)}${cost.fiveHourPct !== null ? ` · used ${cost.fiveHourPct}% of the 5h window` : ''} · log ${logPath}`);
   return card.id;

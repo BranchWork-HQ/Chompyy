@@ -183,6 +183,12 @@ struct CardDetail: View {
                 .foregroundStyle(checks.result == "passed" ? Brand.ok : Brand.warn)
             }
 
+            if let t = card.run?.tokens {
+                Label(t.line, systemImage: "number")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .help(t.breakdown + ". Subscription plans don't pay API prices; this is the value of the work.")
+            }
+
             if let run = card.run, !run.summary.isEmpty {
                 Text(md(run.summary)).textSelection(.enabled)
                     .padding(12)
