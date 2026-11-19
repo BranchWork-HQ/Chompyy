@@ -556,23 +556,29 @@ struct WhereItWorks: View {
     private var hasCopy: Bool { FileManager.default.fileExists(atPath: copyPath) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Label("Where it works", systemImage: "shield.lefthalf.filled").font(.headline)
-            Text(explanation).font(.callout).foregroundStyle(.secondary)
-            HStack(spacing: 6) {
-                pathRow("Your folder", (card.cwd as NSString).abbreviatingWithTildeInPath, card.folderBranch.map { "Keep lands it on \($0); this folder is only changed if it has \($0) open" } ?? "untouched until you press Keep")
-            }
-            HStack(spacing: 6) {
-                pathRow("Its copy", (copyPath as NSString).abbreviatingWithTildeInPath, "branch \(branch)")
-            }
-            HStack {
-                Button { reveal(card.cwd) } label: { Label("Show your folder", systemImage: "folder") }
-                if hasCopy {
-                    Button { reveal(copyPath) } label: { Label("Show its copy", systemImage: "folder.badge.gearshape") }
+        // Folded closed by default, like "Details"; the heading stays visible as the toggle.
+        DisclosureGroup {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(explanation).font(.callout).foregroundStyle(.secondary)
+                HStack(spacing: 6) {
+                    pathRow("Your folder", (card.cwd as NSString).abbreviatingWithTildeInPath, card.folderBranch.map { "Keep lands it on \($0); this folder is only changed if it has \($0) open" } ?? "untouched until you press Keep")
                 }
+                HStack(spacing: 6) {
+                    pathRow("Its copy", (copyPath as NSString).abbreviatingWithTildeInPath, "branch \(branch)")
+                }
+                HStack {
+                    Button { reveal(card.cwd) } label: { Label("Show your folder", systemImage: "folder") }
+                    if hasCopy {
+                        Button { reveal(copyPath) } label: { Label("Show its copy", systemImage: "folder.badge.gearshape") }
+                    }
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
+            .padding(.top, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        } label: {
+            Label("Where it works", systemImage: "shield.lefthalf.filled").font(.headline)
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
