@@ -1,12 +1,38 @@
 # Chompyy features
 
-Everything Chompyy does or is planned to do, in one list to build from. Collected from the [spec](research/spec-token-utilization.md), the [research](research/atomic-knowledge.md), the shipped CLI ([`cli/`](cli/README.md)), issue #2, and the design conversations. Updated 2026-11-17.
+Everything Chompyy does or is planned to do, in one list to build from. Collected from the [spec](research/spec-token-utilization.md), the [research](research/atomic-knowledge.md), the shipped CLI ([`cli/`](cli/README.md)), issue #2, and the design conversations. Updated 2026-11-19.
 
 **Status:** ✅ built · 🔜 next · 📋 planned · 💭 idea (not decided)
 
 Ideas from 100 related open-source projects, 10 per section: [research/feature-inspiration.md](research/feature-inspiration.md).
 
 > **The goal:** more finished work per weekly allowance, with less back-and-forth. The main metric is *accepted results from capacity that would have reset unused*, with acceptance rate as the warning sign. Tokens burned on unwanted work don't count.
+
+## Chompyy's shape: three sides, one core (2026-11-19)
+
+```
+                     ┌──────────────────────────────────┐
+                     │   Chompyy knows your taste       │  ← the core, used by all three sides
+                     │   (evidence → proposal → yes →   │
+                     │    did it work?)                 │
+                     └───────┬───────────┬──────────┬───┘
+                             │           │          │
+           ┌─────────────────▼──┐ ┌──────▼───────┐ ┌▼───────────────────┐
+           │ a. Use the window  │ │ b. Monitor   │ │ c. Optimize        │
+           │ pre-planned cards  │ │ spend, limits│ │ chompyy detect:    │
+           │ run while you're   │ │ forecast,    │ │ advice that really │
+           │ away (NOW)         │ │ heatmap      │ │ cuts token cost    │
+           └────────────────────┘ └──────────────┘ └────────────────────┘
+```
+
+| Side | What it is | Where in this list | Status |
+|---|---|---|---|
+| **a. Use the reset window** | Pre-planned cards run in capacity that would reset unused (overnight, the last hour before a reset) | §3–§6 | ◐ the current focus |
+| **b. Monitoring board** | Spend, limits and trends like CodexBar and codeburn: real numbers, a growth line, the price as API value, the forecast, the premise number and the usage heatmap | §1, §2 | 📋 research first (§1) |
+| **c. Optimization** | `chompyy detect`: Chompyy proactively finds what wastes tokens in your setup and habits and helps fix it, with evidence | §8 | ◐ rulebook done |
+| **Core: taste** | Learns how you like work done from what you keep, undo, edit, rate and say. Every side feeds it and uses it | §7 | ◐ |
+
+**One evidence engine for all three sides.** Taste rules and detect findings go through the same steps: evidence → a proposal with its receipts → your yes / not now / never → applied → did it work? A declined piece of advice teaches taste too ("never suggest removing MCP servers"), and the "What Chompyy learned" panel shows both the same way. Built for taste today (§7); detect plugs into it when it lands (§8).
 
 ## What makes Chompyy different: taste learned from outcomes
 
@@ -66,6 +92,15 @@ Chompyy stands on two established MIT tools instead of rebuilding what they do w
 | Provider status and incident badges; don't start away cards during an outage | CodexBar | 📋 |
 | **Where the agent gets stuck**: error breakdown and failing or abandoned tasks from history | sniffly (MIT, Python: port the idea) | 📋 also feeds cold-start suggestions |
 
+**Monitoring board, side b (2026-11-19).** Before building, research what's on the market, the same way we did for away runs ([away-readiness.md](research/away-readiness.md)) and optimization ([detective RULEBOOK.md](research/detective/RULEBOOK.md)): read the code of the open-source monitors, not their READMEs, and pick the features worth having.
+
+| Feature | Status | Notes |
+|---|---|---|
+| **Monitoring research**: read the code of codeburn, CodexBar, AgentLimits, Claude-Code-Usage-Monitor, ccusage, sniffly and similar; one note per tool + a feature pick list | 🔜 | Output: `research/monitoring/` like `research/detective/`. Decides what we copy (MIT, with credit) |
+| **Spend board**: real numbers per day, project and model, with a growth line | 📋 | Copy codeburn's session readers, pricing table and totals into Chompyy's TS core; draw it in Swift |
+| **Price as API value** for subscription users: "your $200 plan did $1,400 of API-priced work this month" | 📋 | Fits "use what you pay for"; never quote dollar *savings* to subscription users (token-optimizer's rule) |
+| **Forecast, premise and heatmap together**: when the window will run out or reset unused; what share of your windows reset with capacity left; a weekday × hour heatmap of when you use Claude, which also proposes away windows | 📋 | Forecast ✅ in §2; heatmap from AgentLimits; the premise number from §11 shown as a feature |
+
 **How to combine them: decided 2026-11-14: option D**, copy codeburn's TypeScript code and port the CodexBar providers we need, with credit. No extra installs for users. What each tool does and which language each part is in: [research/foundation-codeburn-codexbar.md](research/foundation-codeburn-codexbar.md).
 
 | Option | Gains | Costs |
@@ -107,6 +142,11 @@ Licence duty for anything copied: keep the MIT notices (a `THIRD_PARTY_NOTICES` 
 | `chompyy later "<idea>"`: park a stray idea without switching tasks | ✅ | Blueprint drafted in the background |
 | `board`, `show`, `approve`, `drop` (archived, not deleted) | ✅ | |
 | `chompyy eat-tokens`: leftover window plus the cards you could run (read-only) | ✅ | |
+| **"+" on the Later column** opens the Park-an-idea box, empty, cursor in the text field | ✅ | 2026-11-19, card #10 |
+| **Draft all**: one button (and `chompyy blueprint --all-later`) drafts every Later card with no blueprint; waits for quota like background drafting | ✅ | 2026-11-19, card #21 (+ #20's quota rule) |
+| **Cards wait visibly for quota**: with 0% left, a Later card says "waiting for quota" and drafts after the reset instead of looking stuck; running out mid-draft retries after the reset, not marked failed | ✅ | 2026-11-19, card #20 |
+| **Workspaces**: each card records the branch it was created on; the board groups cards under one header per workspace; each card has its own folder (`~/.chompyy/cards/<workspace>/<id>/`) for its blueprint and logs | ✅ | 2026-11-19, card #19 |
+| **Learn which cards you approve**: what you approve vs drop from suggestions says what kind of work you want Chompyy to pick; used to rank future suggestions (a separate taste from how you like work done) | 📋 | 2026-11-19. Dropped drafts don't teach *how* to work, but they do teach *what* to suggest |
 | **Suggested cards on request only** (no automatic pushes) | 📋 | The more you ask, the more it prepares; cap and expire stale ones |
 | Suggestions from history: unfinished ideas, "let's do that later", TODOs the agent left, abandoned tasks, routines repeated 3+ times | ✅ | Cold start; each card must quote what you said, checked against the digest |
 | Suggestions related to what you're working on now | 📋 | |
@@ -150,6 +190,10 @@ Licence duty for anything copied: keep the MIT notices (a `THIRD_PARTY_NOTICES` 
 | **Away readiness, step 2: fresh base + setup**: cards start from the latest main (fetched), Keep lands them on that branch (in the folder that has it open, or a temporary copy), and dependencies are cloned from your checkout or a snapshot installed once per lockfile, never per card | ✅ | 2026-11-18 |
 | **Away readiness, step 3: permission plan + research in drafting**: the approval stage asks what a 3 AM run can't: each card lists what its run may need beyond the box (from earlier runs' blocks, preflight, and the blueprint's Needs), unticked by default; you tick, it runs with exactly that. Drafting can search the web | ✅ | 2026-11-18 |
 | **Away readiness, step 4: verify main vs card**: Chompyy runs the repo's checks on the card and on the main it started from, compares failing tests by name, and reports only what the card broke; the app leads with this measurement and shows the agent's claim underneath | ✅ | 2026-11-18 |
+| **The agent's checks agree with Chompyy's**: the agent's sandbox and Chompyy's own check box allow the same temp folders (one list), so a check that passes for one passes for the other; a check blocked by the sandbox is "not run", never "failed" | ✅ | 2026-11-19 (PR #32): five cards said "checks failed" while Chompyy's own check said nothing broke (`swift build` needed the macOS temp folder). Also fixed `npm test` failing on main with a test-runner timeout |
+| **Refresh: Chompyy handles clashes, not you**: after each Keep, every card in review that now clashes with main is brought up to date in the background (git merges it, or a short sandboxed agent fits both changes together), then Chompyy's own check runs again on the new main. Keep on a clashing card ("Update & keep") does the same and keeps it once the check passes. Chompyy checks the agent's merge itself (no conflict markers, merge finished, contains main) and undoes it otherwise. Waits instead of paid extra usage | ✅ | 2026-11-19 (PR #34), after #20 and #21 clashed with cards kept before them |
+| **Away readiness, step 5: self-test (lab only)**: a fake night that runs the whole pipeline (fresh base, setup, sandbox, run, verify, keep, refresh, live update) against a test repo, so a new bug fails a test instead of a night. A developer tool for Chompyy's own repo, not a user feature | 🔜 | Try it before the next away run |
+| **Away readiness, step 6: app status**: the app shows each stage of a running card (setup, running, checking) | 📋 | research/away-readiness.md |
 | **Never lose a result**: commit what the agent left uncommitted after each run; keep refuses if work would be lost | ✅ | Found 2026-11-16 ([boundary test](research/boundary-test-2026-11-16.md)) |
 | **Runs report their own checks** (`CHECKS: passed / failed / not run`), shown as Checks pass / Checks fail / Not checked | ✅ | "ok" used to mean only "exited cleanly" |
 | Sandboxed local commands auto-allowed (tests, scripts); outward commands still denied | ✅ | |
@@ -180,6 +224,8 @@ Licence duty for anything copied: keep the MIT notices (a `THIRD_PARTY_NOTICES` 
 | **Answer** a card's questions; it continues on the next away run | ✅ | Verified with a real run |
 | One commit per step with a clear message; undo a single step, not only the whole card | 📋 | aider (Apache-2.0) |
 | Keep/undo recorded, so the report stops asking | ✅ | |
+| **Exact tokens per run**: input, output, cache reads and writes, and API-value cost for every card, from the run's own log (not "% before vs after", which is coarse, mixes in your own use and goes blank when the window resets mid-run). Shown on the card and in the report | 🔜 | 2026-11-19. Per-interaction tagging like Langfuse; the base for honest cost estimates later. No hard per-card ceiling for now: keep the options open for evaluation |
+| **Cost estimate with its own hit rate**: a range from similar past cards ("3–6%, from 4 similar cards"), then estimate vs actual after each run and "8 of the last 10 landed in the range" | 📋 | After a few nights of exact token data |
 | `rate <id> <1-5> ["why"]` → `signals.jsonl` | ✅ | Raw material for taste |
 | "While you were away" **trends**: e.g. "paper digests −31% tokens, −1.2 corrections vs last month", from real runs and paired replays | ◐ | From real runs ✅ (2026-11-17): last 7 days vs the 7 before (cost per card, keep rate, rating, blueprint edits) in the report and `chompyy trends`; only with 3+ points on both sides. Per task type and paired replays 📋 |
 | Morning-report framing: "Last night: 2 skills updated, 1 retired" | ✅ | "Since last time: 3 cards ran, 1 kept, using 12% of 5h windows · taste: 1 learned, 1 retired" (skills come with skill distillation) |
@@ -210,10 +256,22 @@ Chompyy's main difference (see [the top](#what-makes-chompyy-different-taste-lea
 6. **Show what it did for you**, briefly and specifically: "2 cards kept, from capacity that would have reset."
 7. **Quiet hours** follow your bedtime and calendar.
 
-**Not written:** one-off details of a single task, moods, anything true only for one card, secrets, and anything the repo already says. The test for each candidate: *would this change what Chompyy does in a different task next week, and can it name the evidence?*
+**What Chompyy learns from (2026-11-19).** Cards you approved, ran or rated (ratings, to-a-5 picks, blueprint edits, keep/undo, answers); **your everyday sessions with agents**: corrections in chat ("no, don't…"), edits you undo, files you rewrite right after the agent touched them; and **code you write yourself** (from git: the agent wrote X, you changed it to Y). How you work is fair game: how you like explanations, pictures first, short replies late at night.
+
+**Not written:** one-off details of a single task, anything true only for one card, secrets (passwords, keys, tokens: never stored), and anything the repo already says. **Personal facts are stated, never inferred** (following Claude's privacy approach): if you tell Chompyy "I'm dyslexic, keep text short" or "I'm in Taipei", it can remember that in its own section of taste.md that you see and edit; it never guesses things like health, relationships, money or identity from your chats. The test for each candidate: *would this change what Chompyy does in a different task next week, and can it name the evidence?*
 
 | Feature | Status | Notes |
 |---|---|---|
+| **Learn from everyday sessions** (2026-11-19): corrections in chat, undone edits, files you rewrite right after the agent; and your own code via git. Cheap first: pattern matching finds candidates, a small model reads only those. Processed on your Mac, with a "what I read today" log | 🔜 | The answer to "taste is starving for evidence": away cards give 5–10 signals a week, everyday sessions many times more. Same evidence rules and approval as card signals |
+| **Nightly read and clean-up**: every night, read only what's new since last night (chats + git), extract evidence, update proposed rules, retire contradicted ones | 📋 | Extends the bedtime trigger and the one-time cold start into a daily habit |
+| **Morning badge**: a small notification on "What Chompyy heard from you"; tapping it opens a popup with what Chompyy noticed (one-tap yes / not now / never), plus detect advice and new suggested cards | 🔜 | 2026-11-19: not a board card. Two rules have been waiting as "ready" since 2026-11-18 because the question only exists in the CLI |
+| **"What Chompyy learned" panel**: active rules and findings, each with its evidence, measured/estimated label, and retire / not now | 📋 | Shared with detect findings (one evidence engine) |
+| **Receipts on every rule**: tap a rule to see the exact chat lines, edits and cards behind it | 📋 | Builds trust; makes the demo |
+| **Taste in daytime sessions**: your active rules go into a file Claude Code always loads, so a rule you said yes to this morning shapes this afternoon's session, not only away cards | 📋 | What makes taste feel real |
+| **Stated facts section** in taste.md: things you told Chompyy about yourself, visible and editable, never inferred | 📋 | |
+| **Taste travels between tools and models**: one central taste.md handed to Claude Code, Codex (AGENTS.md), Cursor and agent workspaces (Orca, herdr, hermes, opcode, …); Chompyy "smells" taste from several providers' sessions and shares one file | 📋 | No vendor can do this: each sees only its own tool |
+| **Learning shown as a number**: "Chompyy learned 4 rules this week; your corrections per session dropped from 6 to 3" | 📋 | Chompyy's impact as a feature; the keep-rate data behind it is already recorded with dates |
+| Personal assistant beyond work (a separate opt-in store, never sent to coding agents) | 💭 | Only if Chompyy grows past coding work |
 | `taste.md` stub and `/taste` | ✅ | Plain text, user edits win |
 | **Evidence behind every preference**: "why do you think that?" shows the cards, edits and quotes | ✅ | `chompyy taste why <id>`; citations checked against `signals.jsonl`. What makes it feel cared for rather than creepy |
 | **Ask, don't assume**: new preferences arrive as one-tap questions in the report | ✅ | One per report, strongest evidence first; `taste yes / not-now / never`; in the app JSON as `tasteQuestion` (app UI 📋). |
@@ -238,6 +296,11 @@ From the [research cards](research/atomic-knowledge.md); combined as a measured 
 
 | Feature | Status | Source |
 |---|---|---|
+| **The detective, step 1: rulebook**: what wastes tokens, distilled from the code of rtk, headroom, ponytail, caveman, token-optimizer and codeburn; each rule with evidence, the local data it reads and a fix lane | ✅ | [research/detective/RULEBOOK.md](research/detective/RULEBOOK.md) (PR #35) |
+| **`chompyy detect`** (step 2): runs the rulebook on your local files (transcripts, settings, CLAUDE.md, skills, MCP) and lists findings, each with evidence, a **measured / estimated** label (codeburn) and an evidence count (headroom: 2+ occurrences, no one-offs) | 🔜 | Findings go to the "What Chompyy learned" panel and the morning badge (§7) |
+| Advice cards (step 3) and away-run fix lanes (step 4): approved advice is applied while you're away (settings: a backed-up diff; work: a sandboxed card) | 📋 | |
+| **Did it work?** (step 5): re-measure ≥ 3 days after a fix; "worked" at ≥ 70% of the promise, rounded down (codeburn's act report); declined advice becomes taste | 📋 | |
+| Runs ignore other tools' hooks and MCP servers (rule T3) | ✅ | PR #35 |
 | Session setup decided once and frozen: task type → tools (few, complete), skill, model, effort, turn cap | 📋 | A2, A3, D4, E1, E4 |
 | Append only; compress tool output before it enters history (borrow rtk) | 📋 | A1, C1, C2 |
 | Sub-tasks fold into subagents with a shared prefix | 📋 | F1, F4 |
@@ -259,6 +322,8 @@ From the [research cards](research/atomic-knowledge.md); combined as a measured 
 | **Picture first**: blueprint shown as a diagram before the text, with "Redraw" | ◐ | Native 4-box map built; diagram-design (MIT) for richer diagrams next |
 | **Cookie icon eaten bite by bite**: one bite per ~1/8 of the window used, so what's left on the plate is what Chompyy can still eat | ✅ | Idea from claude-codex-battery (MIT, Swift). Bites are scalloped tooth marks around the edge, not clean pie wedges, which would look like Pac-Man |
 | **Chompyy's eyes** (2026-11-18): capsule eyes and 12 expressions from open-mascot-studio (MIT), picked at random; one lively tempo at every quota level (a new expression every ~1 s, springy; the near-limit slowdown was removed 2026-11-19); googly pupils follow your mouse (pupil physics after Morkrom/googlyeyes, MIT). Cookie eaten from one side with a scalloped bite edge, 20 chips | ✅ | `mac/Sources/Chompyy/Mascot.swift`; preview: `CHOMPYY_RENDER_COOKIES=<png> Chompyy` |
+| **Percent left beside the menu bar cookie** ("73%"), like a battery | ✅ | 2026-11-19, card #12: the face is hard to read at menu bar size |
+| **Live copy: kept cards reach the app by themselves**: the app runs from `~/.chompyy/live`, which follows main; after each Keep on main the CLI rebuilds (seconds) and the app rebuilds and restarts if its code changed (1–2 min). A failed build keeps the last good one. No work folder can take the app over | ✅ | 2026-11-19 (PR #33), for Chompyy's own development (`chompyy live set`); testers' installs unchanged |
 | **WidgetKit widgets** (desktop, Notification Center): the cookie and what's left | 📋 | CodexBar has them (Swift); wanted 2026-11-15 |
 | Capacity Dock: thin rail at a screen edge, one ring per provider | 💭 | codeburn |
 | **"Where it works"** in every card: your folder (untouched until Keep) vs its copy and branch, with Show in Finder | ✅ | 2026-11-16, so it's visibly safe to run on a real repo |
@@ -283,6 +348,7 @@ Numbers that make the pitch convincing to people who doubt it. Eval projects: [f
 | Measure | How | Status |
 |---|---|---|
 | **The premise**: share of 5-hour windows that reset with capacity left while the weekly limit isn't binding | From saved quota snapshots and transcripts, across volunteer users | 📋 first |
+| **Learning as a number**, shown in the app: rules learned per week and corrections per session over time (§7) | Already recorded with dates (keep/undo, ratings); corrections per session once everyday sessions are read | 📋 |
 | **Taste works**: keep rate and corrections per card, with taste.md vs without | Same cards run both ways, user reviews blind | 📋 the answer to "normal agents can do that" |
 | Taste accuracy: share of proposed preferences you accept | From the one-tap questions | 📋 |
 | Cost per accepted card, and acceptance rate | From the board and runs | 📋 |
@@ -313,6 +379,13 @@ Numbers that make the pitch convincing to people who doubt it. Eval projects: [f
 | Quota from Anthropic's usage endpoint by default (Way 2), status line as fallback | 2026-11-15 |
 | Build the Mac board UI before the cold start, to test sooner | 2026-11-15 |
 | **Picture first** is a core difference, next to taste | 2026-11-15 |
+| **Three sides + one core**: use the window (now), monitoring board, optimization; taste is the meta ability across all three | 2026-11-19 |
+| Learn from everyday agent sessions and your own code, not only board cards; personal facts stated, never inferred; secrets never | 2026-11-19 |
+| Taste questions as a badge + popup on "What Chompyy heard from you", not a board card | 2026-11-19 |
+| Exact tokens per run first; no per-card hard cost ceiling for now | 2026-11-19 |
+| Self-test harness stays a lab tool, not a user feature | 2026-11-19 |
+| Monitoring board: research the open-source monitors first (like the rulebook), then copy what's best | 2026-11-19 |
+| Chompyy handles clashes between cards itself (refresh); kept cards reach the app by themselves (live copy) | 2026-11-19 |
 
 ## Open questions
 
