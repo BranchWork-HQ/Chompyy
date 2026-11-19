@@ -45,7 +45,19 @@ export function latestMain(root: string, fetch = true): { ref: string; commit: s
   for (const ref of candidates) {
     if (!ref) continue;
     const commit = tryGit(root, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`]);
-    if (commit) return { ref, commit, ...(note ? { note } : {}) };
+    if (!commit) continue;
+    // Kept cards land on your local branch and may not be pushed yet: when it is ahead of the remote's, start
+    // from it, or the next card starts without them and clashes with them (found by the lab night, 2026-11-20).
+    const local = ref.startsWith('origin/') ? ref.slice('origin/'.length) : null;
+    const localCommit = local ? tryGit(root, ['rev-parse', '--verify', '--quiet', `refs/heads/${local}^{commit}`]) : null;
+    if (local && localCommit && localCommit !== commit) {
+      const isAncestor = (a: string, b: string) => tryGit(root, ['merge-base', '--is-ancestor', a, b]) !== null;
+      if (isAncestor(commit, localCommit)) return { ref: local, commit: localCommit, ...(note ? { note } : {}) };
+      if (!isAncestor(localCommit, commit)) {
+        return { ref: local, commit: localCommit, note: `your ${local} and ${ref} have each moved on; used your ${local} (it has your kept cards)${note ? `; ${note}` : ''}` };
+      }
+    }
+    return { ref, commit, ...(note ? { note } : {}) };
   }
   return { ref: 'HEAD', commit: git(root, ['rev-parse', 'HEAD']), note: note ?? 'no main branch found; used HEAD' };
 }

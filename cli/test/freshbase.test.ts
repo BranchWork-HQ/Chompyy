@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import type { Card } from '../src/board.js';
 import { setupDependencies } from '../src/deps.js';
 import { changedFiles, diffCard, keepCard } from '../src/review.js';
-import { prepareWorkspace } from '../src/workspace.js';
+import { latestMain, prepareWorkspace } from '../src/workspace.js';
 import { useTempHome } from './helpers.js';
 
 const tmp = (p: string) => realpathSync(mkdtempSync(join(tmpdir(), p)));
@@ -53,6 +53,38 @@ describe('fresh base: a card starts from the latest main', () => {
     const ws = prepareWorkspace(card('3', clone)); // fetches
     expect(ws.base!.ref).toBe('origin/main');
     expect(readFileSync(join(ws.dir, 'f.txt'), 'utf8')).toBe('two\n');
+  });
+
+  it('uses your local main when it is ahead: kept cards that are not pushed yet (lab night, 2026-11-20)', () => {
+    const upstream = tmp('chompyy-fb-up-');
+    const u = gitIn(upstream);
+    u('init', '-q', '-b', 'main');
+    writeFileSync(join(upstream, 'f.txt'), 'one\n');
+    u('add', '.'); u('commit', '-qm', 'one');
+    const clone = join(tmp('chompyy-fb-clone-'), 'c');
+    execFileSync('git', ['clone', '-q', upstream, clone]);
+    const c = gitIn(clone);
+    writeFileSync(join(clone, 'kept.txt'), 'a kept card\n');
+    c('add', '.'); c('commit', '-qm', 'Keep Chompyy card #1'); // kept, not pushed
+    const ws = prepareWorkspace(card('4', clone));
+    expect(ws.base!.ref).toBe('main');
+    expect(readFileSync(join(ws.dir, 'kept.txt'), 'utf8')).toBe('a kept card\n');
+  });
+
+  it('when both moved on, uses your main (it has your kept cards) and says so', () => {
+    const upstream = tmp('chompyy-fb-up-');
+    const u = gitIn(upstream);
+    u('init', '-q', '-b', 'main');
+    writeFileSync(join(upstream, 'f.txt'), 'one\n');
+    u('add', '.'); u('commit', '-qm', 'one');
+    const clone = join(tmp('chompyy-fb-clone-'), 'c');
+    execFileSync('git', ['clone', '-q', upstream, clone]);
+    const c = gitIn(clone);
+    writeFileSync(join(clone, 'kept.txt'), 'kept\n');
+    c('add', '.'); c('commit', '-qm', 'kept');
+    writeFileSync(join(upstream, 'other.txt'), 'pushed by someone\n');
+    u('add', '.'); u('commit', '-qm', 'pushed');
+    expect(latestMain(clone)).toMatchObject({ ref: 'main', note: expect.stringMatching(/have each moved on; used your main/) });
   });
 });
 

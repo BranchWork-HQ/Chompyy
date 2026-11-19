@@ -40,7 +40,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "prepare": "npm run build",
     "prepack": "npm run build && cp ../LICENSE ../THIRD_PARTY_NOTICES.md .",
-    "postpack": "rm -f LICENSE THIRD_PARTY_NOTICES.md"
+    "postpack": "rm -f LICENSE THIRD_PARTY_NOTICES.md",
+    "lab": "npm run build && vitest run -c vitest.lab.config.ts"
   },
   "devDependencies": {
     "@types/node": "^20.19.43",
