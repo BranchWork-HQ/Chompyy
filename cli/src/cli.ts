@@ -22,7 +22,7 @@ import { cardsSince, formatReport, lastReportAt, markReported, morningLine, rate
 import { changedFiles, diffCard, keepCard, overlaps, questionsOf, undoCard } from './review.js';
 import { CappedText, ClaudeRunner, claudeAvailable } from './runner.js';
 import { branchOf, commitLeftovers, gitRoot, planWorkspace, prepareWorkspace } from './workspace.js';
-import { answerCard, appState, cardView, currentBranch, editBlueprint, recordCliLocation } from './appstate.js';
+import { answerCard, appState, cardView, currentBranch, editBlueprint, editIdea, recordCliLocation } from './appstate.js';
 import { refreshLiveQuota } from './livequota.js';
 import { recentProjects } from './projects.js';
 import { cliVersion, installApp } from './macapp.js';
@@ -57,6 +57,7 @@ Board
   chompyy picture <id>          (re)draw the card's picture: a diagram of what it will do (diagram-design skill)
   chompyy approve <id>          later → approved (needs a blueprint)
   chompyy edit-blueprint <id>   replace the blueprint with text from stdin
+  chompyy edit-idea <id>        replace a later card's idea with text from stdin
   chompyy drop <id>             remove a card (kept in archive.jsonl)
 
 Away
@@ -613,6 +614,14 @@ async function main(argv: string[]): Promise<void> {
       const text = await readStdin();
       const card = updateBoard((b) => editBlueprint(b, id, text, now));
       console.log(`✏️  #${card.id} blueprint updated.`);
+      return;
+    }
+    case 'edit-idea': {
+      const id = need(args[0], 'chompyy edit-idea <id>  (new idea on stdin)');
+      const text = await readStdin();
+      const card = updateBoard((b) => editIdea(b, id, text, now));
+      console.log(`✏️  #${card.id} idea updated: ${card.title}`);
+      if (card.blueprint) console.log(`   Its blueprint was drafted from the old idea; redraft with: chompyy blueprint ${card.id}`);
       return;
     }
     case 'answer': {
