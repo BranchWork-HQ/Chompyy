@@ -91,6 +91,7 @@ Triggers (start away runs on their own; the budget gate still decides every card
   chompyy triggers              what is set, and what the last tick decided
   chompyy bedtime <23:30|off>   run approved cards at bedtime (with the window that is left)
   chompyy last-hour <on|off>    run approved cards in the last hour before a 5-hour reset
+  chompyy missed-reset <on|off> run approved cards on the first tick after a reset nothing used (default off)
   chompyy tick                  check the triggers once (what the LaunchAgent runs)
 
 Get to know you (cold start)
@@ -861,17 +862,18 @@ async function main(argv: string[]): Promise<void> {
         const path = installAgent();
         const c = loadConfig();
         console.log(`Triggers on: ${path} runs \`chompyy tick\` every 5 minutes.`);
-        console.log(`  last hour before a reset: ${c.lastHourTrigger ? `on (with ≥${c.lastHourMinLeftPct}% left)` : 'off'} · bedtime: ${c.bedtime ?? 'not set (chompyy bedtime 23:30)'}`);
+        console.log(`  last hour before a reset: ${c.lastHourTrigger ? `on (with ≥${c.lastHourMinLeftPct}% left)` : 'off'} · bedtime: ${c.bedtime ?? 'not set (chompyy bedtime 23:30)'} · missed reset: ${c.missedReset ? 'on' : 'off'}`);
         return;
       }
       if (sub === 'off') return console.log(uninstallAgent() ? 'Triggers off: removed the LaunchAgent.' : 'Triggers were already off.');
       if (sub) throw new Error('Usage: chompyy triggers [on|off]');
       const c = loadConfig();
       const st = loadTriggerState();
-      if (values.json) return json({ installed: agentInstalled(), lastHour: c.lastHourTrigger, lastHourMinLeftPct: c.lastHourMinLeftPct, bedtime: c.bedtime, ...st });
+      if (values.json) return json({ installed: agentInstalled(), lastHour: c.lastHourTrigger, lastHourMinLeftPct: c.lastHourMinLeftPct, bedtime: c.bedtime, missedReset: c.missedReset, ...st });
       console.log(`LaunchAgent  ${agentInstalled() ? 'on (every 5 minutes)' : 'off (turn on: chompyy triggers on)'}`);
       console.log(`last hour    ${c.lastHourTrigger ? `on, with ≥${c.lastHourMinLeftPct}% of the window left` : 'off'}`);
       console.log(`bedtime      ${c.bedtime ?? 'not set'}`);
+      console.log(`missed reset ${c.missedReset ? 'on, approved cards run on the first tick after an unused reset' : 'off'}`);
       if (st.lastTickAt) console.log(`last tick    ${st.lastTickAt.slice(0, 16).replace('T', ' ')}: ${st.lastDecision ?? ''}`);
       return;
     }
@@ -891,6 +893,13 @@ async function main(argv: string[]): Promise<void> {
       if (v !== 'on' && v !== 'off') throw new Error('Usage: chompyy last-hour <on|off>');
       setConfig('lastHourTrigger', v === 'on');
       console.log(`Last-hour trigger ${v}.${v === 'on' && !agentInstalled() ? ' Turn triggers on with `chompyy triggers on`.' : ''}`);
+      return;
+    }
+    case 'missed-reset': {
+      const v = need(args[0], 'chompyy missed-reset <on|off>');
+      if (v !== 'on' && v !== 'off') throw new Error('Usage: chompyy missed-reset <on|off>');
+      setConfig('missedReset', v === 'on');
+      console.log(`Missed-reset trigger ${v}.${v === 'on' ? ` Only cards already approved (chompyy approve) run; the budget gate still decides.${agentInstalled() ? '' : ' Turn triggers on with `chompyy triggers on`.'}` : ''}`);
       return;
     }
     case 'distill': {

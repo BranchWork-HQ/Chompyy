@@ -66,6 +66,8 @@ export interface Config {
   bedtime: string | null;
   /** How long after bedtime the trigger may still start, in minutes. */
   bedtimeWindowMin: number;
+  /** Trigger: run approved cards on the first tick after a 5-hour reset nothing used (off by default; needs `chompyy triggers on`). */
+  missedReset: boolean;
 }
 
 export const DEFAULT_CONFIG: Config = {
@@ -145,6 +147,7 @@ export const DEFAULT_CONFIG: Config = {
   lastHourMinLeftPct: 25,
   bedtime: null,
   bedtimeWindowMin: 60,
+  missedReset: false,
 };
 
 export function configPath(): string {
