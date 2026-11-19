@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { blueprintPrompt, cleanBlueprint, draftAllPlan, draftBlueprint, isUsageLimit, laterToDraft } from '../src/blueprint.js';
+import { blueprintPrompt, cleanBlueprint, cleanTitle, draftAllPlan, draftBlueprint, draftTitle, isUsageLimit, laterToDraft, titlePrompt } from '../src/blueprint.js';
 import type { BoardData, Card } from '../src/board.js';
 import { claudeArgs, type RunRequest, type Runner } from '../src/runner.js';
 
@@ -34,6 +34,41 @@ describe('blueprint', () => {
   it('fails on a bad exit or a reply without a goal', async () => {
     await expect(draftBlueprint(card, fake('', 1).runner, { model: 'haiku', cwd: '/' })).rejects.toThrow(/exited with 1/);
     expect(() => cleanBlueprint('I cannot help')).toThrow(/Goal/);
+  });
+});
+
+describe('title', () => {
+  const parked = { idea: 'for the task title, rn it is being named by the first few words of the prompt', title: 'for the task title, rn it is being named by the first few…' };
+
+  it('asks for a title of at most 10 words, with the idea in the prompt', () => {
+    const p = titlePrompt(parked.idea);
+    expect(p).toContain('at most 10 words');
+    expect(p).toContain(parked.idea);
+  });
+
+  it('drafts with the same model, no tools, and keeps the clean reply', async () => {
+    const { runner, calls } = fake('"Retitle parked cards with a short model summary."\n');
+    expect(await draftTitle(parked, runner, { model: 'haiku', cwd: '/tmp' })).toBe('Retitle parked cards with a short model summary');
+    expect(calls[0]).toMatchObject({ model: 'haiku', tools: '', cwd: '/tmp' });
+  });
+
+  it('cuts a long reply to 10 words and 60 characters', async () => {
+    const long = 'one two three four five six seven eight nine ten eleven twelve';
+    const { runner } = fake(`Title: ${long}\nSome explanation the model added.`);
+    expect(await draftTitle(parked, runner, { model: 'haiku', cwd: '/' })).toBe('one two three four five six seven eight nine ten');
+    const wide = cleanTitle('Supercalifragilistic expialidocious antidisestablishmentarianism pneumonoultramicroscopic words');
+    expect(wide.length).toBeLessThanOrEqual(60);
+    expect(wide.endsWith('…')).toBe(true);
+  });
+
+  it('a failed, timed-out, throwing or empty call keeps the old title', async () => {
+    const opts = { model: 'haiku', cwd: '/' };
+    expect(await draftTitle(parked, fake('A title', 1).runner, opts)).toBe(parked.title);
+    const timedOut: Runner = { async run() { return { exitCode: 0, output: 'A title', stderr: '', timedOut: true, durationMs: 5 }; } };
+    expect(await draftTitle(parked, timedOut, opts)).toBe(parked.title);
+    const throws: Runner = { async run() { throw new Error('spawn claude ENOENT'); } };
+    expect(await draftTitle(parked, throws, opts)).toBe(parked.title);
+    expect(await draftTitle(parked, fake('  \n "" \n').runner, opts)).toBe(parked.title);
   });
 });
 

@@ -109,7 +109,7 @@ Each card in a git repo runs in its own worktree at `~/.chompyy/worktrees/<id>` 
 | `chompyy statusline` | Status line hook: reads Claude Code's JSON on stdin, saves the snapshot, prints one line |
 | `chompyy status` | % left in the 5h window, time to reset, weekly used, pace delta, forecast, today's allowance, per-model weekly windows |
 | `chompyy eat-tokens` | Read-only view of remaining 5h quota and approved/later cards; starts nothing |
-| `chompyy later "<idea>"` | New card in *later*, remembering the current directory. Drafts the blueprint in the background when `claude` is available (`--wait` to wait for it, `--no-blueprint` to skip) |
+| `chompyy later "<idea>"` | New card in *later*, remembering the current directory. Drafts the blueprint in the background when `claude` is available (`--wait` to wait for it, `--no-blueprint` to skip). The card starts titled with the idea's first 60 characters; with the blueprint the same model writes a title of 10 words or fewer (one extra short call, no tools). If that call fails, the first title stays |
 | `chompyy board [--column approved]` | Cards by column: suggested, later, approved, running, review, done |
 | `chompyy show <id>` | One card with its blueprint, last run and rating |
 | `chompyy blueprint <id> [--model m]` | Draft (or redraft) the blueprint with a cheap model |
