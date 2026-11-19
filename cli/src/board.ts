@@ -1,5 +1,6 @@
 // The board (spec §5.3): cards in columns, stored in ~/.chompyy/board.json.
 import { mkdirSync } from 'node:fs';
+import { formatTokens, type RunTokens } from './tokens.js';
 import { join } from 'node:path';
 import { appendJsonl, chompyyHome, homePath, readJson, writeJson } from './home.js';
 import type { PictureInfo } from './picture.js';
@@ -53,6 +54,8 @@ export interface RunInfo {
   cost?: { fiveHourPct: number | null; weeklyPct: number | null };
   /** Chompyy ran the repo's tests itself after the run (sandboxed), instead of trusting the agent's word. */
   verified?: Verified;
+  /** Exact tokens the agent used and their API-value cost (tokens.ts). */
+  tokens?: RunTokens;
   /** What started it: you (away) or a trigger. */
   trigger?: string;
 }
@@ -79,6 +82,8 @@ export interface Refresh {
   why?: string;
   /** The files that clashed. */
   files?: string[];
+  /** What the agent used, when one was needed. */
+  tokens?: RunTokens;
   at: string;
 }
 
@@ -400,6 +405,7 @@ export function formatCard(c: Card): string {
   lines.push('', c.blueprint ?? (c.blueprintError ? `(blueprint failed: ${c.blueprintError})` : c.blueprintWaiting ? `(no blueprint yet: ${c.blueprintWaiting})` : '(no blueprint yet)'));
   if (c.run) {
     lines.push('', `last run: ${c.run.status} · ${c.run.workdir}${c.run.branch ? ` · branch ${c.run.branch}` : ''}`);
+    if (c.run.tokens) lines.push(`used: ${formatTokens(c.run.tokens)}`);
     if (c.run.summary) lines.push('', 'what the agent said:', ...c.run.summary.split('\n').map((l) => `  ${l}`));
   }
   if (c.logPath) lines.push(`log: ${c.logPath}`);

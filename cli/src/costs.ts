@@ -5,6 +5,7 @@
 // cost is a range from similar past runs, which narrows as history grows. The quota delta also counts anything
 // else you did in that window at the same time, so it is an upper bound.
 import { existsSync, readFileSync } from 'node:fs';
+import type { RunTokens } from './tokens.js';
 import type { Card, RunStatus } from './board.js';
 import { formatDuration } from './duration.js';
 import { appendJsonl, homePath } from './home.js';
@@ -22,6 +23,8 @@ export interface RunRecord {
   /** Points of the 5-hour window the run used; null when the window reset mid-run or quota was unknown. */
   fiveHourPct: number | null;
   weeklyPct: number | null;
+  /** Exact tokens and API-value cost (tokens.ts); missing on runs before 2026-11-19 unless backfilled. */
+  tokens?: RunTokens;
 }
 
 export function runsPath(): string {

@@ -80,6 +80,25 @@ struct RunInfo: Decodable {
     let checks: Checks?
     /// Chompyy's own measurement: the repo's checks on the card vs on the main it started from.
     let verified: Verified?
+    /// Exact tokens the agent used, and their value at API prices.
+    let tokens: RunTokens?
+}
+
+/// Exact tokens of one run, from the run's own log (tokens.ts).
+struct RunTokens: Decodable {
+    let input: Int
+    let output: Int
+    let cacheRead: Int
+    let cacheWrite: Int
+    let costUsd: Double
+    let turns: Int
+
+    var total: Int { input + output + cacheRead + cacheWrite }
+    static func compact(_ n: Int) -> String {
+        n < 1000 ? "\(n)" : n < 1_000_000 ? String(format: n < 10_000 ? "%.1fk" : "%.0fk", Double(n) / 1000) : String(format: "%.1fM", Double(n) / 1_000_000)
+    }
+    var line: String { "Used \(Self.compact(total)) tokens · $\(String(format: "%.2f", costUsd)) at API prices · \(turns) turns" }
+    var breakdown: String { "\(Self.compact(output)) written · \(Self.compact(cacheRead)) read from cache · \(Self.compact(cacheWrite)) written to cache · \(Self.compact(input)) fresh input" }
 }
 
 /// Chompyy bringing a card in review up to date after other cards were kept (refresh.ts).

@@ -1,6 +1,7 @@
 // The one seam: something that runs a prompt headless. ClaudeRunner wraps `claude -p`;
 // tests pass a fake.
 import { spawn, spawnSync } from 'node:child_process';
+import { TokenTally, type RunTokens } from './tokens.js';
 import { closeSync, openSync, writeSync } from 'node:fs';
 import { commandPattern, hostsInErrors, type RunNeeds } from './permissions.js';
 
@@ -79,6 +80,8 @@ export interface RunResult {
   stalled?: string;
   /** What the run was blocked on (commands needing approval, hosts it tried), for the next permission plan. */
   needs?: RunNeeds;
+  /** Exact tokens and API-value cost, from the stream's result event (stream-json runs only). */
+  tokens?: RunTokens;
 }
 
 export interface Runner {
@@ -309,6 +312,7 @@ export class ClaudeRunner implements Runner {
       const neededCommands = new Set<string>();
       const neededHosts = new Set<string>();
       const raw = new RawLog(req.rawLogPath, req.rawLogMaxBytes);
+      const tally = new TokenTally();
       const watch = req.loopRepeat ? new LoopWatch(req.loopRepeat) : null;
       const lines = new LineReader((line) => {
         if (!line.trim()) return;
@@ -319,6 +323,7 @@ export class ClaudeRunner implements Runner {
           return;
         }
         final.feed(event);
+        tally.feed(event);
         const ev = event as { type?: string; subtype?: string; tool_name?: string; tool_use_id?: string; message?: { content?: unknown } };
         if (Array.isArray(ev.message?.content)) {
           for (const b of ev.message!.content as { type?: string; id?: string; name?: string; input?: { command?: string }; content?: unknown }[]) {
@@ -391,6 +396,7 @@ export class ClaudeRunner implements Runner {
         if (watch) lines.end();
         const output = watch ? final.text() : text.toString();
         resolve({ exitCode, output, stderr: stderr.toString(), timedOut, durationMs: Date.now() - started, ...(stuck ? { stuck } : {}), ...(stalled ? { stalled } : {}),
+          ...(tally.total() ? { tokens: tally.total() } : {}),
           ...(neededCommands.size || neededHosts.size ? { needs: { commands: [...neededCommands], hosts: [...neededHosts] } } : {}) });
       };
       child.on('error', (err) => {

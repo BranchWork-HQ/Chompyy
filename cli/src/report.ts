@@ -1,5 +1,6 @@
 // "While you were away" report and rating (spec §5.7).
 import { getCard, type BoardData, type Card } from './board.js';
+import { formatTokens } from './tokens.js';
 import { formatDuration } from './duration.js';
 import { wrap } from './review.js';
 import { appendJsonl, homePath, readJson, writeJson } from './home.js';
@@ -111,6 +112,7 @@ export function formatReport(cards: Card[], since: string | null, facts: (card: 
     else if (!decided && action !== ACTION[c.run!.status] && c.run!.checks?.why) wrap(c.run!.checks.why, 70).forEach((part, i) => out.push(`     ${i === 0 ? '·' : ' '} ${part}`));
     for (const q of questions) wrap(q, 70).forEach((part, i) => out.push(`     ${i === 0 ? '·' : ' '} ${part}`));
     if (!decided) out.push(`   changed: ${filesLine(files)} · took ${formatDuration(c.run!.durationMs)}`);
+    if (!decided && c.run!.tokens) out.push(`   used: ${formatTokens(c.run!.tokens)}`);
     out.push('');
   }
   const top = sorted[0]!;

@@ -14,6 +14,7 @@ import { homePath } from './home.js';
 import { windowView, type Snapshot } from './quota.js';
 import type { Runner } from './runner.js';
 import type { Verified } from './verify.js';
+import type { RunTokens } from './tokens.js';
 import { commitLeftovers, gitRoot, type Workspace } from './workspace.js';
 
 const git = (cwd: string, args: string[]) =>
@@ -163,6 +164,7 @@ export async function refreshCard(id: string, deps: RefreshDeps): Promise<Refres
     ok(dir, ['reset', '-q', '--hard', before]);
   };
   let by: 'git' | 'agent' = 'git';
+  let tokens: RunTokens | undefined;
   const ident = ['-c', 'user.name=Chompyy', '-c', 'user.email=chompyy@localhost'];
   if (!ok(dir, [...ident, 'merge', '--no-edit', '-m', `Bring Chompyy card #${id} up to date with ${clash.branch}`, clash.onto])) {
     by = 'agent';
@@ -187,6 +189,7 @@ export async function refreshCard(id: string, deps: RefreshDeps): Promise<Refres
         ...(config.idleTimeoutMin > 0 ? { idleTimeoutMs: config.idleTimeoutMin * 60_000 } : {}),
         rawLogPath: homePath('runs', id, `refresh-${at().replace(/[:.]/g, '-')}.stream.jsonl`),
       });
+      tokens = result.tokens;
       if (result.timedOut || result.stuck || result.stalled) {
         undo();
         return fail(`the agent couldn't finish fitting the changes together (${result.timedOut ? 'ran out of time' : result.stuck ?? result.stalled}); nothing was changed`);
@@ -223,6 +226,7 @@ export async function refreshCard(id: string, deps: RefreshDeps): Promise<Refres
     onto: clash.onto,
     files: clash.files,
     by,
+    ...(tokens ? { tokens } : {}),
     why: by === 'agent' ? `brought onto ${clash.branch} @ ${short}; an agent fitted both changes together in ${clash.files.join(', ')}` : `brought onto ${clash.branch} @ ${short}`,
     at: at(),
   };
