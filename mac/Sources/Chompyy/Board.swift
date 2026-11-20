@@ -32,8 +32,19 @@ struct BoardView: View {
                 ParkIdeaButton()
                 Button { showColdStart = true } label: { Label("Suggest from my history", systemImage: "clock.arrow.circlepath") }
                     .help("Read your Claude Code history and suggest tasks and taste lines")
-                Button { showFeedback = true } label: { Label("Feedback", systemImage: "bubble.left.and.text.bubble.right") }
-                    .help("Everything Chompyy has recorded from you")
+                Button { showFeedback = true } label: {
+                    Label("What Chompyy heard from you", systemImage: "bubble.left.and.text.bubble.right")
+                        .overlay(alignment: .topTrailing) {
+                            // Rules waiting for your yes: a small badge, never a ping.
+                            if let n = store.state?.taste?.waiting.count, n > 0 {
+                                Text("\(n)").font(.system(size: 9, weight: .bold)).foregroundStyle(.white)
+                                    .padding(.horizontal, 4).padding(.vertical, 1)
+                                    .background(Brand.warn, in: Capsule())
+                                    .offset(x: 8, y: -6)
+                            }
+                        }
+                }
+                .help(store.state?.taste?.waiting.isEmpty == false ? "Chompyy noticed something about how you like work done" : "What Chompyy heard from you, and what it learned")
                 AwayMenu()
                 Button {
                     Task { await store.refresh(forceQuota: true) }
@@ -44,9 +55,13 @@ struct BoardView: View {
                 .help("Refresh the board and read live quota now")
             }
         }
-        .sheet(isPresented: $showFeedback) { FeedbackView() }
+        .sheet(isPresented: $showFeedback) { FeedbackView().environmentObject(store) }
         .sheet(isPresented: $showColdStart) { ColdStartView().environmentObject(store) }
-        .onAppear { if ProcessInfo.processInfo.environment["CHOMPYY_OPEN_COLDSTART"] != nil { showColdStart = true } } // for testing
+        .onAppear {
+            // For testing: open a sheet straight away.
+            if ProcessInfo.processInfo.environment["CHOMPYY_OPEN_COLDSTART"] != nil { showColdStart = true }
+            if ProcessInfo.processInfo.environment["CHOMPYY_OPEN_FEEDBACK"] != nil { showFeedback = true }
+        }
         .frame(minWidth: 1080, minHeight: 560)
     }
 }

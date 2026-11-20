@@ -7,8 +7,31 @@ struct AppState: Decodable {
     let gate: Gate
     let cards: [Card]
     let coldStart: ColdStartState?
+    /// Rules waiting for your yes, and the ones in force ("What Chompyy heard from you").
+    let taste: TasteState?
     /// Set only after a forced refresh: what the live quota check did.
     let quotaRefresh: QuotaRefresh?
+}
+
+struct TasteState: Decodable {
+    let waiting: [TasteItem]
+    let learned: [TasteItem]
+}
+
+struct TasteItem: Decodable, Identifiable {
+    let id: String
+    let text: String
+    let noticed: String
+    let scope: String
+    let evidence: String
+    let receipts: [Receipt]
+    let since: String?
+    struct Receipt: Decodable, Hashable {
+        let at: String
+        let card: String?
+        let title: String?
+        let said: String
+    }
 }
 
 struct QuotaRefresh: Decodable {

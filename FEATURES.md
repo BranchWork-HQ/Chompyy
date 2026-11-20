@@ -8,29 +8,32 @@ Ideas from 100 related open-source projects, 10 per section: [research/feature-i
 
 > **The goal:** more finished work per weekly allowance, with less back-and-forth. The main metric is *accepted results from capacity that would have reset unused*, with acceptance rate as the warning sign. Tokens burned on unwanted work don't count.
 
-## Chompyy's shape: three sides, one core (2026-11-19)
+## Chompyy's shape: three layers (2026-11-19)
 
 ```
-                     ┌──────────────────────────────────┐
-                     │   Chompyy knows your taste       │  ← the core, used by all three sides
-                     │   (evidence → proposal → yes →   │
-                     │    did it work?)                 │
-                     └───────┬───────────┬──────────┬───┘
-                             │           │          │
-           ┌─────────────────▼──┐ ┌──────▼───────┐ ┌▼───────────────────┐
-           │ a. Use the window  │ │ b. Monitor   │ │ c. Optimize        │
-           │ pre-planned cards  │ │ spend, limits│ │ chompyy detect:    │
-           │ run while you're   │ │ forecast,    │ │ advice that really │
-           │ away (NOW)         │ │ heatmap      │ │ cuts token cost    │
-           └────────────────────┘ └──────────────┘ └────────────────────┘
+  ┌───────────────────────────────────────────────────────────────────────────┐
+  │ 3. VALUE: what you get, shown as numbers                                  │
+  │    work done from capacity that would have reset · $ of API-priced work   │
+  │    on your plan · "learned 4 rules; corrections per session 6 → 3"        │
+  ├────────────────────────┬─────────────────────────┬────────────────────────┤
+  │ 2a. USE THE WINDOW     │ 2b. MONITOR             │ 2c. OPTIMIZE           │
+  │ pre-planned cards run  │ spend, limits, growth,  │ chompyy detect: advice │
+  │ while you're away (NOW)│ forecast, heatmap       │ that really cuts cost  │
+  ├────────────────────────┴─────────────────────────┴────────────────────────┤
+  │ 1. CORE: CHOMPYY KNOWS YOU                                                │
+  │    evidence → proposal with receipts → your yes → applied → did it work?  │
+  └───────────────────────────────────────────────────────────────────────────┘
 ```
+
+The core is the base everything stands on; the three sides are what Chompyy does; the value layer is how you see that it's worth it.
 
 | Side | What it is | Where in this list | Status |
 |---|---|---|---|
-| **a. Use the reset window** | Pre-planned cards run in capacity that would reset unused (overnight, the last hour before a reset) | §3–§6 | ◐ the current focus |
-| **b. Monitoring board** | Spend, limits and trends like CodexBar and codeburn: real numbers, a growth line, the price as API value, the forecast, the premise number and the usage heatmap | §1, §2 | 📋 research first (§1) |
-| **c. Optimization** | `chompyy detect`: Chompyy proactively finds what wastes tokens in your setup and habits and helps fix it, with evidence | §8 | ◐ rulebook done |
-| **Core: taste** | Learns how you like work done from what you keep, undo, edit, rate and say. Every side feeds it and uses it | §7 | ◐ |
+| **2a. Use the reset window** | Pre-planned cards run in capacity that would reset unused (overnight, the last hour before a reset) | §3–§6 | ◐ the current focus |
+| **2b. Monitoring board** | Spend, limits and trends like CodexBar and codeburn: real numbers, a growth line, the price as API value, the forecast, the premise number and the usage heatmap | §1, §2 | 📋 research first (§1) |
+| **2c. Optimization** | `chompyy detect`: Chompyy proactively finds what wastes tokens in your setup and habits and helps fix it, with evidence | §8 | ◐ rulebook done |
+| **1. Core: Chompyy knows you** | Learns how you like work done from what you keep, undo, edit, rate and say. Every side feeds it and uses it | §7 | ◐ |
+| **3. Value** | The impact as numbers: work from capacity that would have reset, API value of your plan, learning shown as a number | §1, §7, §11 | 📋 |
 
 **One evidence engine for all three sides.** Taste rules and detect findings go through the same steps: evidence → a proposal with its receipts → your yes / not now / never → applied → did it work? A declined piece of advice teaches taste too ("never suggest removing MCP servers"), and the "What Chompyy learned" panel shows both the same way. Built for taste today (§7); detect plugs into it when it lands (§8).
 
@@ -262,11 +265,11 @@ Chompyy's main difference (see [the top](#what-makes-chompyy-different-taste-lea
 
 | Feature | Status | Notes |
 |---|---|---|
-| **Learn from everyday sessions** (2026-11-19): corrections in chat, undone edits, files you rewrite right after the agent; and your own code via git. Cheap first: pattern matching finds candidates, a small model reads only those. Processed on your Mac, with a "what I read today" log | 🔜 | The answer to "taste is starving for evidence": away cards give 5–10 signals a week, everyday sessions many times more. Same evidence rules and approval as card signals |
+| **Learn from everyday sessions** (2026-11-19): corrections in chat, undone edits, files you rewrite right after the agent; and your own code via git. Code strips tool output first (free, on your Mac); a small model then reads the remaining chat text in full. With a "what I read today" log | 🔜 | **Measured on 10 days of real history (2026-11-20):** raw session logs average 3.5M tokens/day (up to 12.7M), almost all tool output; chat text alone averages 16k tokens/day (up to 32k). A word-pattern filter ("no", "don't", "stop"…) found under 1 moment a day, because people correct in their own words ("i think it should…"), so the model reads all chat text instead: ~16k tokens a night, and nothing is missed. Script: research/measure-nightly-read.py |
 | **Nightly read and clean-up**: every night, read only what's new since last night (chats + git), extract evidence, update proposed rules, retire contradicted ones | 📋 | Extends the bedtime trigger and the one-time cold start into a daily habit |
-| **Morning badge**: a small notification on "What Chompyy heard from you"; tapping it opens a popup with what Chompyy noticed (one-tap yes / not now / never), plus detect advice and new suggested cards | 🔜 | 2026-11-19: not a board card. Two rules have been waiting as "ready" since 2026-11-18 because the question only exists in the CLI |
-| **"What Chompyy learned" panel**: active rules and findings, each with its evidence, measured/estimated label, and retire / not now | 📋 | Shared with detect findings (one evidence engine) |
-| **Receipts on every rule**: tap a rule to see the exact chat lines, edits and cards behind it | 📋 | Builds trust; makes the demo |
+| **Badge + popup on "What Chompyy heard from you"**: the toolbar button shows how many rules are waiting; the popup shows each with what Chompyy noticed, the rule, its receipts, and Yes / Not now / Never | ✅ | 2026-11-20. Not a board card. Turned on the two rules that had waited since 2026-11-18. detect advice and suggested cards join it later |
+| **"What Chompyy learned" panel**: active rules with their receipts and Retire, in the same popup | ◐ | Taste ✅ 2026-11-20; detect findings with measured/estimated labels join it (one evidence engine) |
+| **Receipts on every rule**: each rule opens to the exact ratings, picks, edits and answers behind it, in your own words | ◐ | Card signals ✅ 2026-11-20; chat lines once everyday sessions are read |
 | **Taste in daytime sessions**: your active rules go into a file Claude Code always loads, so a rule you said yes to this morning shapes this afternoon's session, not only away cards | 📋 | What makes taste feel real |
 | **Stated facts section** in taste.md: things you told Chompyy about yourself, visible and editable, never inferred | 📋 | |
 | **Taste travels between tools and models**: one central taste.md handed to Claude Code, Codex (AGENTS.md), Cursor and agent workspaces (Orca, herdr, hermes, opcode, …); Chompyy "smells" taste from several providers' sessions and shares one file | 📋 | No vendor can do this: each sees only its own tool |
@@ -284,7 +287,7 @@ Chompyy's main difference (see [the top](#what-makes-chompyy-different-taste-lea
 | ✅ **History cold start** (Claude Code): privacy notice first, read transcripts locally, propose a first taste.md and suggested cards for you to approve | ✅ | `chompyy history`, `chompyy coldstart`, app banner + sheet. One model call (sonnet) over a ≤60k-char digest; taste needs 3+ sessions; citations verified; `keep-history` raises `cleanupPeriodDays` (on the first real run, 4 transcripts aged out the same day) |
 | Privacy notice: what it reads, runs locally, keeps only taste.md and the board, filters secrets, approve before use, one command forgets everything | ✅ | "See exactly what's sent" shows the digest; pasted blocks become [pasted text], also without paste markers (code, logs, traces, diffs; 0 found in 550 real prompts); more secret types and phone numbers removed; `chompyy coldstart forget` |
 | **Taste distiller** (nightly): signals → candidate preferences; written only after 3 separate confirmations; removed when contradicted | ✅ | `chompyy distill` (sonnet, one call over new signals). Asked after 3 separate cards, or 1 when you said it in a rating; written only on yes; keep/undo now logged as signals. Signals, strongest first: blueprint edits, edits to results, chat corrections, ratings, accepted or rejected suggestions |
-| Scoped taste: everywhere / per task type / per project; only relevant sections load at session start | 📋 | Keeps the startup small and cache-stable |
+| **Memory in layers, loaded by relevance** (2026-11-20): **About you** (stated facts, how you like explanations; always loaded, kept small) · **By area** (coding, writing, research, planning, everyday tasks; loaded only when the task is in that area) · **By project** (one repo or folder; only there). Personal things beyond work in their own store, never sent to coding agents | 📋 | As Chompyy helps with more than code, loading everything would explode the context. Policies: a size budget (e.g. ≤ 1.5k tokens of taste per call); a one-line index first, details only when relevant (progressive disclosure, claude-mem); a stable order so taste never breaks the prompt cache (rulebook C3); stale rules come up for review |
 | Learn only from approved or rated work | ✅ | Signals of cards never approved, run or rated are ignored. Ungoverned memory hurts (research card G5) |
 | **Event memory off by default per conversation**, opt-in | 📋 | Taste stays on; over-recall in unrelated chats is what users find intrusive |
 | Skill distillation from approved runs: strong model distils, cheap model runs; skills expire and get re-checked | 📋 | Research cards G1, G4, G5 |
