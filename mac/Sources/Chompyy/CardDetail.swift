@@ -224,7 +224,7 @@ struct CardDetail: View {
                 } label: { Label("See the change", systemImage: "doc.text.magnifyingglass") }
                 Spacer()
                 Button {
-                    Task { await store.finish("keep\(card.id)", ["keep", card.id], card: card.id) }
+                    Task { await store.finish("keep\(card.id)", ["keep", card.id], card: card.id, to: card.clashes ? nil : .done) }
                 } label: { Label(card.clashes ? "Update & keep" : "Keep", systemImage: "tray.and.arrow.down.fill") }
                 .buttonStyle(.borderedProminent).tint(Brand.ok)
                 .disabled(card.refreshing || card.keepWhenRefreshed == true)
@@ -236,7 +236,7 @@ struct CardDetail: View {
                 Button(role: .destructive) { confirmUndo = true } label: { Label("Undo", systemImage: "arrow.uturn.backward") }
                     .confirmationDialog("Throw this run away?", isPresented: $confirmUndo) {
                         Button("Undo the run", role: .destructive) {
-                            Task { await store.finish("undo\(card.id)", ["undo", card.id], card: card.id) }
+                            Task { await store.finish("undo\(card.id)", ["undo", card.id], card: card.id, to: .done) }
                         }
                     } message: { Text("Removes its branch and folder. Your own branches are never touched.") }
             }
