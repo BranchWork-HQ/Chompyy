@@ -287,11 +287,12 @@ function keepNow(id: string, now: Date): void {
     startLiveUpdate();
     console.log('Updating the app with it in the background: the CLI in seconds, the Mac app in 1–2 minutes if its code changed (`chompyy live` shows progress).');
   }
-  // Main moved: cards still in review may clash with it now. Chompyy brings them up to date (refresh.ts).
-  const clashing = loadBoard().cards.filter((c) => c.id !== id && clashOf(c));
-  if (clashing.length) {
+  // Main moved: cards still in review may clash with it now. Checking each one costs git time per card, so
+  // that happens in the background job that also brings them up to date (refresh.ts); Keep returns at once.
+  const waiting = loadBoard().cards.filter((c) => c.id !== id && c.column === 'review' && c.run?.branch);
+  if (waiting.length) {
     startBackground(['refresh', '--clashing'], 'refresh.log');
-    console.log(`${clashing.map((c) => '#' + c.id).join(', ')} now clash${clashing.length === 1 ? 'es' : ''} with it; Chompyy is bringing ${clashing.length === 1 ? 'it' : 'them'} up to date.`);
+    console.log(`Checking ${waiting.map((c) => '#' + c.id).join(', ')} against it in the background; any that clash get brought up to date.`);
   }
 }
 

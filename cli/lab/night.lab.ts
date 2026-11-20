@@ -112,7 +112,7 @@ describe('a lab night', () => {
   it('keeping #2 makes #3 clash; Chompyy brings #3 up to date by itself', () => {
     chompyy('keep', '1');
     const out = chompyy('keep', '2');
-    expect(out).toMatch(/#3 now clashes/);
+    expect(out).toMatch(/Checking #3.* in the background/);
     waitFor('#3 to be refreshed', () => card('3').refresh?.state === 'done' && !existsSync(join(home, 'refresh.lock')));
     expect(card('3').refresh).toMatchObject({ state: 'done', by: 'agent' });
     expect(card('3').run!.verified).toMatchObject({ result: 'passed' });

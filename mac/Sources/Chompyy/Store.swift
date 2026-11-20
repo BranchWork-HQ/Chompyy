@@ -10,6 +10,8 @@ final class Store: ObservableObject {
     @Published var busy: Set<String> = []
     @Published var awayProcess: Process?
     @Published var selectedCardID: String?
+    /// Cards a Keep or Undo is finishing: shown in the column they're headed for until the CLI confirms.
+    @Published var landing: [String: Column] = [:]
 
     private var timer: Timer?
 
@@ -24,7 +26,7 @@ final class Store: ObservableObject {
     }
 
     var cards: [Card] { state?.cards ?? [] }
-    func cards(in column: Column) -> [Card] { cards.filter { $0.column == column.rawValue } }
+    func cards(in column: Column) -> [Card] { cards.filter { (landing[$0.id]?.rawValue ?? $0.column) == column.rawValue } }
     var needsYou: [Card] { cards.filter(\.needsYou) }
     var selectedCard: Card? { cards.first { $0.id == selectedCardID } }
 
@@ -80,8 +82,13 @@ final class Store: ObservableObject {
     }
 
     /// Keep, undo and run-again finish with the card: close it so you see it land in its new column.
-    func finish(_ key: String, _ args: [String], card id: String) async {
-        if await act(key, args), selectedCardID == id { selectedCardID = nil }
+    /// The card closes at once and moves to `to` while the CLI works; if the action fails it comes back, opened.
+    func finish(_ key: String, _ args: [String], card id: String, to: Column? = nil) async {
+        if selectedCardID == id { selectedCardID = nil }
+        if let to { landing[id] = to }
+        let ok = await act(key, args)
+        landing[id] = nil
+        if !ok, selectedCardID == nil { selectedCardID = id }
     }
 
     func show(_ message: String) {
