@@ -152,7 +152,7 @@ struct GateBadge: View {
 struct ColumnView: View {
     @EnvironmentObject var store: Store
     let column: Column
-    /// Folded to a thin strip; remembered per column.
+    /// Folded to a thin strip; remembered across launches. Only Done can fold.
     @AppStorage private var collapsed: Bool
     @State private var showOlder = false
     /// The Later column's "+" opens the same Park-an-idea box as the toolbar.
@@ -166,9 +166,14 @@ struct ColumnView: View {
     /// Done keeps growing, so it shows the newest few and folds the rest behind a button.
     private var recentLimit: Int? { column == .done ? 5 : nil }
 
+    /// Only Done folds: it is the one column that keeps growing. The others always stay open,
+    /// even if an older build saved them as folded.
+    private var canFold: Bool { column == .done }
+    private var folded: Bool { canFold && collapsed }
+
     var body: some View {
         let all = store.cards(in: column)
-        if collapsed { strip(all) } else { full(all) }
+        if folded { strip(all) } else { full(all) }
     }
 
     private func full(_ all: [Card]) -> some View {
@@ -193,12 +198,14 @@ struct ColumnView: View {
                         ParkIdeaPopover(open: $parking).environmentObject(store)
                     }
                 }
-                Button { withAnimation(.easeOut(duration: 0.15)) { collapsed = true } } label: {
-                    Image(systemName: "chevron.right.2").font(.caption)
+                if canFold {
+                    Button { withAnimation(.easeOut(duration: 0.15)) { collapsed = true } } label: {
+                        Image(systemName: "chevron.right.2").font(.caption)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.tertiary)
+                    .help("Fold \(column.title) into a thin strip")
                 }
-                .buttonStyle(.plain)
-                .foregroundStyle(.tertiary)
-                .help("Fold \(column.title) into a thin strip")
             }
             Text(column.hint).font(.caption).foregroundStyle(.secondary)
             ScrollView {
