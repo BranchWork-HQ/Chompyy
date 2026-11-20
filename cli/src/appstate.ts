@@ -15,7 +15,7 @@ import { changedFiles } from './review.js';
 import { loadColdStart } from './coldstart.js';
 import { blueprintHash } from './picture.js';
 import { costRange, readRuns, type CostRange, type RunRecord } from './costs.js';
-import { loadStore, nextQuestion, readSignals, receipts, type Preference } from './taste.js';
+import { describeSignal, loadStore, nextQuestion, readSignals, receipts, type Preference, type Signal } from './taste.js';
 import { agentInstalled, loadTriggerState } from './triggers.js';
 import { planFor, type PlannedPermission } from './permissions.js';
 import { loadProfile, preflightHosts } from './preflight.js';
@@ -90,6 +90,7 @@ export function appState(board: BoardData, snap: Snapshot | null, config: Config
     cards: board.cards.map((c) => cardView(c, runs)),
     coldStart: coldStartState(),
     tasteQuestion: tasteQuestion(),
+    taste: tasteState(),
     triggers: { installed: agentInstalled(), lastHour: config.lastHourTrigger, bedtime: config.bedtime, ...loadTriggerState() },
   };
 }
@@ -101,6 +102,43 @@ export function tasteQuestion(): (Pick<Preference, 'id' | 'text' | 'noticed' | '
   if (!p) return null;
   const byId = new Map(signals.map((s) => [s.id, s]));
   return { id: p.id, text: p.text, noticed: p.noticed, scope: p.scope, evidence: receipts(p.evidence.map((e) => byId.get(e)!).filter(Boolean)) };
+}
+
+/** One rule as the app shows it: the rule, what Chompyy noticed, and every receipt in your own words. */
+export interface TasteItem {
+  id: string;
+  text: string;
+  noticed: string;
+  scope: string;
+  /** Short: "rated #3, #4 · undid #7". */
+  evidence: string;
+  /** Each piece of evidence, quoting what you did or said. */
+  receipts: { at: string; card: string | null; title: string | null; said: string }[];
+  since?: string;
+}
+
+/**
+ * For "What Chompyy heard from you": the rules waiting for your yes (strongest evidence first) and the ones in
+ * force. The app shows the waiting count as a badge on the button.
+ */
+export function tasteState(): { waiting: TasteItem[]; learned: TasteItem[] } {
+  const signals = readSignals();
+  const byId = new Map(signals.map((s) => [s.id, s]));
+  const store = loadStore();
+  const item = (p: Preference): TasteItem => {
+    const ev = p.evidence.map((e) => byId.get(e)).filter((s): s is Signal => Boolean(s));
+    return {
+      id: p.id, text: p.text, noticed: p.noticed, scope: p.scope, evidence: receipts(ev),
+      receipts: ev.map((s) => ({ at: s.at, card: s.card ?? null, title: s.title ?? null, said: describeSignal(s, 600) })),
+      ...(p.validFrom ? { since: p.validFrom } : {}),
+    };
+  };
+  const waiting: Preference[] = [];
+  for (let q = nextQuestion(store, signals), rest = { ...store, prefs: [...store.prefs] }; q; q = nextQuestion(rest, signals)) {
+    waiting.push(q);
+    rest.prefs = rest.prefs.filter((p) => p.id !== q!.id);
+  }
+  return { waiting: waiting.map(item), learned: store.prefs.filter((p) => p.status === 'active').map(item) };
 }
 
 /** Whether the app should offer the cold start: never run, proposals waiting, or done. */
