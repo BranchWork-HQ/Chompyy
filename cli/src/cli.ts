@@ -10,8 +10,8 @@ import { away, cacheEnv, runCard, type AwayDeps } from './away.js';
 import { formatPreflight, loadProfile, preflight, saveProfile } from './preflight.js';
 import { verifyCard } from './verifycard.js';
 import { parsePermission, recordNeeds } from './permissions.js';
-import { draftAllPlan, draftBlueprint, draftFiveStarOptions, GENERIC_FIVE_STAR, isUsageLimit, writeBlueprintFile } from './blueprint.js';
-import { addCard, awayQueue, claimDrafts, COLUMNS, dropCard, expireSuggested, formatBoard, formatCard, getCard, loadBoard, moveCard, noteDraftFailure, quotaWaitReason, recoverRunning, updateBoard, type Column } from './board.js';
+import { draftAllPlan, draftBlueprint, draftFiveStarOptions, draftTitle, GENERIC_FIVE_STAR, isUsageLimit, writeBlueprintFile } from './blueprint.js';
+import { addCard, awayQueue, claimDrafts, COLUMNS, dropCard, expireSuggested, formatBoard, formatCard, getCard, loadBoard, moveCard, noteDraftFailure, quotaWaitReason, recoverRunning, titleFrom, updateBoard, type Column } from './board.js';
 import { loadConfig, setConfig } from './config.js';
 import { formatDuration, parseDuration } from './duration.js';
 import { budgetGate } from './gate.js';
@@ -131,14 +131,20 @@ async function blueprintCard(id: string, model?: string): Promise<string> {
   const config = loadConfig();
   const card = getCard(loadBoard(), id);
   try {
-    const text = await draftBlueprint(card, new ClaudeRunner(config.claudeBin), {
+    const runner = new ClaudeRunner(config.claudeBin);
+    const opts = {
       model: model ?? config.blueprintModel,
       // Run in the card's folder so the model can read the repo (read-only tools only).
       cwd: existsSync(card.cwd) ? card.cwd : chompyyHome(),
-    });
+    };
+    const text = await draftBlueprint(card, runner, opts);
+    // Retitle only cards still named by the first words of the prompt: a title the model already wrote
+    // (cold start, or an earlier draft) is kept, so redrafting a blueprint costs no extra call.
+    const title = card.title === titleFrom(card.idea) ? await draftTitle(card, runner, opts) : card.title;
     updateBoard((b) => {
       const c = getCard(b, id);
       c.blueprint = text;
+      c.title = title;
       delete c.blueprintError;
       delete c.blueprintWaiting;
       delete c.blueprintWaitUntil;

@@ -91,6 +91,53 @@ export async function draftBlueprint(
   return cleanBlueprint(result.output);
 }
 
+/** Most words and characters a card title may have. */
+export const TITLE_MAX_WORDS = 10;
+export const TITLE_MAX_CHARS = 60;
+
+export function titlePrompt(idea: string): string {
+  return `Write a short title for this task card on a kanban board. Reply with ONLY the title: at most ${TITLE_MAX_WORDS} words,
+no quotes, no ending period, no preamble. Say what the task is about, e.g. "Retitle parked cards with a model summary".
+
+Task: ${idea}`;
+}
+
+/**
+ * The model's reply as a card title: first non-empty line, without quotes, bullets, a "Title:" label or an
+ * ending period, cut to 10 words and 60 characters. Empty when nothing usable is left.
+ */
+export function cleanTitle(output: string): string {
+  const line = output.split('\n').map((l) => l.trim()).find((l) => l.length > 0) ?? '';
+  let t = line
+    .replace(/^([-*•#]+|\d+[.)])\s*/, '')
+    .replace(/^title\s*:\s*/i, '')
+    .replace(/^["'`*_]+|["'`*_]+$/g, '')
+    .replace(/[.。]+$/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  t = t.split(' ').slice(0, TITLE_MAX_WORDS).join(' ');
+  if (t.length > TITLE_MAX_CHARS) t = t.slice(0, TITLE_MAX_CHARS - 1).trimEnd() + '…';
+  return t;
+}
+
+/**
+ * A short title for the card, written by the same cheap model as the blueprint (no tools, one short call).
+ * Never throws: if the call fails or the reply is unusable, the card keeps its current title.
+ */
+export async function draftTitle(
+  card: Pick<Card, 'idea' | 'title'>,
+  runner: Runner,
+  opts: { model: string; cwd: string; timeoutMs?: number },
+): Promise<string> {
+  try {
+    const result = await runner.run({ prompt: titlePrompt(card.idea), cwd: opts.cwd, model: opts.model, tools: '', timeoutMs: opts.timeoutMs ?? 60_000 });
+    if (result.exitCode !== 0 || result.timedOut) return card.title;
+    return cleanTitle(result.output) || card.title;
+  } catch {
+    return card.title;
+  }
+}
+
 /** A draft that started this long ago and never finished (its process died) counts as not drafting. */
 const DRAFT_STALE_MS = 3 * 60_000;
 
