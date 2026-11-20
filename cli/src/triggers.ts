@@ -1,4 +1,5 @@
-// Triggers (spec §5.2): start an away run on its own in the last hour before a 5-hour reset, or at your bedtime.
+// Triggers (spec §5.2): start an away run on its own in the last hour before a 5-hour reset, at your bedtime,
+// or (missed-reset, off by default) on the first tick after a reset that nothing used, e.g. the Mac was asleep.
 // `chompyy tick` checks them; `chompyy triggers on` installs a macOS LaunchAgent that runs the tick every
 // 5 minutes. Nothing fires until you turn triggers on. The budget gate still decides every card.
 import { execFileSync } from 'node:child_process';
@@ -10,7 +11,7 @@ import { budgetGate } from './gate.js';
 import { homePath, readJson, writeJson } from './home.js';
 import { windowView, type Snapshot } from './quota.js';
 
-export type TriggerKind = 'last-hour' | 'bedtime';
+export type TriggerKind = 'last-hour' | 'bedtime' | 'missed-reset';
 
 export interface TriggerConfig {
   /** Run approved cards in the last hour before a 5-hour reset. */
@@ -21,6 +22,8 @@ export interface TriggerConfig {
   bedtime: string | null;
   /** How long after bedtime it may still start, in minutes. */
   bedtimeWindowMin: number;
+  /** Run approved cards on the first tick after a 5-hour reset passed and nothing started a new window. */
+  missedReset: boolean;
 }
 
 export type TriggerDecision =
@@ -28,7 +31,7 @@ export type TriggerDecision =
   | { fire: false; why: string };
 
 interface TriggerState {
-  /** Keys already fired: "last-hour:<resetsAt>", "bedtime:<YYYY-MM-DD>". */
+  /** Keys already fired: "last-hour:<resetsAt>", "bedtime:<YYYY-MM-DD>", "missed:<resetsAt>". */
   fired: string[];
   lastTickAt?: string;
   lastDecision?: string;
@@ -110,6 +113,13 @@ export function decideTrigger(
       if (untilReset < MIN_RUN_MS) return { fire: false, why: 'too close to the reset to finish a card' };
       return { fire: true, kind: 'bedtime', durationMs: untilReset, key, why: five.known ? `bedtime, ${Math.round(five.leftPct)}% of the window left` : 'bedtime, a fresh window' };
     }
+  }
+
+  // The reset passed while no away run (and no session) started a new window: only cards you already approved run.
+  if (fresh && config.missedReset) {
+    const key = `missed:${five.resetsAt}`;
+    if (fired.includes(key)) return { fire: false, why: 'missed-reset already ran for this reset' };
+    return { fire: true, kind: 'missed-reset', durationMs: untilReset, key, why: 'a 5-hour reset passed unused, a fresh window' };
   }
   return { fire: false, why: 'no trigger due' };
 }

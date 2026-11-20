@@ -60,6 +60,34 @@ describe('decideTrigger on a reset window', () => {
   });
 });
 
+describe('decideTrigger on a missed reset', () => {
+  // The Mac slept (or you forgot) through a reset: the first tick after it runs approved cards in a fresh window.
+  const c = { ...cfg, missedReset: true };
+  const now = at(15);
+  const reset = () => snap(now, 30, -40); // the window ended 40 minutes ago, nothing restarted it
+
+  it('fires once per reset, for a fresh window', () => {
+    const s = reset();
+    const d = decideTrigger(now, s, c, [], 2, false);
+    expect(d).toMatchObject({ fire: true, kind: 'missed-reset', key: `missed:${s.fiveHour!.resetsAt}`, durationMs: (5 * 60 - 2) * 60_000 });
+    expect(decideTrigger(now, s, c, [d.fire ? d.key : ''], 2, false)).toMatchObject({ fire: false, why: 'missed-reset already ran for this reset' });
+  });
+
+  it('needs approved cards, an open gate and no run going', () => {
+    expect(decideTrigger(now, reset(), c, [], 0, false)).toMatchObject({ fire: false, why: 'no approved cards' });
+    const closed = reset();
+    closed.sevenDay!.usedPct = 95;
+    expect(decideTrigger(now, closed, c, [], 2, false)).toMatchObject({ fire: false, why: expect.stringMatching(/gate closed/) });
+    expect(decideTrigger(now, reset(), c, [], 2, true)).toMatchObject({ fire: false, why: expect.stringMatching(/already going/) });
+  });
+
+  it('does nothing when off (the default) or when the window is live', () => {
+    expect(DEFAULT_CONFIG.missedReset).toBe(false);
+    expect(decideTrigger(now, reset(), { ...c, missedReset: false }, [], 2, false)).toMatchObject({ fire: false, why: 'no trigger due' });
+    expect(decideTrigger(now, snap(now, 60, 200), c, [], 2, false)).toMatchObject({ fire: false, why: 'no trigger due' });
+  });
+});
+
 describe('bedtime', () => {
   it('parses clock times', () => {
     expect(parseClock('23:30')).toBe(23 * 60 + 30);

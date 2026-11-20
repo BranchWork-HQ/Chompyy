@@ -128,7 +128,7 @@ Each card in a git repo runs in its own worktree at `~/.chompyy/worktrees/<id>` 
 | `chompyy distill [--force]` | Read new signals and update preferences now (also runs after every away run) |
 | `chompyy trends` | Last 7 days vs the 7 before: cost per card, keep rate, rating, blueprint edits |
 | `chompyy triggers on\|off` | Install or remove the macOS LaunchAgent that runs `chompyy tick` every 5 minutes |
-| `chompyy bedtime <23:30\|off>` / `last-hour <on\|off>` | Turn the bedtime and last-hour-before-reset triggers on or off |
+| `chompyy bedtime <23:30\|off>` / `last-hour <on\|off>` / `missed-reset <on\|off>` | Turn the bedtime, last-hour-before-reset and missed-reset (first tick after an unused reset, default off) triggers on or off |
 
 ## Taste
 
