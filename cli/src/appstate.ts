@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync, existsSync } from 'node:fs';
 import { clashOf } from './refresh.js';
 import { join } from 'node:path';
-import { getCard, type BoardData, type Card } from './board.js';
+import { getCard, titleFrom, type BoardData, type Card } from './board.js';
 import type { Config } from './config.js';
 import { budgetGate } from './gate.js';
 import { appendJsonl, homePath, readJson, writeJson } from './home.js';
@@ -126,6 +126,19 @@ export function editBlueprint(board: BoardData, id: string, text: string, now: D
   writeBlueprintFile(card, next);
   card.updatedAt = now.toISOString();
   appendJsonl(homePath('signals.jsonl'), { at: card.updatedAt, card: card.id, title: card.title, kind: 'blueprint-edit', before, after: next });
+  return card;
+}
+
+/** Replace a parked card's idea (and the title made from it). Only cards still in `later`: once approved, the blueprint is the contract. */
+export function editIdea(board: BoardData, id: string, text: string, now: Date): Card {
+  const card = getCard(board, id);
+  if (card.column !== 'later') throw new Error(`Card #${card.id} is in ${card.column}; only cards in later can have their idea edited.`);
+  const next = text.trim();
+  if (!next) throw new Error('The idea is empty.');
+  if (card.idea === next) return card;
+  card.idea = next;
+  card.title = titleFrom(next);
+  card.updatedAt = now.toISOString();
   return card;
 }
 

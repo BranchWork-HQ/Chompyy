@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { answerCard, appState, editBlueprint } from '../src/appstate.js';
+import { answerCard, appState, editBlueprint, editIdea } from '../src/appstate.js';
 import { taskPrompt } from '../src/away.js';
 import { addCard, type BoardData } from '../src/board.js';
 import { DEFAULT_CONFIG } from '../src/config.js';
@@ -68,6 +68,31 @@ describe('live quota', () => {
     expect(() => editBlueprint(b, card.id, '  ', NOW)).toThrow(/empty/);
     const signal = JSON.parse(readFileSync(join(home(), 'signals.jsonl'), 'utf8').trim());
     expect(signal).toMatchObject({ kind: 'blueprint-edit', before: '## Goal\nold', after: '## Goal\nnew' });
+  });
+
+  it('edits a later card\'s idea and title, and bumps updatedAt', () => {
+    const b: BoardData = { nextId: 1, cards: [] };
+    const card = addCard(b, 'old idea', '/r', NOW);
+    const later = new Date(NOW.getTime() + 60_000);
+    editIdea(b, card.id, '  new idea\nmore detail  ', later);
+    expect(card.idea).toBe('new idea\nmore detail');
+    expect(card.title).toBe('new idea');
+    expect(card.updatedAt).toBe(later.toISOString());
+  });
+
+  it('refuses an empty idea', () => {
+    const b: BoardData = { nextId: 1, cards: [] };
+    const card = addCard(b, 'old idea', '/r', NOW);
+    expect(() => editIdea(b, card.id, '   \n', NOW)).toThrow(/empty/);
+    expect(card.idea).toBe('old idea');
+  });
+
+  it('refuses to edit the idea of a card that is not in later', () => {
+    const b: BoardData = { nextId: 1, cards: [] };
+    const card = addCard(b, 'old idea', '/r', NOW);
+    card.column = 'approved';
+    expect(() => editIdea(b, card.id, 'new idea', NOW)).toThrow(/only cards in later/);
+    expect(card.idea).toBe('old idea');
   });
 
   it('answering moves a review card back to approved and puts the answers in the next prompt', () => {
