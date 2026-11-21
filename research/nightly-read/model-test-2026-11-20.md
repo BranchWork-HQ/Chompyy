@@ -2,9 +2,29 @@
 
 **Question:** does a bigger model find better taste rules in a night of stripped sessions?
 
-**Setup:** six days of the user's own coding sessions (2026-11-14 to 11-19). Coding folders only: terminal sessions that started in a git repo; desktop-app chats left out. Stripped with `strip-sessions.py` (what you typed, Claude's replies, a one-line note per tool call, ⚑ for rejected tool uses and interruptions). Each day was read by each model with `reader-prompt.md`, one `claude -p` call per day on the subscription (`run.sh`), and scored with `score.py`. Fable needs paid usage credits on this plan, so it wasn't tested. Raw logs and rules with quotes stay on the Mac; they're the user's own words.
+## How the experiment was set up
 
-**Answer key:** five rules the user confirmed in these same days (from the assistant's memory): build systems not patches · ask "what would have made it a 5" · show a picture first · the cookie look (bites only, googly dots) · plain, simple words.
+**The data.** Six days of the user's own Claude Code sessions, 2026-11-14 to 11-19, read from `~/.claude/projects/*/*.jsonl` on their Mac.
+- **Coding folders only:** a session counts if the folder it *started* in is a git repo. Sessions from the Claude desktop app are left out. (A first version dropped whole sessions whenever Claude `cd`'d into a temp folder mid-session; fixed by deciding once, from the starting folder.)
+- **Stripped** with `strip-sessions.py`: kept what the user typed, Claude's written replies, a one-line note per tool call (`[Edit: cli/src/away.ts]`), and ⚑ marks for rejected tool uses and interruptions. Dropped tool output, file contents and diffs.
+- Size after the strip: 14k · 9k · 8k · 41k · 42k · 10k tokens (from 0.6–9.9M raw).
+
+**The models.** Haiku, Sonnet and Opus (Claude 5.5 family), each through `claude -p --model <m>` on the user's subscription. Fable 5.1 / 5.2 answered "requires usage credits" on this plan, so it was left out rather than spend money unasked.
+
+**Isolation, so nothing else steered the models:** `--tools ""` (no tools: it can only read what it's given), `--strict-mcp-config` (no MCP servers), `--setting-sources ""` (no CLAUDE.md, no user settings or memory), `--no-session-persistence` (the test's own runs don't end up in the logs it reads), run from `/private/tmp`.
+
+**One call per model per day:** `reader-prompt.md` followed by that day's stripped log. 3 models × 6 days = 18 calls, run with `run.sh`. Same prompt, same input, no retries, no cherry-picking: each model's first answer is the one scored.
+
+**The prompt asked**, for each Claude reply and the user's next turn: accepted, redirected or rejected, and what lasting way of working does that show? It must skip one-off task instructions, project facts and anything personal, and every rule must quote the user's exact words. Output: a JSON list of {rule, why, quotes, strength: stated/implied}.
+
+## How it was scored
+
+1. **Real quotes (automatic, `score.py`).** Each quote is checked word for word (ignoring spacing and case) against what the user typed that day, only their own turns, never Claude's. A first version only looked at the first line of each multi-line message and reported 36–43% matches; after the fix every quote matched.
+2. **Answer key (by hand).** The models never saw it. It's five rules the user confirmed in these same days, which the assistant had already saved in its memory folder before the test: build systems not patches · ask "what would have made it a 5" · show a picture first · the cookie look (bites only, googly dots) · plain, simple words. A rule counts as found when one of the model's rules says the same thing, on any day; "vaguely" means it pointed in the direction without the specifics.
+3. **Unique insights (by hand).** Rules that are true of the user, specific to them, and not already in memory. Judged by the assistant from the sessions; the user is the final judge.
+4. **Cost:** tokens in and out and wall time, from each call's own usage report.
+
+**Limits of this test:** one user, six days, one run per model (no repeats, so luck isn't measured). The answer key is small (5 rules), and the by-hand judgments were made by the assistant, not blind. The rule counts include the same rule repeated on different days.
 
 ## Results
 
