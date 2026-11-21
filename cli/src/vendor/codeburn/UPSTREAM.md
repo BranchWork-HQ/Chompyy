@@ -11,3 +11,8 @@
 3. `claude.ts` `request`: User-Agent is `chompyy/0.1 (...)` instead of `claude-code/2.1.0`, so requests say who is asking.
 
 Chompyy's own code that uses this lives in `src/livequota.ts`.
+
+## Prices (`prices.ts`, added 2026-11-21)
+
+- Source: codeburn `src/data/litellm-snapshot.json` at commit `c08d761` (itself LiteLLM's `model_prices_and_context_window.json`), only the `claude-*` rows. Pricing rules follow codeburn `src/models.ts` `calculateCost`: missing cache rates = 1.25× / 0.1× input; a 1-hour cache write = 1.6× the 5-minute rate; the long-context tier applies to the whole call when its prompt is over the threshold.
+- Chompyy's own code: `src/usage.ts`. Refresh by regenerating `prices.ts` from a newer snapshot.
