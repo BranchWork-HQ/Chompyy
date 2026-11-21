@@ -10,6 +10,10 @@ struct ChompyyApp: App {
             renderCookieSheet(to: path)
             exit(0)
         }
+        if let path = ProcessInfo.processInfo.environment["CHOMPYY_RENDER_USAGE"] {
+            renderUsageSheet(to: path)
+            exit(0)
+        }
         if let dir = ProcessInfo.processInfo.environment["CHOMPYY_RENDER_FRAMES"] {
             renderCookieFrames(to: dir)
             exit(0)
@@ -20,7 +24,7 @@ struct ChompyyApp: App {
         MenuBarExtra {
             MenuPanel().environmentObject(store)
         } label: {
-            MenuBarIcon(left: store.fiveHourLeft)
+            MenuBarIcon(left: store.fiveHourLeft, today: store.usage?.today)
         }
         .menuBarExtraStyle(.window)
 
@@ -35,12 +39,15 @@ struct ChompyyApp: App {
 /// With CHOMPYY_OPEN_BOARD=1 the board opens at launch (for testing).
 struct MenuBarIcon: View {
     let left: Double?
+    let today: UsageData.Tally?
+    /// What sits beside the cookie: the window's % left (default), today's tokens, or today's API value.
+    @AppStorage("menuBarShows") private var shows = "left"
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         HStack(spacing: 4) {
             Image(nsImage: cookieMenuImage(left: left))
-            Text(menuBarTitle(left: left))
+            Text(title)
         }
         .task {
             if ProcessInfo.processInfo.environment["CHOMPYY_OPEN_BOARD"] == "1" {
@@ -51,9 +58,20 @@ struct MenuBarIcon: View {
     }
 }
 
+extension MenuBarIcon {
+    var title: String {
+        switch shows {
+        case "tokens": today.map { UsageFormat.tokens($0.tokens) } ?? menuBarTitle(left: left)
+        case "value": today.map { UsageFormat.usd($0.costUsd) } ?? menuBarTitle(left: left)
+        default: menuBarTitle(left: left)
+        }
+    }
+}
+
 /// The popover from the menu bar: the cookie, what needs you, and two buttons.
 struct MenuPanel: View {
     @EnvironmentObject var store: Store
+    @AppStorage("menuBarShows") private var menuBarShows = "left"
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
@@ -80,6 +98,9 @@ struct MenuPanel: View {
             if let week = store.state?.quota.sevenDay, week.known, let used = week.usedPct, let ms = week.msLeft {
                 WeekPace(usedPct: used, elapsedPct: max(0, min(100, (1 - ms / (7 * 24 * 3600 * 1000)) * 100)))
             }
+            Divider()
+            if let t = store.usage?.today { UsageToday(today: t) }
+            UsageInsights(compact: true)
             Divider()
             let needs = store.needsYou
             if needs.isEmpty {
@@ -112,7 +133,12 @@ struct MenuPanel: View {
                 Spacer()
                 AwayMenu()
                 Menu {
-                    Button("Refresh now") { Task { await store.refresh(forceQuota: true) } }
+                    Button("Refresh now") { Task { await store.refresh(forceQuota: true); await store.loadUsage(force: true) } }
+                    Picker("Menu bar shows", selection: $menuBarShows) {
+                        Text("% of the window left").tag("left")
+                        Text("Today's tokens").tag("tokens")
+                        Text("Today's API value").tag("value")
+                    }
                     Divider()
                     Button("Quit Chompyy") { NSApp.terminate(nil) }
                 } label: { Image(systemName: "ellipsis.circle") }
