@@ -10,6 +10,9 @@ final class Store: ObservableObject {
     @Published var busy: Set<String> = []
     @Published var awayProcess: Process?
     @Published var selectedCardID: String?
+    /// Tokens and API value from the usage ledger; loaded when a usage view shows (and kept fresh for the menu bar).
+    @Published var usage: UsageData?
+    private var usageLoadedAt: Date?
     /// Cards a Keep or Undo is finishing: shown in the column they're headed for until the CLI confirms.
     @Published var landing: [String: Column] = [:]
 
@@ -21,7 +24,11 @@ final class Store: ObservableObject {
         // Board changes come from away runs and background blueprints: look again every 15 s.
         // The CLI itself limits live quota requests to one per 5 minutes.
         timer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
-            Task { @MainActor in await self?.refresh() }
+            Task { @MainActor in
+                await self?.refresh()
+                // Usage changes slowly and costs a file scan: every 2 minutes, once something has shown it.
+                if self?.usage != nil || UserDefaults.standard.string(forKey: "menuBarShows") ?? "left" != "left" { await self?.loadUsage() }
+            }
         }
     }
 
@@ -42,6 +49,15 @@ final class Store: ObservableObject {
         if q.isFresh { return 1 }
         guard q.known, let left = q.leftPct else { return nil }
         return max(0, min(1, left / 100))
+    }
+
+    /// Read the usage ledger, at most every 2 minutes unless forced. A cached scan takes ~0.1 s.
+    func loadUsage(force: Bool = false) async {
+        if !force, let at = usageLoadedAt, Date().timeIntervalSince(at) < 120 { return }
+        usageLoadedAt = Date()
+        guard let r = try? await Task.detached(operation: { try CLI.run(["usage", "--json", "--app"]) }).value, r.ok,
+              let data = try? JSONDecoder().decode(UsageData.self, from: Data(r.out.utf8)) else { return }
+        usage = data
     }
 
     func refresh(forceQuota: Bool = false) async {

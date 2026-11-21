@@ -465,6 +465,7 @@ async function main(argv: string[]): Promise<void> {
       trigger: { type: 'string' },
       since: { type: 'string' },
       days: { type: 'string' },
+      app: { type: 'boolean' },
     },
   });
   const [command, ...args] = values.help ? ["help"] : positionals;
@@ -959,7 +960,13 @@ async function main(argv: string[]): Promise<void> {
       if (!Number.isInteger(days) || days < 1 || days > 400) throw new Error('Usage: chompyy usage [--days 7] [--json]');
       // Titles only for workspaces the nightly read may see (your ticks); numbers count everywhere.
       const ticked = new Set(cachedWorkspaces(now).filter((w) => w.ticked).map((w) => w.path));
-      const view = usageView(loadLedger(), now, days, 10, (ws) => ticked.has(ws));
+      const ledger = loadLedger();
+      const view = usageView(ledger, now, days, 10, (ws) => ticked.has(ws));
+      // For the app: 12 weeks of days (the calendar) plus this week's detail, in one call.
+      if (values.json && values.app) {
+        const long = usageView(ledger, now, 84, 0, (ws) => ticked.has(ws));
+        return json({ generatedAt: now.toISOString(), days: long.days, today: long.today, week: view, unpriced: long.unpriced });
+      }
       if (values.json) return json(view);
       console.log(formatUsage(view, homedir()));
       return;

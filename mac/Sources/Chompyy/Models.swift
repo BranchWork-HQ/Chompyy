@@ -291,3 +291,75 @@ struct Verified: Decodable {
     let why: String
     let command: String?
 }
+
+/// Mirrors `chompyy usage --json --app` (cli/src/usage.ts): every Claude Code request on this Mac, deduped and priced.
+struct UsageData: Decodable {
+    let generatedAt: String
+    let days: [Day]
+    let today: Tally
+    let week: Week
+    let unpriced: Int
+
+    struct Tally: Decodable {
+        let requests: Int
+        let input: Double
+        let output: Double
+        let cacheRead: Double
+        let cacheWrite: Double
+        let tokens: Double
+        let costUsd: Double
+    }
+    struct Day: Decodable, Identifiable {
+        let day: String
+        let total: Tally
+        var id: String { day }
+        var date: Date? { UsageData.dayFormat.date(from: day) }
+    }
+    struct Named: Decodable { let total: Tally }
+    struct Project: Decodable, Identifiable {
+        let workspace: String
+        let total: Tally
+        var id: String { workspace }
+    }
+    struct Model: Decodable, Identifiable {
+        let model: String
+        let total: Tally
+        var id: String { model }
+    }
+    struct Conversation: Decodable, Identifiable {
+        let session: String
+        let title: String?
+        let workspace: String
+        let start: String
+        let requests: Int
+        let tokens: Double
+        let costUsd: Double
+        let away: Bool
+        let `private`: Bool
+        var id: String { session }
+    }
+    struct Week: Decodable {
+        let days: [Day]
+        let total: Tally
+        let byWorkspace: [Project]
+        let byModel: [Model]
+        let conversations: [Conversation]
+    }
+
+    static let dayFormat: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        return f
+    }()
+}
+
+enum UsageFormat {
+    static func tokens(_ n: Double) -> String {
+        if n >= 1e9 { return String(format: "%.1fB", n / 1e9) }
+        if n >= 1e6 { return String(format: "%.1fM", n / 1e6) }
+        if n >= 1e3 { return "\(Int((n / 1e3).rounded()))k" }
+        return "\(Int(n))"
+    }
+    static func usd(_ n: Double) -> String { n >= 100 ? "$\(Int(n.rounded()))" : String(format: "$%.2f", n) }
+}

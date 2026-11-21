@@ -364,7 +364,7 @@ export function formatUsage(v: UsageView, home = ''): string {
     ...v.byModel.map((m) => `  ${usd(m.total.costUsd).padStart(8)}  ${compactTokens(m.total.tokens).padStart(6)}  ${m.model}`),
     '',
     'Costliest conversations',
-    ...v.conversations.map((c) => `  ${usd(c.costUsd).padStart(8)}  ${compactTokens(c.tokens).padStart(6)}  ${c.away ? '[away] ' : ''}${c.private ? '(title hidden: not a workspace you ticked)' : c.title ?? c.session.slice(0, 8)} · ${short(c.workspace).split('/').pop()} · ${c.requests} requests · ${c.start.slice(5, 10)}`),
+    ...v.conversations.map((c) => `  ${usd(c.costUsd).padStart(8)}  ${compactTokens(c.tokens).padStart(6)}  ${c.away ? '[away] ' : ''}${c.private ? '(title hidden: not a workspace you ticked)' : c.title ?? c.session.slice(0, 8)} · ${short(c.workspace).split('/').pop()} · ${c.requests} request${c.requests === 1 ? '' : 's'} · ${c.start.slice(5, 10)}`),
   ];
   const cacheIn = v.total.input + v.total.cacheRead + v.total.cacheWrite;
   if (cacheIn) lines.push('', `Cache: ${Math.round((v.total.cacheRead / cacheIn) * 100)}% of input was read from the cache (cheap); ${compactTokens(v.total.cacheWrite)} written to it.`);
