@@ -181,6 +181,8 @@ struct ColumnView: View {
     @State private var showOlder = false
     /// The Later column's "+" opens the same Park-an-idea box as the toolbar.
     @State private var parking = false
+    /// Same box, opened by clicking the empty Later column's "Nothing here".
+    @State private var parkingFromPlaceholder = false
 
     init(column: Column) {
         self.column = column
@@ -244,19 +246,39 @@ struct ColumnView: View {
                             .font(.caption)
                             .padding(.top, 2)
                     }
-                    if all.isEmpty {
-                        RoundedRectangle(cornerRadius: 12)
-                            .strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [4]))
-                            .foregroundStyle(.tertiary)
-                            .frame(height: 60)
-                            .overlay(Text("Nothing here").font(.caption).foregroundStyle(.tertiary))
-                    }
+                    if all.isEmpty { emptyPlaceholder }
                 }
             }
         }
         .frame(minWidth: 170, maxWidth: .infinity)
         .padding(10)
         .background(Brand.columnBackground, in: RoundedRectangle(cornerRadius: 14))
+    }
+
+    /// The dashed "Nothing here" box. In Later only, clicking it opens the Park-an-idea box,
+    /// anchored to the placeholder (its own flag, so it never opens a second copy at the "+").
+    @ViewBuilder private var emptyPlaceholder: some View {
+        let box = RoundedRectangle(cornerRadius: 12)
+            .strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [4]))
+            .foregroundStyle(.tertiary)
+            .frame(height: 60)
+        if column == .later {
+            box
+                .overlay(
+                    VStack(spacing: 2) {
+                        Text("Nothing here").font(.caption).foregroundStyle(.tertiary)
+                        Text("Click to park an idea").font(.caption2).foregroundStyle(.secondary)
+                    }
+                )
+                .contentShape(RoundedRectangle(cornerRadius: 12))
+                .onTapGesture { if column == .later { parkingFromPlaceholder = true } }
+                .help("Park an idea for later")
+                .popover(isPresented: $parkingFromPlaceholder, arrowEdge: .bottom) {
+                    ParkIdeaPopover(open: $parkingFromPlaceholder).environmentObject(store)
+                }
+        } else {
+            box.overlay(Text("Nothing here").font(.caption).foregroundStyle(.tertiary))
+        }
     }
 
     /// Drafts a blueprint for every later card that has none, one at a time (the CLI checks the 5-hour window).
@@ -474,6 +496,8 @@ struct ParkIdeaPopover: View {
                 .font(.caption).foregroundStyle(.secondary)
             HStack {
                 Spacer()
+                Button("Cancel") { idea = ""; open = false }
+                    .keyboardShortcut(.cancelAction)
                 Button("Park it") {
                     let text = idea
                     idea = ""
