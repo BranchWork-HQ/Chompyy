@@ -1,7 +1,7 @@
 // Blueprint (spec §5.4): the scope agreed before a card runs, drafted by a cheap model.
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { ensureCardDir, type BoardData, type Card } from './board.js';
+import { ensureCardDir, type BoardData, type Card, type Cycle } from './board.js';
 import type { Runner } from './runner.js';
 
 export const BLUEPRINT_SECTIONS = ['Goal', 'Scope', 'Out of scope', 'Shape', "How it's checked"] as const;
@@ -53,6 +53,51 @@ can make, say so in Out of scope and plan to write that question to QUESTIONS.md
 
 Working directory: ${card.cwd}
 Idea: ${card.idea}`;
+}
+
+/** Longest earlier-cycle summary put in a prompt, so a long research write-up doesn't eat the run's context. */
+export const CYCLE_SUMMARY_MAX = 3000;
+
+function whereWorkIs(y: Cycle): string {
+  if (y.outcome === 'kept') return 'its work was kept, so it is already in the code you start from';
+  if (y.outcome === 'undone') return 'its work was thrown away (undone), so it is NOT in the code you start from';
+  return 'its work may not be in the code you start from';
+}
+
+/**
+ * The part of the task prompt for a continued card (`chompyy continue`): what the earlier cycles did, and the
+ * user's note on what is still missing. Empty for a card on its first cycle.
+ */
+export function continuationPrompt(card: Pick<Card, 'idea' | 'cycles'>): string {
+  const cycles = card.cycles ?? [];
+  if (!cycles.length) return '';
+  const last = cycles[cycles.length - 1]!;
+  const earlier = cycles.map((y, i) => {
+    const summary = y.summary.length > CYCLE_SUMMARY_MAX ? y.summary.slice(0, CYCLE_SUMMARY_MAX).trimEnd() + ' …(cut)' : y.summary;
+    return `## Cycle ${i + 1} (${y.status}; ${whereWorkIs(y)})
+
+Files it changed: ${y.files.length ? y.files.join(', ') : 'none (no code change)'}
+
+What the agent said it did:
+${summary || '(nothing recorded)'}${y.note && y !== last ? `
+
+What the user said was still missing then: ${y.note}` : ''}`;
+  });
+  return `# This is cycle ${cycles.length + 1}: a continuation
+
+This card already ran ${cycles.length === 1 ? 'once' : `${cycles.length} times`}. The user read the result and decided it did only part of
+the job, so they sent it back for another cycle. Below is what was already done. Don't redo it: build on it.
+If an earlier cycle only researched or planned, use what it found and now make the change itself.
+
+${earlier.join('\n\n')}
+
+# What is still missing (the user's note)
+
+${last.note || 'The user did not say. Compare the original idea and the blueprint with what was already done, and do what is still missing.'}
+
+This cycle's scope is the original idea and the blueprint's goal, finished as the note asks. Where the note asks
+for more than the blueprint's Scope (for example code changes after a research-only cycle), follow the note.
+The blueprint's Out of scope and the rules above still hold: nothing outward.`;
 }
 
 /** Keep a copy of the card's blueprint in its folder (`<store>/<workspace>/<id>/blueprint.md`). Returns the path. */

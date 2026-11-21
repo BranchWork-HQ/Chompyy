@@ -58,6 +58,29 @@ export interface RunInfo {
   tokens?: RunTokens;
   /** What started it: you (away) or a trigger. */
   trigger?: string;
+  /** Files the run changed, saved at Keep or Undo (after that its branch is gone, so they can't be read again). */
+  files?: string[];
+}
+
+/**
+ * One earlier cycle of a card that was sent back with `chompyy continue`: what that run did, so the next run
+ * (and you, reading the card) can see what was already done.
+ */
+export interface Cycle {
+  /** When you sent it back for another cycle. */
+  at: string;
+  /** What you said is still missing ('' if you said nothing). */
+  note: string;
+  status: RunStatus;
+  outcome?: 'kept' | 'undone';
+  /** What the agent said it did. */
+  summary: string;
+  /** Files that run changed. */
+  files: string[];
+  branch?: string;
+  checks?: Checks;
+  rating?: Rating;
+  answers?: { at: string; text: string }[];
 }
 
 export interface Rating {
@@ -132,6 +155,8 @@ export interface Card {
   pictureError?: string;
   /** When a background drawing started. */
   drawingAt?: string;
+  /** Earlier cycles, oldest first, when you sent the card back for more (`chompyy continue`). */
+  cycles?: Cycle[];
 }
 
 export interface BoardData {
@@ -228,6 +253,54 @@ export function moveCard(board: BoardData, id: string, to: Column, now: Date): C
   card.column = to;
   card.updatedAt = now.toISOString();
   if (to === 'approved') card.approvedAt = card.updatedAt;
+  return card;
+}
+
+/** Which cycle the card is on: 1 for a card that was never continued. */
+export function cycleOf(card: Pick<Card, 'cycles'>): number {
+  return (card.cycles?.length ?? 0) + 1;
+}
+
+/**
+ * Send a finished card back for another cycle: it only did part of the job (say it only researched). The run
+ * that just finished is saved as a Cycle, with its summary and files, and the card goes back to approved with
+ * its blueprint, so the next away run picks it up and its prompt says what was done and what is missing.
+ * `prior` overrides the saved summary and files (the CLI passes the full output from the log).
+ */
+export function continueCard(board: BoardData, id: string, note: string, now: Date, prior: { summary?: string; files?: string[] } = {}): Card {
+  const card = getCard(board, id);
+  if (card.column !== 'done') {
+    const hint = card.column === 'review' ? ' Keep or undo it first.' : '';
+    throw new Error(`Card #${card.id} is in ${card.column}; only finished cards (done) can be continued.${hint}`);
+  }
+  const run = card.run;
+  if (!run) throw new Error(`Card #${card.id} never ran, so there is nothing to continue from.`);
+  if (!card.blueprint?.trim()) throw new Error(`Card #${card.id} has no blueprint. Run \`chompyy blueprint ${card.id}\` first.`);
+  const at = now.toISOString();
+  const cycle: Cycle = {
+    at,
+    note: note.trim(),
+    status: run.status,
+    ...(card.outcome ? { outcome: card.outcome } : {}),
+    summary: (prior.summary ?? run.summary).trim(),
+    files: prior.files ?? run.files ?? [],
+    ...(run.branch ? { branch: run.branch } : {}),
+    ...(run.checks ? { checks: run.checks } : {}),
+    ...(card.rating ? { rating: card.rating } : {}),
+    ...(card.answers?.length ? { answers: card.answers } : {}),
+  };
+  card.cycles = [...(card.cycles ?? []), cycle];
+  card.column = 'approved';
+  card.approvedAt = at;
+  card.updatedAt = at;
+  // The new cycle starts clean: these belonged to the run that just ended (and are kept in the Cycle).
+  delete card.run;
+  delete card.outcome;
+  delete card.rating;
+  delete card.answers;
+  delete card.fiveStarOptions;
+  delete card.refresh;
+  delete card.keepWhenRefreshed;
   return card;
 }
 
@@ -365,6 +438,7 @@ function cardLine(c: Card): string {
   if (c.column === 'later' || c.column === 'suggested') {
     marks.push(c.blueprint ? 'blueprint ✓' : c.blueprintError ? 'blueprint failed' : c.blueprintWaiting ? 'waiting for quota' : 'no blueprint');
   }
+  if (c.cycles?.length) marks.push(`cycle ${cycleOf(c)}`);
   if (c.run) marks.push(c.run.status);
   if (c.rating) marks.push(`${'★'.repeat(c.rating.score)}`);
   const tail = marks.length ? `  [${marks.join(' · ')}]` : '';
@@ -403,6 +477,14 @@ export function formatCard(c: Card): string {
   ];
   if (c.idea !== c.title) lines.push('', c.idea);
   lines.push('', c.blueprint ?? (c.blueprintError ? `(blueprint failed: ${c.blueprintError})` : c.blueprintWaiting ? `(no blueprint yet: ${c.blueprintWaiting})` : '(no blueprint yet)'));
+  if (c.cycles?.length) {
+    lines.push('', `cycle ${cycleOf(c)}: continues ${c.cycles.length} earlier cycle${c.cycles.length === 1 ? '' : 's'}`);
+    c.cycles.forEach((y, i) => {
+      const files = y.files.length ? `${y.files.length} file${y.files.length === 1 ? '' : 's'}` : 'no files changed';
+      lines.push(`  cycle ${i + 1}: ${y.status}${y.outcome ? ` · ${y.outcome}` : ''} · ${files}`);
+      if (y.note) lines.push(`    sent back: ${y.note}`);
+    });
+  }
   if (c.run) {
     lines.push('', `last run: ${c.run.status} · ${c.run.workdir}${c.run.branch ? ` · branch ${c.run.branch}` : ''}`);
     if (c.run.tokens) lines.push(`used: ${formatTokens(c.run.tokens)}`);

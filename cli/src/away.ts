@@ -2,6 +2,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { awayQueue, ensureCardDir, loadBoard, recoverRunning, updateBoard, getCard, type Card, type Checks, type RunStatus } from './board.js';
+import { continuationPrompt } from './blueprint.js';
 import type { Config } from './config.js';
 import { formatDuration } from './duration.js';
 import { budgetGate } from './gate.js';
@@ -101,7 +102,9 @@ Original idea: ${card.idea}
 # Blueprint (agreed scope)
 
 ${card.blueprint ?? ''}
-${card.answers?.length ? `
+${card.cycles?.length ? `
+${continuationPrompt(card)}
+` : ''}${card.answers?.length ? `
 # Your earlier questions have been answered
 
 The previous run left QUESTIONS.md. The user's answers:
