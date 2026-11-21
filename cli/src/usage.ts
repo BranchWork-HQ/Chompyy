@@ -303,6 +303,7 @@ export function usageView(ledger: Ledger, now: Date, days = 7, top = 10, canShow
   const ws = new Map<string, Tally>();
   const models = new Map<string, Tally>();
   const convs = new Map<string, Conversation>();
+  const helperOnly = new Set<string>();
   const all = zero();
   for (const r of inRange) {
     add(all, r);
@@ -310,7 +311,15 @@ export function usageView(ledger: Ledger, now: Date, days = 7, top = 10, canShow
     add(ws.get(r.workspace) ?? ws.set(r.workspace, zero()).get(r.workspace)!, r);
     add(models.get(r.model) ?? models.set(r.model, zero()).get(r.model)!, r);
     let c = convs.get(r.session);
+    // A conversation's folder (and so whether its title shows) comes from the main session, never a subagent
+    // working elsewhere: a helper's temp folder hid the title of a whole conversation (2026-11-21).
+    if (c && !r.agent && helperOnly.has(r.session)) {
+      helperOnly.delete(r.session);
+      const shown = c.away || canShowTitle(r.workspace);
+      Object.assign(c, { workspace: r.workspace, title: shown ? ledger.titles[r.session] ?? null : null, private: !shown });
+    }
     if (!c) {
+      if (r.agent) helperOnly.add(r.session);
       const away = r.basis === 'recorded';
       const shown = away || canShowTitle(r.workspace);
       c = { ...zero(), session: r.session, title: shown ? ledger.titles[r.session] ?? null : null, workspace: r.workspace, start: r.at, end: r.at, models: [], away, private: !shown };

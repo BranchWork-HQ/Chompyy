@@ -37,6 +37,7 @@ import {
 } from './taste.js';
 import { cachedWorkspaces, dream, dreamDue, formatDream, formatWorkspaces, readLogPath, setTicked } from './dream.js';
 import { formatUsage, loadLedger, usageView } from './usage.js';
+import { formatTrace, traceSession } from './trace.js';
 import { homedir } from 'node:os';
 import { clashOf, refreshCard, refreshGate, refreshClashing, withRefreshLock, type RefreshDeps } from './refresh.js';
 import { formatLive, keepAffectsLive, liveOff, liveSet, liveUpdateLocked, loadLive, startLiveUpdate } from './live.js';
@@ -83,6 +84,7 @@ Back
   chompyy trends                last 7 days vs the 7 before: cost per card, keep rate, rating, blueprint edits
 
 Taste (learned from what you keep, undo, edit and rate)
+  chompyy trace <id>            one conversation turn by turn: cost per turn, context size, what ate the tokens
   chompyy usage [--days 7]      tokens and API-value cost of every Claude Code conversation on this Mac
   chompyy dream                 the nightly read: learn how you like to work from your coding sessions
                                 (--dry-run shows exactly what it would read; --since 3d to re-read)
@@ -953,6 +955,15 @@ async function main(argv: string[]): Promise<void> {
       if (v !== 'on' && v !== 'off') throw new Error('Usage: chompyy missed-reset <on|off>');
       setConfig('missedReset', v === 'on');
       console.log(`Missed-reset trigger ${v}.${v === 'on' ? ` Only cards already approved (chompyy approve) run; the budget gate still decides.${agentInstalled() ? '' : ' Turn triggers on with `chompyy triggers on`.'}` : ''}`);
+      return;
+    }
+    case 'trace': {
+      const q = need(args[0], 'chompyy trace <conversation id> [--json]   (ids: chompyy usage --json)');
+      const ticked = new Set(cachedWorkspaces(now).filter((w) => w.ticked).map((w) => w.path));
+      const t = traceSession(q, { showPrompts: (ws) => ticked.has(ws) });
+      if (!t) throw new Error(q.startsWith('chompyy-card-') ? 'Away runs keep no transcript (only their recorded totals, in chompyy usage).' : `No conversation "${q}" on this Mac.`);
+      if (values.json) return json(t);
+      console.log(formatTrace(t));
       return;
     }
     case 'usage': {
