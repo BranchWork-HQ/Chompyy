@@ -363,3 +363,49 @@ enum UsageFormat {
     }
     static func usd(_ n: Double) -> String { n >= 100 ? "$\(Int(n.rounded()))" : String(format: "$%.2f", n) }
 }
+
+/// Mirrors `chompyy trace <id> --json` (cli/src/trace.ts): one conversation, turn by turn.
+struct Trace: Decodable {
+    let session: String
+    let title: String?
+    let workspace: String
+    let start: String
+    let end: String
+    let costUsd: Double
+    let parts: Parts
+    let tokens: Double
+    let requests: Int
+    let cacheHitPct: Int?
+    let compactions: Int
+    let turns: [Turn]
+    let findings: [Finding]
+    let promptsHidden: Bool
+
+    struct Parts: Decodable { let input: Double; let output: Double; let cacheRead: Double; let cacheWrite: Double }
+    struct Tool: Decodable { let name: String; let label: String; let resultTokens: Double; let isError: Bool }
+    struct Request: Decodable { let at: String; let model: String; let costUsd: Double; let context: Double; let tools: [Tool]; let helper: Bool }
+    struct Turn: Decodable, Identifiable {
+        let i: Int
+        let at: String
+        let prompt: String?
+        let promptKind: String
+        let costUsd: Double
+        let parts: Parts
+        let tokens: Double
+        let requests: [Request]
+        let contextPeak: Double
+        let durationMs: Double
+        let compactedBefore: Bool
+        var id: Int { i }
+    }
+    struct Finding: Decodable, Identifiable {
+        let kind: String
+        let turn: Int
+        let tool: String?
+        let label: String?
+        let tokens: Double
+        let laterRequests: Int
+        let usd: Double
+        var id: String { "\(kind)\(turn)\(label ?? "")\(tokens)" }
+    }
+}

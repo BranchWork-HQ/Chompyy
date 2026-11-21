@@ -10,6 +10,10 @@ struct ChompyyApp: App {
             renderCookieSheet(to: path)
             exit(0)
         }
+        if let path = ProcessInfo.processInfo.environment["CHOMPYY_RENDER_TRACE"], let id = ProcessInfo.processInfo.environment["CHOMPYY_TRACE_SESSION"] {
+            renderTraceSheet(to: path, session: id)
+            exit(0)
+        }
         if let path = ProcessInfo.processInfo.environment["CHOMPYY_RENDER_USAGE"] {
             renderUsageSheet(to: path)
             exit(0)
