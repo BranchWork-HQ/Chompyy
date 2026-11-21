@@ -432,11 +432,13 @@ struct ParkIdeaButton: View {
 }
 
 /// The "Park an idea for later" box, shared by the toolbar button and the Later column's "+".
-/// Starts empty each time it opens, with the cursor in the idea field. Asks which project folder it belongs to.
+/// Opens with the cursor in the idea field. Asks which project folder it belongs to.
 struct ParkIdeaPopover: View {
     @EnvironmentObject var store: Store
     @Binding var open: Bool
-    @State private var idea = ""
+    // The draft lives in UserDefaults, not @State, so a stray click that closes the popover
+    // doesn't throw away what you typed. It is cleared only after "Park it" succeeds.
+    @AppStorage("parkDraft") private var idea = ""
     @AppStorage("lastProject") private var project = ""
     @State private var projects: [Project] = []
     @FocusState private var ideaFocused: Bool
@@ -476,9 +478,11 @@ struct ParkIdeaPopover: View {
                 Spacer()
                 Button("Park it") {
                     let text = idea
-                    idea = ""
                     open = false
-                    Task { await store.act("later", ["later", text], cwd: project) }
+                    Task {
+                        // Keep the draft if parking failed, or if a new one was typed meanwhile.
+                        if await store.act("later", ["later", text], cwd: project), idea == text { idea = "" }
+                    }
                 }
                 .keyboardShortcut(.defaultAction)
                 .disabled(idea.trimmingCharacters(in: .whitespaces).isEmpty || project.isEmpty)
