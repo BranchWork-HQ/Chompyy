@@ -222,12 +222,12 @@ struct ProjectsView: View {
 struct ConversationsView: View {
     let week: UsageData.Week
     let metric: UsageMetric
-    @State private var open: UsageData.Conversation?
+    @Environment(\.openTrace) private var openTrace
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             ForEach(week.conversations) { c in
-                Button { if !c.away { open = c } } label: {
+                Button { if !c.away { openTrace(c.session) } } label: {
                 HStack(spacing: 8) {
                     Image(systemName: c.away ? "moon.zzz" : c.private ? "lock" : "bubble.left.and.text.bubble.right")
                         .foregroundStyle(Brand.doughEdge).frame(width: 16)
@@ -250,7 +250,6 @@ struct ConversationsView: View {
             Text("Click a conversation to see it turn by turn. Away runs: cost as Claude Code recorded it. Everything else: calculated from list prices, each reply counted once.")
                 .font(.caption2).foregroundStyle(.tertiary)
         }
-        .sheet(item: $open) { c in TraceSheet(session: c.session) }
     }
 }
 
@@ -260,7 +259,7 @@ struct TraceSheet: View {
     let session: String
     /// For the off-screen render: draw this trace, all turns, without scrolling.
     var preset: Trace? = nil
-    @Environment(\.dismiss) private var dismiss
+    @Environment(\.closePopup) private var dismiss
     @State private var loaded: Trace?
     private var trace: Trace? { preset ?? loaded }
     @State private var failed: String?
@@ -343,7 +342,7 @@ struct TraceSheet: View {
             }
         }
         .padding(20)
-        .frame(minWidth: 760, minHeight: 560)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task {
             if preset != nil { return }
             let id = session
@@ -416,7 +415,9 @@ struct ContextLine: View {
 /// The board's usage sheet: today, the switcher, and a note on what the numbers mean.
 struct UsageSheet: View {
     @EnvironmentObject var store: Store
-    @Environment(\.dismiss) private var dismiss
+    @Environment(\.closePopup) private var dismiss
+    /// The conversation open turn by turn, over this whole panel rather than just the list.
+    @State private var trace: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -434,8 +435,30 @@ struct UsageSheet: View {
             Spacer(minLength: 0)
         }
         .padding(20)
-        .frame(minWidth: 680, minHeight: 460)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .environment(\.openTrace, OpenTraceAction { trace = $0 })
+        .dismissOnOutsideClick(item: $trace, width: 860, height: 700) { session in
+            TraceSheet(session: session)
+        }
         .task { await store.loadUsage(force: true) }
+    }
+}
+
+/// Opens one conversation turn by turn. Set by the Usage panel; does nothing elsewhere (the menu bar's
+/// compact view never lists conversations).
+struct OpenTraceAction {
+    var action: (String) -> Void = { _ in }
+    func callAsFunction(_ session: String) { action(session) }
+}
+
+private struct OpenTraceKey: EnvironmentKey {
+    static let defaultValue = OpenTraceAction()
+}
+
+extension EnvironmentValues {
+    var openTrace: OpenTraceAction {
+        get { self[OpenTraceKey.self] }
+        set { self[OpenTraceKey.self] = newValue }
     }
 }
 

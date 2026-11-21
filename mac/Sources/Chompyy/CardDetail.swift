@@ -31,8 +31,8 @@ struct CardDetail: View {
                 .padding(20)
             }
         }
-        .sheet(item: Binding(get: { diff.map { DiffText(text: $0) } }, set: { diff = $0?.text })) { d in
-            DiffSheet(text: d.text)
+        .dismissOnOutsideClick(item: $diff, width: 760, height: 620) { text in
+            DiffSheet(text: text)
         }
         .id(card.id)
     }
@@ -500,11 +500,9 @@ struct FlowLayout: Layout {
     }
 }
 
-struct DiffText: Identifiable { let text: String; var id: Int { text.hashValue } }
-
 struct DiffSheet: View {
     let text: String
-    @Environment(\.dismiss) private var dismiss
+    @Environment(\.closePopup) private var dismiss
 
     var body: some View {
         VStack(spacing: 0) {
@@ -529,7 +527,7 @@ struct DiffSheet: View {
                 .padding(12)
             }
         }
-        .frame(minWidth: 720, minHeight: 480)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func color(_ l: String) -> Color {

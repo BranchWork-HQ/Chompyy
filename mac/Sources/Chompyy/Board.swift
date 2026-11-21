@@ -58,12 +58,17 @@ struct BoardView: View {
                 .help("Refresh the board and read live quota now")
             }
         }
-        .sheet(isPresented: $showFeedback) { FeedbackView().environmentObject(store) }
-        .sheet(isPresented: $showUsage) { UsageSheet().environmentObject(store) }
+        .dismissOnOutsideClick(isPresented: $showFeedback, width: 680, height: 680) { FeedbackView().environmentObject(store) }
+        .dismissOnOutsideClick(isPresented: $showUsage, width: 900, height: 760) { UsageSheet().environmentObject(store) }
         .onChange(of: store.openUsage) { _, tab in
             if tab != nil { showUsage = true; store.openUsage = nil }
         }
-        .sheet(isPresented: $showColdStart) { ColdStartView().environmentObject(store) }
+        .dismissOnOutsideClick(isPresented: $showColdStart, width: 720, height: 700) { ColdStartView().environmentObject(store) }
+        // The toolbar stays clickable over a pop-up, so opening one closes the others: one panel at a time.
+        .onChange(of: showFeedback) { _, on in if on { only(feedback: true) } }
+        .onChange(of: showUsage) { _, on in if on { only(usage: true) } }
+        .onChange(of: showColdStart) { _, on in if on { only(coldStart: true) } }
+        .onChange(of: store.selectedCardID) { _, id in if id != nil { only() } }
         .onAppear {
             // For testing: open a sheet straight away.
             if ProcessInfo.processInfo.environment["CHOMPYY_OPEN_COLDSTART"] != nil { showColdStart = true }
@@ -72,6 +77,14 @@ struct BoardView: View {
             if store.openUsage != nil { showUsage = true; store.openUsage = nil }
         }
         .frame(minWidth: 1080, minHeight: 560)
+    }
+
+    /// Keep the named pop-up open and close the rest, the open card included.
+    private func only(feedback: Bool = false, usage: Bool = false, coldStart: Bool = false) {
+        if !feedback { showFeedback = false }
+        if !usage { showUsage = false }
+        if !coldStart { showColdStart = false }
+        if feedback || usage || coldStart { store.selectedCardID = nil }
     }
 }
 
@@ -309,31 +322,15 @@ struct CardOverlay: View {
     @EnvironmentObject var store: Store
 
     var body: some View {
-        GeometryReader { geo in
-            if let card = store.selectedCard {
-                ZStack {
-                    Color.black.opacity(0.35)
-                        .contentShape(Rectangle())
-                        .onTapGesture { close() }
-                    CardDetail(card: card)
-                        .environmentObject(store)
-                        .frame(width: min(820, geo.size.width - 64), height: min(760, geo.size.height - 48))
-                        .background(Color(nsColor: .windowBackgroundColor))
-                        .clipShape(RoundedRectangle(cornerRadius: 14))
-                        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.primary.opacity(0.1)))
-                        .shadow(color: .black.opacity(0.35), radius: 24, y: 8)
-                    Button("Close card", action: close)
-                        .keyboardShortcut(.cancelAction)
-                        .opacity(0)
-                        .frame(width: 0, height: 0)
+        let open = Binding(get: { store.selectedCard != nil }, set: { if !$0 { store.selectedCardID = nil } })
+        Color.clear
+            .allowsHitTesting(false)
+            .dismissOnOutsideClick(isPresented: open, width: 820, height: 760) {
+                if let card = store.selectedCard {
+                    CardDetail(card: card).environmentObject(store)
                 }
-                .transition(.opacity)
             }
-        }
-        .animation(.easeOut(duration: 0.15), value: store.selectedCardID)
     }
-
-    private func close() { store.selectedCardID = nil }
 }
 
 struct CardTile: View {
