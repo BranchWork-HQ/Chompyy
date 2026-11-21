@@ -99,8 +99,8 @@ Chompyy stands on two established MIT tools instead of rebuilding what they do w
 
 | Feature | Status | Notes |
 |---|---|---|
-| **Monitoring research**: read the code of codeburn, CodexBar, AgentLimits, Claude-Code-Usage-Monitor, ccusage, sniffly and similar; one note per tool + a feature pick list | 🔜 | Output: `research/monitoring/` like `research/detective/`. Decides what we copy (MIT, with credit) |
-| **Spend board**: real numbers per day, project and model, with a growth line | 📋 | Copy codeburn's session readers, pricing table and totals into Chompyy's TS core; draw it in Swift |
+| **Monitoring research**: read the code of codeburn, CodexBar, AgentLimits, Claude-Code-Usage-Monitor, ccusage, sniffly and similar; one note per tool + a feature pick list | ✅ 2026-11-21 | Output: `research/monitoring/` like `research/detective/`. Decides what we copy (MIT, with credit) → `research/monitoring/PICKS.md` (PR #45). |
+| **Spend board**: real numbers per day, project and model, with a growth line | ◐ | Copy codeburn's session readers, pricing table and totals into Chompyy's TS core; draw it in Swift **Ledger ✅ 2026-11-21:** `chompyy usage` reads every request (numbers only), dedupes by message id (a plain sum counted 2.15× on this Mac), prices from codeburn's LiteLLM snapshot with 1-hour cache writes at 1.6× the 5-minute rate (matched Claude Code's recorded cost to the 8th decimal on Haiku and Opus), adds away runs as recorded, keeps rows after Claude Code cleans up its logs, and hides titles outside your ticked workspaces. The board in the app is next. |
 | **Price as API value** for subscription users: "your $200 plan did $1,400 of API-priced work this month" | 📋 | Fits "use what you pay for"; never quote dollar *savings* to subscription users (token-optimizer's rule) |
 | **Forecast, premise and heatmap together**: when the window will run out or reset unused; what share of your windows reset with capacity left; a weekday × hour heatmap of when you use Claude, which also proposes away windows | 📋 | Forecast ✅ in §2; heatmap from AgentLimits; the premise number from §11 shown as a feature |
 

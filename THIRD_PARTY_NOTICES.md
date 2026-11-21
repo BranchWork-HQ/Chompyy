@@ -2,7 +2,7 @@
 
 ## Third-party code
 
-`cli/src/vendor/codeburn/`: from [codeburn](https://github.com/getagentseal/codeburn) (MIT, Copyright (c) 2026 AgentSeal). See its `UPSTREAM.md` and `LICENSE`.
+`cli/src/vendor/codeburn/`: from [codeburn](https://github.com/getagentseal/codeburn) (MIT, Copyright (c) 2026 AgentSeal). See its `UPSTREAM.md` and `LICENSE`. Its `prices.ts` holds the Claude rows of codeburn's snapshot of [LiteLLM](https://github.com/BerriAI/litellm)'s `model_prices_and_context_window.json` (MIT, Copyright (c) 2023 Berri AI).
 
 Its licence, in full (MIT requires it in every copy, including the npm package):
 

@@ -36,6 +36,8 @@ import {
   readSignals, recordOutcome, retirePreference, syncTasteFile, tasteChangesSince, type Answer,
 } from './taste.js';
 import { cachedWorkspaces, dream, dreamDue, formatDream, formatWorkspaces, readLogPath, setTicked } from './dream.js';
+import { formatUsage, loadLedger, usageView } from './usage.js';
+import { homedir } from 'node:os';
 import { clashOf, refreshCard, refreshGate, refreshClashing, withRefreshLock, type RefreshDeps } from './refresh.js';
 import { formatLive, keepAffectsLive, liveOff, liveSet, liveUpdateLocked, loadLive, startLiveUpdate } from './live.js';
 import { agentInstalled, awayRunning, bedtimeKey, decideTrigger, installAgent, loadTriggerState, markFired, noteTick, parseClock, takeAwayLock, uninstallAgent } from './triggers.js';
@@ -81,6 +83,7 @@ Back
   chompyy trends                last 7 days vs the 7 before: cost per card, keep rate, rating, blueprint edits
 
 Taste (learned from what you keep, undo, edit and rate)
+  chompyy usage [--days 7]      tokens and API-value cost of every Claude Code conversation on this Mac
   chompyy dream                 the nightly read: learn how you like to work from your coding sessions
                                 (--dry-run shows exactly what it would read; --since 3d to re-read)
   chompyy dream workspaces      the folders and apps it can read, ticked or not
@@ -461,6 +464,7 @@ async function main(argv: string[]): Promise<void> {
       timeout: { type: 'string' },
       trigger: { type: 'string' },
       since: { type: 'string' },
+      days: { type: 'string' },
     },
   });
   const [command, ...args] = values.help ? ["help"] : positionals;
@@ -948,6 +952,16 @@ async function main(argv: string[]): Promise<void> {
       if (v !== 'on' && v !== 'off') throw new Error('Usage: chompyy missed-reset <on|off>');
       setConfig('missedReset', v === 'on');
       console.log(`Missed-reset trigger ${v}.${v === 'on' ? ` Only cards already approved (chompyy approve) run; the budget gate still decides.${agentInstalled() ? '' : ' Turn triggers on with `chompyy triggers on`.'}` : ''}`);
+      return;
+    }
+    case 'usage': {
+      const days = values.days ? Number(values.days) : 7;
+      if (!Number.isInteger(days) || days < 1 || days > 400) throw new Error('Usage: chompyy usage [--days 7] [--json]');
+      // Titles only for workspaces the nightly read may see (your ticks); numbers count everywhere.
+      const ticked = new Set(cachedWorkspaces(now).filter((w) => w.ticked).map((w) => w.path));
+      const view = usageView(loadLedger(), now, days, 10, (ws) => ticked.has(ws));
+      if (values.json) return json(view);
+      console.log(formatUsage(view, homedir()));
       return;
     }
     case 'dream': {
