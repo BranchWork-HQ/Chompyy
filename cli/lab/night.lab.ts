@@ -22,7 +22,7 @@ let home = '';
 let repo = '';
 const g = (dir: string, ...a: string[]) => execFileSync('git', ['-C', dir, '-c', 'user.name=lab', '-c', 'user.email=lab@lab', ...a], { encoding: 'utf8' }).trim();
 const chompyy = (...args: string[]) =>
-  execFileSync(process.execPath, [CLI, ...args], { encoding: 'utf8', env: { ...process.env, CHOMPYY_HOME: home }, timeout: 300_000 });
+  execFileSync(process.execPath, [CLI, ...args], { encoding: 'utf8', env: { ...process.env, CHOMPYY_HOME: home, CHOMPYY_CLAUDE_PROJECTS: join(home, 'no-sessions') }, timeout: 300_000 }); // never your real sessions
 type LabCard = { id: string; column: string; outcome?: string; run?: { status: string; base?: { commit: string }; verified?: { result: string; why: string }; tokens?: { output: number; costUsd: number } }; refresh?: { state: string; by?: string; why?: string } };
 const board = () => JSON.parse(readFileSync(join(home, 'board.json'), 'utf8')) as { cards: LabCard[] };
 const card = (id: string) => board().cards.find((c) => c.id === id)!;

@@ -15,6 +15,7 @@ import { changedFiles } from './review.js';
 import { loadColdStart } from './coldstart.js';
 import { blueprintHash } from './picture.js';
 import { costRange, readRuns, type CostRange, type RunRecord } from './costs.js';
+import { cachedWorkspaces, loadDream, type Workspace } from './dream.js';
 import { describeSignal, loadStore, nextQuestion, readSignals, receipts, type Preference, type Signal } from './taste.js';
 import { agentInstalled, loadTriggerState } from './triggers.js';
 import { planFor, type PlannedPermission } from './permissions.js';
@@ -91,8 +92,19 @@ export function appState(board: BoardData, snap: Snapshot | null, config: Config
     coldStart: coldStartState(),
     tasteQuestion: tasteQuestion(),
     taste: tasteState(),
+    dream: dreamState(config, now),
     triggers: { installed: agentInstalled(), lastHour: config.lastHourTrigger, bedtime: config.bedtime, ...loadTriggerState() },
   };
+}
+
+/** The nightly read for the app: on or off, the workspaces with their ticks, and how last night went. */
+function dreamState(config: Config, now: Date) {
+  let workspaces: Workspace[] = [];
+  try {
+    workspaces = cachedWorkspaces(now);
+  } catch {}
+  const s = loadDream();
+  return { on: config.dream, model: config.dreamModel, workspaces, last: s.last ?? null };
 }
 
 /** The one taste question waiting, with its receipts, for the app to show as a one-tap card. */

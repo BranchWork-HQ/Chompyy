@@ -1,4 +1,10 @@
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterEach } from 'vitest';
+
+// Tests never read the real Claude Code sessions on this Mac (the nightly read, dream.ts).
+process.env.CHOMPYY_CLAUDE_PROJECTS ??= mkdtempSync(join(tmpdir(), 'chompyy-no-sessions-'));
 
 // Many tests run git with execFileSync, which blocks the worker. Vitest's worker talks to the main process over
 // a channel with a 60 s reply timeout, and a reply can only be read when the event loop is free. Without a pause,

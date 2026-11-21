@@ -27,6 +27,8 @@ export interface RunRequest {
    * times trips the breaker; 0 or unset = plain text output, no watching.
    */
   loopRepeat?: number;
+  /** Use stream-json without the loop breaker, for exact token counts on a no-tools call (the nightly read). */
+  stream?: boolean;
   /** Stop the run when the agent prints nothing for this long (a hung command or a stalled agent); 0/unset = off. */
   idleTimeoutMs?: number;
   /** Stop the run after the sandbox or permissions blocked it this many times (it's stuck on something it can't do); 0/unset = off. */
@@ -96,7 +98,7 @@ export const ISOLATION_ARGS = ['--strict-mcp-config'];
 export const ISOLATION_SETTINGS = { disableAllHooks: true };
 
 export function claudeArgs(req: RunRequest): string[] {
-  const args = req.loopRepeat
+  const args = req.loopRepeat || req.stream
     ? ['-p', '--output-format', 'stream-json', '--verbose', '--no-session-persistence', ...ISOLATION_ARGS]
     : ['-p', '--output-format', 'text', '--no-session-persistence', ...ISOLATION_ARGS];
   if (req.model) args.push('--model', req.model);
@@ -313,7 +315,7 @@ export class ClaudeRunner implements Runner {
       const neededHosts = new Set<string>();
       const raw = new RawLog(req.rawLogPath, req.rawLogMaxBytes);
       const tally = new TokenTally();
-      const watch = req.loopRepeat ? new LoopWatch(req.loopRepeat) : null;
+      const watch = req.loopRepeat ? new LoopWatch(req.loopRepeat) : req.stream ? new LoopWatch(Number.POSITIVE_INFINITY) : null;
       const lines = new LineReader((line) => {
         if (!line.trim()) return;
         let event: unknown;

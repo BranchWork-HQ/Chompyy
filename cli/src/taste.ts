@@ -62,7 +62,8 @@ export function tasteForPrompt(): string {
 
 // ---------- signals ----------
 
-export type SignalKind = 'rating' | 'blueprint-edit' | 'answer' | 'outcome' | 'coldstart' | 'taste-answer';
+/** 'chat': something you said in an everyday coding session, found by the nightly read (dream.ts), in your exact words. */
+export type SignalKind = 'rating' | 'blueprint-edit' | 'answer' | 'outcome' | 'coldstart' | 'taste-answer' | 'chat';
 
 export interface Signal {
   /** "s<line number>" in signals.jsonl: stable because the file is append-only. */
@@ -128,14 +129,15 @@ export function signalWeight(s: Signal): number {
   if (s.kind === 'outcome') return s.raw.outcome === 'undone' ? 3 : 1;
   if (s.kind === 'rating') return Array.isArray(s.raw.toFive) && s.raw.toFive.length ? 3 : s.raw.reason ? 2 : 1;
   if (s.kind === 'answer') return 1;
+  if (s.kind === 'chat') return 2;
   return 0;
 }
 
 /** One line per signal, for the distiller prompt and for "why do you think that?". */
 export function describeSignal(s: Signal, max = 400): string {
-  const cut = (v: unknown) => {
+  const cut = (v: unknown, n = max) => {
     const t = String(v ?? '').replace(/\s+/g, ' ').trim();
-    return t.length > max ? `${t.slice(0, max - 1)}…` : t;
+    return t.length > n ? `${t.slice(0, n - 1)}…` : t;
   };
   const card = s.card ? `card #${s.card} "${s.title ?? ''}"` : '';
   switch (s.kind) {
@@ -149,6 +151,10 @@ export function describeSignal(s: Signal, max = 400): string {
       return `${s.raw.outcome === 'undone' ? 'undid' : 'kept'} the result of ${card}`;
     case 'answer':
       return `answered the questions of ${card}: "${cut(s.raw.text)}"`;
+    case 'chat': {
+      const where = String(s.raw.workspace ?? '').split('/').pop() || 'a session';
+      return `said in a session in ${where} on ${s.at.slice(0, 10)}: "${cut(s.raw.quote)}"${s.raw.why ? ` (${cut(s.raw.why, 200)})` : ''}`;
+    }
     default:
       return `${s.kind} ${card}`;
   }
@@ -162,9 +168,10 @@ export function receipts(signals: Signal[]): string {
       s.kind === 'outcome' ? (s.raw.outcome === 'undone' ? 'undid' : 'kept')
       : s.kind === 'blueprint-edit' ? 'edited the blueprint of'
       : s.kind === 'rating' ? (Array.isArray(s.raw.toFive) && s.raw.toFive.length ? 'asked for a change on' : 'rated')
-      : s.kind === 'answer' ? 'answered' : s.kind;
+      : s.kind === 'answer' ? 'answered' : s.kind === 'chat' ? 'said it in sessions on' : s.kind;
     const ids = groups.get(verb) ?? [];
-    if (s.card && !ids.includes(`#${s.card}`)) ids.push(`#${s.card}`);
+    const label = s.card ? `#${s.card}` : s.kind === 'chat' ? s.at.slice(5, 10) : '';
+    if (label && !ids.includes(label)) ids.push(label);
     groups.set(verb, ids);
   }
   return [...groups].map(([verb, ids]) => `${verb} ${ids.join(', ')}`).join(' · ');
@@ -198,7 +205,7 @@ export interface Preference {
   retiredBecause?: string;
   /** Signal ids that contradicted it. */
   against?: string[];
-  /** Distinct cards behind it when you said "not now"; asked again once there are more. */
+  /** Separate cards and sessions behind it when you said "not now"; asked again once there are more. */
   snoozedAtCards?: number;
   /** Written to taste.md (so a missing line means you removed it). */
   rendered?: boolean;
@@ -214,6 +221,8 @@ export interface TasteStore {
 
 /** A preference needs this many separate cards before Chompyy asks (FEATURES §7: 3 confirmations). */
 export const MIN_CARDS = 3;
+/** …or this many separate everyday sessions where you said it (the nightly read; "a mistake made a second time"). */
+export const MIN_SESSIONS = 2;
 
 export function storePath(): string {
   return homePath('preferences.json');
@@ -237,17 +246,29 @@ export function distinctCards(evidence: string[], byId: Map<string, Signal>): nu
   return new Set(evidence.map((id) => byId.get(id)?.card).filter(Boolean)).size;
 }
 
+/** Separate everyday sessions behind it (chat signals from the nightly read). */
+export function distinctSessions(evidence: string[], byId: Map<string, Signal>): number {
+  return new Set(evidence.map((id) => byId.get(id)).filter((s) => s?.kind === 'chat').map((s) => String(s!.raw.session))).size;
+}
+
+/** Separate places it was seen: cards plus sessions. */
+export function sightings(evidence: string[], byId: Map<string, Signal>): number {
+  return distinctCards(evidence, byId) + distinctSessions(evidence, byId);
+}
+
 /** Strength for ordering questions: separate cards first, then how concrete the signals are. */
 export function strength(p: Preference, byId: Map<string, Signal>): number {
   const weight = p.evidence.reduce((sum, id) => sum + (byId.get(id) ? signalWeight(byId.get(id)!) : 0), 0);
-  return distinctCards(p.evidence, byId) * 10 + weight + (p.stated ? 5 : 0);
+  return sightings(p.evidence, byId) * 10 + weight + (p.stated ? 5 : 0);
 }
 
 /** Promote candidates with enough evidence; wake snoozed ones that gained a card. */
 export function promote(p: Preference, byId: Map<string, Signal>): void {
   const cards = distinctCards(p.evidence, byId);
-  if (p.status === 'candidate' && (cards >= MIN_CARDS || (p.stated && cards >= 1))) p.status = 'ready';
-  if (p.status === 'snoozed' && cards > (p.snoozedAtCards ?? 0)) p.status = 'ready';
+  const sessions = distinctSessions(p.evidence, byId);
+  const enough = cards >= MIN_CARDS || sessions >= MIN_SESSIONS || cards + sessions >= MIN_CARDS || (p.stated && cards >= 1);
+  if (p.status === 'candidate' && enough) p.status = 'ready';
+  if (p.status === 'snoozed' && cards + sessions > (p.snoozedAtCards ?? 0)) p.status = 'ready';
 }
 
 // ---------- the distiller ----------
@@ -257,10 +278,12 @@ export function distillPrompt(signals: Signal[], prefs: Preference[]): string {
   const muted = prefs.filter((p) => p.status === 'muted' || (p.status === 'retired' && !p.validFrom));
   return `You learn one developer's taste: how they like an agent to do work. Below are signals from cards an agent
 ran for them unattended: their ratings and reasons, "what would have made it a 5?" picks, edits they made to a
-blueprint before approving it, results they kept or undid, and answers to the agent's questions.
+blueprint before approving it, results they kept or undid, and answers to the agent's questions. Also things
+they said to their AI in everyday coding sessions ("said in a session"), in their exact words, each with what
+the nightly read thought it showed. The same point said in different sessions is one preference: cite them all.
 
 Find preferences that would change what an agent does in a DIFFERENT task next week. A preference must be
-supported by the signals you cite. Prefer patterns across separate cards. A reason the person wrote or a
+supported by the signals you cite. Prefer patterns across separate cards or sessions. A reason the person wrote or a
 change they picked counts as "stated". Write each as an instruction to an agent, at most 20 words, e.g.
 "Don't add tests unless the blueprint asks for them". Write "noticed" as one sentence to the person saying
 "you", with the receipts, e.g. "You undid 3 cards that added tests you didn't ask for."
@@ -388,7 +411,7 @@ export function retire(p: Preference, because: string, now: Date, against: strin
 /** Signals the distiller should read: governed, about cards, not yet seen. */
 export function newSignals(store: TasteStore, signals: Signal[], governed: Set<string>): Signal[] {
   const seen = store.seenThrough ?? 0;
-  return signals.filter((s) => Number(s.id.slice(1)) > seen && s.card && governed.has(s.card) && signalWeight(s) > 0);
+  return signals.filter((s) => Number(s.id.slice(1)) > seen && signalWeight(s) > 0 && (s.kind === 'chat' || (s.card && governed.has(s.card))));
 }
 
 export interface DistillResult {
@@ -455,7 +478,7 @@ export function answerPreference(id: string, answer: Answer, now: Date): Prefere
     p.validFrom = at;
   } else if (answer === 'not-now') {
     p.status = 'snoozed';
-    p.snoozedAtCards = distinctCards(p.evidence, byId);
+    p.snoozedAtCards = sightings(p.evidence, byId);
   } else {
     p.status = 'muted';
   }
@@ -544,7 +567,7 @@ export function formatPrefs(store: TasteStore, signals: Signal[]): string {
   const out: string[] = [];
   for (const status of order) {
     for (const p of store.prefs.filter((x) => x.status === status)) {
-      out.push(`${p.id.padEnd(4)} ${STATUS_LABEL[status].padEnd(15)} [${p.scope}] ${p.text}  (${distinctCards(p.evidence, byId)} cards)`);
+      out.push(`${p.id.padEnd(4)} ${STATUS_LABEL[status].padEnd(15)} [${p.scope}] ${p.text}  (${distinctCards(p.evidence, byId)} cards, ${distinctSessions(p.evidence, byId)} sessions)`);
     }
   }
   out.push('', `Why: chompyy taste why <id> · answer: taste yes|not-now|never <id> · retire: taste retire <id>`);
