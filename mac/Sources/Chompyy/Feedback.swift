@@ -9,6 +9,8 @@ struct Signal: Decodable, Identifiable {
     let reason: String?
     let text: String?
     let toFive: [String]?
+    let quote: String?
+    let workspace: String?
     let accepted: Picks?
     let declined: Picks?
     struct Picks: Decodable { let taste: [String]; let cards: [String] }
@@ -81,7 +83,10 @@ struct FeedbackView: View {
                             if let t = s.toFive, !t.isEmpty {
                                 Text("To make it a 5: " + t.joined(separator: " · ")).font(.callout).foregroundStyle(Brand.doughEdge)
                             }
-                            if let t = s.reason ?? s.text, !t.isEmpty {
+                            if s.kind == "chat", let w = s.workspace {
+                                Text("In a session in \((w as NSString).lastPathComponent)").font(.caption).foregroundStyle(.secondary)
+                            }
+                            if let t = s.reason ?? s.text ?? s.quote, !t.isEmpty {
                                 Text("“\(t)”").font(.callout)
                             } else if s.kind == nil && s.accepted == nil {
                                 Text("No reason given").font(.caption).foregroundStyle(.tertiary)
@@ -93,6 +98,7 @@ struct FeedbackView: View {
                     } header: {
                         Label("What you said and did", systemImage: "bubble.left").font(.headline).foregroundStyle(Brand.chocolate)
                     }
+                    if let d = store.state?.dream, !d.workspaces.isEmpty { NightlyReadSection(dream: d) }
                 }
             }
         }
@@ -110,6 +116,7 @@ struct FeedbackView: View {
         case "blueprint-edit": "You edited a blueprint"
         case "answer": "You answered its question"
         case "coldstart": "You picked suggestions from your history"
+        case "chat": "You said it while working"
         default: "You rated a result"
         }
     }
@@ -119,6 +126,7 @@ struct FeedbackView: View {
         case "blueprint-edit": "pencil"
         case "answer": "bubble.left.fill"
         case "coldstart": "clock.arrow.circlepath"
+        case "chat": "text.bubble"
         default: "star.fill"
         }
     }
@@ -131,6 +139,47 @@ struct FeedbackView: View {
     }
 }
 
+
+/// The nightly read: tick which workspaces Chompyy may learn from. Coding folders start ticked; desktop-app chats don't.
+struct NightlyReadSection: View {
+    @EnvironmentObject var store: Store
+    let dream: DreamState
+
+    var body: some View {
+        Section {
+            ForEach(dream.workspaces) { w in
+                Toggle(isOn: Binding(get: { w.ticked }, set: { on in
+                    Task { await store.act("dream\(w.path)", ["dream", on ? "tick" : "untick", w.path]) }
+                })) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(w.name).font(.callout).lineLimit(1).truncationMode(.middle)
+                        Text("\(w.kindLabel) · \(w.sessions) session\(w.sessions == 1 ? "" : "s")").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                .toggleStyle(.checkbox)
+                .disabled(!dream.on || store.busy.contains("dream\(w.path)"))
+            }
+        } header: {
+            HStack {
+                Label("What Chompyy reads at night", systemImage: "moon.zzz").font(.headline).foregroundStyle(Brand.chocolate)
+                Spacer()
+                Toggle("On", isOn: Binding(get: { dream.on }, set: { on in
+                    Task { await store.act("dream-on", ["dream", on ? "on" : "off"]) }
+                })).toggleStyle(.switch).controlSize(.mini)
+            }
+        } footer: {
+            Text(footer).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var footer: String {
+        var s = "After an away night, Chompyy reads what you and Claude said in the ticked workspaces (no tool output or file contents), on your subscription with \(dream.model.capitalized). Anything it learns comes to you here first."
+        if let l = dream.last {
+            s += l.error != nil ? " Last read stopped: \(l.error!)" : " Last read: \(l.sessions) session\(l.sessions == 1 ? "" : "s"), ~\(l.readTokens / 1000)k tokens, \(l.signals) thing\(l.signals == 1 ? "" : "s") you said."
+        }
+        return s
+    }
+}
 
 /// One rule: what Chompyy noticed, the rule itself, and its receipts in your own words.
 /// Waiting rules get yes / not now / never; learned ones get retire.

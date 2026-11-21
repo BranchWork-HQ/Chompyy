@@ -7,7 +7,7 @@
 **The data.** Six days of the user's own Claude Code sessions, 2026-11-14 to 11-19, read from `~/.claude/projects/*/*.jsonl` on their Mac.
 - **Coding folders only:** a session counts if the folder it *started* in is a git repo. Sessions from the Claude desktop app are left out. (A first version dropped whole sessions whenever Claude `cd`'d into a temp folder mid-session; fixed by deciding once, from the starting folder.)
 - **Stripped** with `strip-sessions.py`: kept what the user typed, Claude's written replies, a one-line note per tool call (`[Edit: cli/src/away.ts]`), and ⚑ marks for rejected tool uses and interruptions. Dropped tool output, file contents and diffs.
-- Size after the strip: 14k · 9k · 8k · 41k · 42k · 10k tokens (from 0.6–9.9M raw).
+- Size after the strip: 14k · 9k · 8k · 41k · 42k · 10k tokens (from 0.6–9.9M raw). These are estimates (characters ÷ 4). The models' own exact counts for the same 6 days were 221–225k, about 1.8× the estimate, so a real night is ~35k tokens.
 
 **The models.** Haiku, Sonnet and Opus (Claude 5.5 family), each through `claude -p --model <m>` on the user's subscription. Fable 5.1 / 5.2 answered "requires usage credits" on this plan, so it was left out rather than spend money unasked.
 

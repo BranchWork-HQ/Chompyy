@@ -35,6 +35,7 @@ import {
   answerPreference, distill, distillDue, formatPrefs, formatQuestion, formatWhy, getPref, loadStore, nextQuestion,
   readSignals, recordOutcome, retirePreference, syncTasteFile, tasteChangesSince, type Answer,
 } from './taste.js';
+import { cachedWorkspaces, dream, dreamDue, formatDream, formatWorkspaces, readLogPath, setTicked } from './dream.js';
 import { clashOf, refreshCard, refreshGate, refreshClashing, withRefreshLock, type RefreshDeps } from './refresh.js';
 import { formatLive, keepAffectsLive, liveOff, liveSet, liveUpdateLocked, loadLive, startLiveUpdate } from './live.js';
 import { agentInstalled, awayRunning, bedtimeKey, decideTrigger, installAgent, loadTriggerState, markFired, noteTick, parseClock, takeAwayLock, uninstallAgent } from './triggers.js';
@@ -80,6 +81,10 @@ Back
   chompyy trends                last 7 days vs the 7 before: cost per card, keep rate, rating, blueprint edits
 
 Taste (learned from what you keep, undo, edit and rate)
+  chompyy dream                 the nightly read: learn how you like to work from your coding sessions
+                                (--dry-run shows exactly what it would read; --since 3d to re-read)
+  chompyy dream workspaces      the folders and apps it can read, ticked or not
+  chompyy dream tick|untick <folder>   choose what it learns from (coding folders start ticked)
   chompyy taste                 show taste.md
   chompyy taste list            every preference: to ask, in taste.md, candidates, declined, retired
   chompyy taste why <id>        the cards, edits and quotes behind a preference
@@ -256,6 +261,22 @@ function blueprintInBackground(id: string): void {
   child.unref();
 }
 
+/** The nightly read, then distil: inside an active window only (a model call would otherwise start one). */
+async function dreamNow(now: Date, opts: { force?: boolean; dryRun?: boolean; sinceMs?: number } = {}): Promise<string> {
+  const config = loadConfig();
+  if (opts.dryRun) {
+    const r = await dream(new ClaudeRunner(config.claudeBin), { model: config.dreamModel, now, dryRun: true, sinceMs: opts.sinceMs });
+    return `Would read ${r.sessions} session${r.sessions === 1 ? '' : 's'} (~${Math.round(r.readTokens / 1000)}k tokens) in ${r.chunks} call${r.chunks === 1 ? '' : 's'} with ${config.dreamModel}. Exactly what it would read: ${readLogPath(now)}`;
+  }
+  if (!opts.force && !windowActive(now)) return 'No active 5-hour window: reading now would start one. It runs after your next away, or add --force.';
+  if (!claudeAvailable(config.claudeBin)) return `Can't find Claude Code (\`${config.claudeBin}\`).`;
+  const r = await dream(new ClaudeRunner(config.claudeBin), { model: config.dreamModel, now, sinceMs: opts.sinceMs });
+  const lines = [formatDream(r, config.dreamModel)];
+  if (r.signals) lines.push(`Taste: ${await distillNow(new Date(), true)}`);
+  lines.push(`What it read: ${readLogPath(now)}`);
+  return lines.join('\n');
+}
+
 /** Distil taste from new signals, but only inside an active window (a model call would otherwise start one). */
 async function distillNow(now: Date, force = false): Promise<string> {
   const config = loadConfig();
@@ -396,6 +417,14 @@ async function runAway(ms: number, opts: { dryRun?: boolean; force?: boolean; tr
   } finally {
     release();
   }
+  // After the cards (they come first): the nightly read of your everyday sessions, once a day.
+  if (!opts.dryRun && config.dream && dreamDue(new Date())) {
+    try {
+      console.log(`Nightly read: ${await dreamNow(new Date())}`);
+    } catch (err) {
+      console.log(`Nightly read: couldn't run (${err instanceof Error ? err.message : err})`);
+    }
+  }
   if (!opts.dryRun && config.distillAfterAway && distillDue(loadBoard(), new Date(), 0)) {
     try {
       console.log(`Taste: ${await distillNow(new Date())}`);
@@ -431,6 +460,7 @@ async function main(argv: string[]): Promise<void> {
       allow: { type: 'string', multiple: true },
       timeout: { type: 'string' },
       trigger: { type: 'string' },
+      since: { type: 'string' },
     },
   });
   const [command, ...args] = values.help ? ["help"] : positionals;
@@ -862,7 +892,9 @@ async function main(argv: string[]): Promise<void> {
       if (!d.fire) {
         noteTick(now, d.why);
         // Nightly consolidation: at bedtime, distil taste even when no card runs.
-        if (config.bedtime && bedtimeKey(now, config.bedtime, config.bedtimeWindowMin) && !awayRunning() && windowActive(now) && distillDue(board, now, 12 * 3600_000)) {
+        if (config.bedtime && config.dream && bedtimeKey(now, config.bedtime, config.bedtimeWindowMin) && !awayRunning() && windowActive(now) && dreamDue(now)) {
+          console.log(`${stamp} bedtime · nightly read: ${await dreamNow(now).catch((e) => String(e))}`);
+        } else if (config.bedtime && bedtimeKey(now, config.bedtime, config.bedtimeWindowMin) && !awayRunning() && windowActive(now) && distillDue(board, now, 12 * 3600_000)) {
           console.log(`${stamp} bedtime · taste: ${await distillNow(now).catch((e) => String(e))}`);
         } else if (values.json || process.stdout.isTTY) console.log(`${stamp} ${d.why}`);
         return;
@@ -916,6 +948,24 @@ async function main(argv: string[]): Promise<void> {
       if (v !== 'on' && v !== 'off') throw new Error('Usage: chompyy missed-reset <on|off>');
       setConfig('missedReset', v === 'on');
       console.log(`Missed-reset trigger ${v}.${v === 'on' ? ` Only cards already approved (chompyy approve) run; the budget gate still decides.${agentInstalled() ? '' : ' Turn triggers on with `chompyy triggers on`.'}` : ''}`);
+      return;
+    }
+    case 'dream': {
+      const sub = args[0];
+      if (sub === 'workspaces') {
+        if (values.json) return json(cachedWorkspaces(now, 0));
+        return console.log(formatWorkspaces(cachedWorkspaces(now, 0)));
+      }
+      if (sub === 'tick' || sub === 'untick') {
+        const w = setTicked(need(args.slice(1).join(' ') || undefined, `chompyy dream ${sub} <folder>`), sub === 'tick', now);
+        return console.log(`${w.ticked ? 'Ticked' : 'Unticked'} ${w.path}: the nightly read ${w.ticked ? 'will learn from' : "won't read"} its sessions.`);
+      }
+      if (sub === 'on' || sub === 'off') {
+        setConfig('dream', sub === 'on');
+        return console.log(`Nightly read ${sub}.`);
+      }
+      if (sub) throw new Error('Usage: chompyy dream [workspaces | tick <folder> | untick <folder> | on | off] [--dry-run] [--force] [--since 7d]');
+      console.log(await dreamNow(now, { force: Boolean(values.force), dryRun: Boolean(values['dry-run']), sinceMs: values.since ? parseDuration(values.since) : undefined }));
       return;
     }
     case 'distill': {

@@ -58,6 +58,10 @@ export interface Config {
   distillModel: string;
   /** Distil taste after an away run when there are new signals (uses the window that is already active). */
   distillAfterAway: boolean;
+  /** The nightly read: learn from your everyday coding sessions in the workspaces you ticked (dream.ts). */
+  dream: boolean;
+  /** Model for the nightly read. Opus found the most specific rules for the same tokens (research/nightly-read/). */
+  dreamModel: string;
   /** Trigger: run approved cards in the last hour before a 5-hour reset (needs `chompyy triggers on`). */
   lastHourTrigger: boolean;
   /** Last-hour trigger fires only with at least this % of the window left. */
@@ -143,6 +147,8 @@ export const DEFAULT_CONFIG: Config = {
   extraArgs: [],
   distillModel: 'sonnet',
   distillAfterAway: true,
+  dream: true,
+  dreamModel: 'opus',
   lastHourTrigger: true,
   lastHourMinLeftPct: 25,
   bedtime: null,

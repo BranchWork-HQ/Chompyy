@@ -1,13 +1,13 @@
-/** Parse "1h", "30m", "1h30m", "45s" or a bare number of minutes into milliseconds. */
+/** Parse "7d", "1h", "30m", "1h30m", "45s" or a bare number of minutes into milliseconds. */
 export function parseDuration(text: string): number {
   const s = text.trim().toLowerCase();
   if (/^\d+(\.\d+)?$/.test(s)) return checked(Number(s) * 60_000, text);
-  const re = /(\d+(?:\.\d+)?)\s*(h|m|s)/g;
+  const re = /(\d+(?:\.\d+)?)\s*(d|h|m|s)/g;
   let ms = 0;
   let consumed = '';
   for (const m of s.matchAll(re)) {
     const n = Number(m[1]);
-    ms += m[2] === 'h' ? n * 3_600_000 : m[2] === 'm' ? n * 60_000 : n * 1000;
+    ms += m[2] === 'd' ? n * 86_400_000 : m[2] === 'h' ? n * 3_600_000 : m[2] === 'm' ? n * 60_000 : n * 1000;
     consumed += m[0];
   }
   if (consumed.replace(/\s/g, '') !== s.replace(/\s/g, '')) throw new Error(`Can't read duration "${text}". Try 1h, 30m or 1h30m.`);

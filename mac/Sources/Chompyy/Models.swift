@@ -9,8 +9,35 @@ struct AppState: Decodable {
     let coldStart: ColdStartState?
     /// Rules waiting for your yes, and the ones in force ("What Chompyy heard from you").
     let taste: TasteState?
+    /// The nightly read: which workspaces it learns from, and how last night went.
+    let dream: DreamState?
     /// Set only after a forced refresh: what the live quota check did.
     let quotaRefresh: QuotaRefresh?
+}
+
+struct DreamState: Decodable {
+    let on: Bool
+    let model: String
+    let workspaces: [Workspace]
+    let last: Last?
+    struct Workspace: Decodable, Identifiable {
+        let path: String
+        let kind: String
+        let sessions: Int
+        let lastAt: String
+        let ticked: Bool
+        var id: String { path }
+        var name: String { kind == "desktop" ? path : (path as NSString).abbreviatingWithTildeInPath }
+        var kindLabel: String { kind == "repo" ? "coding folder" : kind == "desktop" ? "chats in the desktop app" : "not a git repo" }
+    }
+    struct Last: Decodable {
+        let at: String
+        let sessions: Int
+        let readTokens: Int
+        let signals: Int
+        let dropped: Int
+        let error: String?
+    }
 }
 
 struct TasteState: Decodable {

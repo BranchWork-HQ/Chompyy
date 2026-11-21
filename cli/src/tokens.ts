@@ -86,3 +86,17 @@ export function formatTokens(t: RunTokens): string {
 
 /** The stream log next to a run's text log. */
 export const streamPathFor = (logPath: string) => logPath.replace(/\.log$/, '.stream.jsonl');
+
+/** Two runs' tokens added up (several calls in one nightly read). */
+export function addTokens(a: RunTokens, b: RunTokens): RunTokens {
+  return {
+    input: a.input + b.input,
+    output: a.output + b.output,
+    cacheRead: a.cacheRead + b.cacheRead,
+    cacheWrite: a.cacheWrite + b.cacheWrite,
+    thinking: a.thinking + b.thinking,
+    costUsd: Math.round((a.costUsd + b.costUsd) * 10000) / 10000,
+    turns: a.turns + b.turns,
+    models: [...new Set([...a.models, ...b.models])],
+  };
+}
