@@ -31,7 +31,7 @@ struct BoardView: View {
         .toolbar {
             ToolbarItemGroup {
                 ParkIdeaButton()
-                Button { showUsage = true } label: { Label("Usage", systemImage: "chart.bar.xaxis") }
+                Button { showUsage = true } label: { Label("Usage", systemImage: "chart.bar.xaxis").labelStyle(.titleAndIcon) }
                     .help("Tokens and API value of every Claude Code conversation on this Mac")
                 Button { showColdStart = true } label: { Label("Suggest from my history", systemImage: "clock.arrow.circlepath") }
                     .help("Read your Claude Code history and suggest tasks and taste lines")
@@ -60,12 +60,16 @@ struct BoardView: View {
         }
         .sheet(isPresented: $showFeedback) { FeedbackView().environmentObject(store) }
         .sheet(isPresented: $showUsage) { UsageSheet().environmentObject(store) }
+        .onChange(of: store.openUsage) { _, tab in
+            if tab != nil { showUsage = true; store.openUsage = nil }
+        }
         .sheet(isPresented: $showColdStart) { ColdStartView().environmentObject(store) }
         .onAppear {
             // For testing: open a sheet straight away.
             if ProcessInfo.processInfo.environment["CHOMPYY_OPEN_COLDSTART"] != nil { showColdStart = true }
             if ProcessInfo.processInfo.environment["CHOMPYY_OPEN_FEEDBACK"] != nil { showFeedback = true }
             if ProcessInfo.processInfo.environment["CHOMPYY_OPEN_USAGE"] != nil { showUsage = true }
+            if store.openUsage != nil { showUsage = true; store.openUsage = nil }
         }
         .frame(minWidth: 1080, minHeight: 560)
     }

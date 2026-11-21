@@ -105,6 +105,12 @@ struct MenuPanel: View {
             Divider()
             if let t = store.usage?.today { UsageToday(today: t) }
             UsageInsights(compact: true)
+            HStack(spacing: 14) {
+                Button { openUsage("conversations") } label: { Label("Conversations", systemImage: "list.bullet.rectangle") }
+                Button { openUsage("trend") } label: { Label("All usage", systemImage: "chart.bar.xaxis") }
+            }
+            .buttonStyle(.link).font(.caption)
+            .help("Open the board's Usage view: click a conversation to see it turn by turn")
             Divider()
             let needs = store.needsYou
             if needs.isEmpty {
@@ -153,6 +159,12 @@ struct MenuPanel: View {
         .padding(16)
         .frame(width: 340)
         .overlay(alignment: .bottom) { Toast() }
+    }
+
+    private func openUsage(_ tab: String) {
+        UserDefaults.standard.set(tab, forKey: "usageTab")
+        store.openUsage = tab
+        openBoard()
     }
 
     private func openBoard() {
