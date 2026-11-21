@@ -261,6 +261,22 @@ Chompyy's main difference (see [the top](#what-makes-chompyy-different-taste-lea
 
 **What Chompyy learns from (2026-11-19).** Cards you approved, ran or rated (ratings, to-a-5 picks, blueprint edits, keep/undo, answers); **your everyday sessions with agents**: corrections in chat ("no, don't…"), edits you undo, files you rewrite right after the agent touched them; and **code you write yourself** (from git: the agent wrote X, you changed it to Y). How you work is fair game: how you like explanations, pictures first, short replies late at night.
 
+**What "Chompyy knows you" covers (2026-11-21).** The core layer leans into *how you work with your AI*, not facts about a project (those live in the code, CLAUDE.md and the agent's own memory, and they go stale). The nightly read looks for nine things, each with a real example from the first reads:
+
+| | What it learns | Example found in real sessions |
+|---|---|---|
+| 1 | **How replies should be shaped**: structure, length, plain words | "Lead with what you need to do; keep details behind commands" |
+| 2 | **How you learn and understand**: pictures first, examples, analogies | "Explain shorthand with a concrete example the first time" |
+| 3 | **How you decide**: a recommendation or options; what you keep for yourself (money, privacy, scope) | "Give a clear recommendation with reasoning" · "Ask before spending money" |
+| 4 | **How much to ask, and when to just act** | "After a short yes, carry out the whole step without more check-ins" |
+| 5 | **What earns your trust**: proof, measurements, receipts, owning mistakes | "Verify claims by measuring; say plainly whether it's really fixed" |
+| 6 | **How work should be done**: process, research first, your conventions | "Research prior art first" · "Don't commit docs until you've read them" |
+| 7 | **Your design and product taste**: look and feel, tone, naming | "Offer several visual options when you're unsure" |
+| 8 | **What annoys you**: things you ask to stop, or raise twice | "Never cut text off mid-sentence" · "No patches: build the system" |
+| 9 | **How you talk**: language, length, how you reply | "You quote lines back and answer each one: reply in numbered points" |
+
+**Praise counts as much as correction**: "LGTM", "awesome", "this gives me confidence" tell Chompyy what to keep doing. **Behaviour, never character**: a rule says what to do ("give a recommendation first"), never what kind of person you are ("indecisive"), and Chompyy never learns your opinions in order to agree with them (memory profiles raised agreement sycophancy up to 45% in one study; research/taste-learning-prior-art.md). **Chompyy's own voice follows the same rules**: its reports, notifications and questions use your active rules too, so it talks to you the way you like.
+
 **Not written:** one-off details of a single task, anything true only for one card, secrets (passwords, keys, tokens: never stored), and anything the repo already says. **Personal facts are stated, never inferred** (following Claude's privacy approach): if you tell Chompyy "I'm dyslexic, keep text short" or "I'm in Taipei", it can remember that in its own section of taste.md that you see and edit; it never guesses things like health, relationships, money or identity from your chats. The test for each candidate: *would this change what Chompyy does in a different task next week, and can it name the evidence?*
 
 | Feature | Status | Notes |
