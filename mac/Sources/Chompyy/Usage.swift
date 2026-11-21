@@ -247,7 +247,7 @@ struct ConversationsView: View {
                 .buttonStyle(.plain)
                 .help(c.away ? "Away runs keep no transcript, only their recorded totals." : "Open this conversation turn by turn")
             }
-            Text("Away runs: cost as Claude Code recorded it. Everything else: calculated from list prices, each reply counted once.")
+            Text("Click a conversation to see it turn by turn. Away runs: cost as Claude Code recorded it. Everything else: calculated from list prices, each reply counted once.")
                 .font(.caption2).foregroundStyle(.tertiary)
         }
         .sheet(item: $open) { c in TraceSheet(session: c.session) }

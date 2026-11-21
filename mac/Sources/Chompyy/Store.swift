@@ -12,6 +12,8 @@ final class Store: ObservableObject {
     @Published var selectedCardID: String?
     /// Tokens and API value from the usage ledger; loaded when a usage view shows (and kept fresh for the menu bar).
     @Published var usage: UsageData?
+    /// Set from the menu bar: the board opens its Usage sheet on this tab.
+    @Published var openUsage: String?
     private var usageLoadedAt: Date?
     /// Cards a Keep or Undo is finishing: shown in the column they're headed for until the CLI confirms.
     @Published var landing: [String: Column] = [:]
