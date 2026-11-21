@@ -4,8 +4,8 @@ import AppKit
 /// The board window: what's left at the top, the cards as a kanban, the selected card on the right.
 struct BoardView: View {
     @EnvironmentObject var store: Store
+    @Environment(\.openWindow) private var openWindow
     @State private var showFeedback = false
-    @State private var showUsage = false
     @State private var showColdStart = false
 
     var body: some View {
@@ -31,7 +31,7 @@ struct BoardView: View {
         .toolbar {
             ToolbarItemGroup {
                 ParkIdeaButton()
-                Button { showUsage = true } label: { Label("Usage", systemImage: "chart.bar.xaxis").labelStyle(.titleAndIcon) }
+                Button { openWindow(id: "usage") } label: { Label("Usage", systemImage: "chart.bar.xaxis").labelStyle(.titleAndIcon) }
                     .help("Tokens and API value of every Claude Code conversation on this Mac")
                 Button { showColdStart = true } label: { Label("Suggest from my history", systemImage: "clock.arrow.circlepath") }
                     .help("Read your Claude Code history and suggest tasks and taste lines")
@@ -59,17 +59,13 @@ struct BoardView: View {
             }
         }
         .sheet(isPresented: $showFeedback) { FeedbackView().environmentObject(store) }
-        .sheet(isPresented: $showUsage) { UsageSheet().environmentObject(store) }
-        .onChange(of: store.openUsage) { _, tab in
-            if tab != nil { showUsage = true; store.openUsage = nil }
-        }
+
         .sheet(isPresented: $showColdStart) { ColdStartView().environmentObject(store) }
         .onAppear {
             // For testing: open a sheet straight away.
             if ProcessInfo.processInfo.environment["CHOMPYY_OPEN_COLDSTART"] != nil { showColdStart = true }
             if ProcessInfo.processInfo.environment["CHOMPYY_OPEN_FEEDBACK"] != nil { showFeedback = true }
-            if ProcessInfo.processInfo.environment["CHOMPYY_OPEN_USAGE"] != nil { showUsage = true }
-            if store.openUsage != nil { showUsage = true; store.openUsage = nil }
+            if ProcessInfo.processInfo.environment["CHOMPYY_OPEN_USAGE"] != nil { openWindow(id: "usage") }
         }
         .frame(minWidth: 1080, minHeight: 560)
     }

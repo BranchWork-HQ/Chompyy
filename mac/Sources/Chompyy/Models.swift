@@ -299,6 +299,47 @@ struct UsageData: Decodable {
     let today: Tally
     let week: Week
     let unpriced: Int
+    /// The chosen period (Today / 7D / 30D / Month), with kinds of work and pull requests.
+    let period: String?
+    let view: PeriodView?
+    let compare: Compare?
+
+    struct KindTotal: Decodable, Identifiable { let kind: String; let total: Tally; var id: String { kind } }
+    struct PrCost: Decodable, Identifiable {
+        let repo: String
+        let number: Int
+        let url: String
+        let session: String
+        let title: String?
+        let at: String
+        let total: Tally
+        var id: String { "\(session)\(url)" }
+    }
+    struct PeriodView: Decodable {
+        let from: String
+        let days: [Day]
+        let total: Tally
+        let byWorkspace: [Project]
+        let byModel: [Model]
+        let conversations: [Conversation]
+        let byKind: [KindTotal]
+        let prs: [PrCost]
+        var asWeek: Week { Week(days: days, total: total, byWorkspace: byWorkspace, byModel: byModel, conversations: conversations) }
+    }
+    struct Compare: Decodable {
+        let yesterday: Tally
+        let avg7: Tally
+        let vsYesterdayPct: Int?
+        let month: Month
+        struct Month: Decodable {
+            let toDate: Tally
+            let lastMonthSameDays: Tally
+            let vsLastMonthPct: Int?
+            let projectedUsd: Double
+            let plan: Plan?
+        }
+        struct Plan: Decodable { let label: String; let priceUsd: Double; let multiple: Double; let projectedMultiple: Double }
+    }
 
     struct Tally: Decodable {
         let requests: Int

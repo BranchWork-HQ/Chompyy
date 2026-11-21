@@ -60,6 +60,8 @@ export interface Config {
   distillAfterAway: boolean;
   /** The nightly read: learn from your everyday coding sessions in the workspaces you ticked (dream.ts). */
   dream: boolean;
+  /** Your plan's monthly price in USD, for "your plan did N× its price"; null = list price for the plan Chompyy sees. */
+  planPriceUsd: number | null;
   /** Model for the nightly read. Opus found the most specific rules for the same tokens (research/nightly-read/). */
   dreamModel: string;
   /** Trigger: run approved cards in the last hour before a 5-hour reset (needs `chompyy triggers on`). */
@@ -149,6 +151,7 @@ export const DEFAULT_CONFIG: Config = {
   distillAfterAway: true,
   dream: true,
   dreamModel: 'opus',
+  planPriceUsd: null,
   lastHourTrigger: true,
   lastHourMinLeftPct: 25,
   bedtime: null,
