@@ -1,7 +1,14 @@
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach } from 'vitest';
+import { afterEach, beforeEach } from 'vitest';
+
+// Tests never touch the real ~/.chompyy: every test starts in a throwaway home, even one that forgets
+// useTempHome (which still sets its own). On 2026-11-21 three tests placed outside useTempHome's describe ran
+// liveSet on the real home and pointed the live app at a deleted temp repo.
+beforeEach(() => {
+  process.env.CHOMPYY_HOME = mkdtempSync(join(tmpdir(), 'chompyy-default-home-'));
+});
 
 // Tests never read the real Claude Code sessions on this Mac (the nightly read, dream.ts).
 process.env.CHOMPYY_CLAUDE_PROJECTS ??= mkdtempSync(join(tmpdir(), 'chompyy-no-sessions-'));
