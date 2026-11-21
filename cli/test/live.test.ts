@@ -31,14 +31,19 @@ function repo(): { root: string; g: (...a: string[]) => string; commit: (file: s
 }
 
 /** Records the commands; "builds" create what a real build would, so the next update sees them. */
-function fakeDeps(running = true): LiveDeps & { ran: string[]; lines: string[] } {
+function fakeDeps(running = true, opts: { quitAfter?: number; openFails?: number } = {}): LiveDeps & { ran: string[]; lines: string[]; slept: number } {
   const ran: string[] = [];
+  let quitIn = -1;
+  let openFails = opts.openFails ?? 0;
   const lines: string[] = [];
   return {
     ran,
     lines,
+    slept: 0,
     run: (cmd, args, cwd) => {
       ran.push([cmd.split('/').pop(), ...args].join(' '));
+      if (cmd === 'pkill') quitIn = opts.quitAfter ?? 0; // pkill only asks: it quits after a few checks
+      if (cmd === 'open' && openFails-- > 0) throw new Error('LSOpenURLsWithRole() failed with error -600');
       if (cmd.endsWith('build-app.sh')) mkdirSync(join(cwd, 'build', 'Chompyy.app'), { recursive: true });
       if (cmd === 'npm' && args[1] === 'build') {
         mkdirSync(join(cwd, 'dist'), { recursive: true });
@@ -46,7 +51,14 @@ function fakeDeps(running = true): LiveDeps & { ran: string[]; lines: string[] }
       }
     },
     log: (l) => lines.push(l),
-    appRunning: () => running,
+    appRunning: () => {
+      if (quitIn === 0) running = false;
+      else if (quitIn > 0) quitIn--;
+      return running;
+    },
+    sleep(ms) {
+      this.slept += ms;
+    },
     node: '/usr/bin/node',
   };
 }
@@ -160,6 +172,36 @@ describe('the live copy', () => {
     recordCliLocation();
     expect(JSON.parse(readFileSync(join(home(), 'cli.json'), 'utf8')).script).toBe(process.argv[1]);
   });
+  // 2026-11-21: pkill only asks the app to quit; `open` ran while it was still closing, failed, and the log said
+  // "the last good build keeps running" although the app was already closed.
+  it('waits for the old app to quit before opening the new one', () => {
+    const r = repo();
+    liveSet(r.root);
+    const d = fakeDeps(true, { quitAfter: 5 });
+    liveUpdate(d);
+    expect(d.ran.indexOf('open ' + join(home(), 'live', 'mac', 'build', 'Chompyy.app'))).toBeGreaterThan(d.ran.indexOf('pkill -x Chompyy'));
+    expect(d.slept).toBeGreaterThanOrEqual(5 * 200);
+    expect(d.lines.at(-1)).toBe('restarted the app with the new build.');
+  });
+
+  it('tries opening again when macOS refuses once', () => {
+    const r = repo();
+    liveSet(r.root);
+    const d = fakeDeps(true, { openFails: 1 });
+    const live = liveUpdate(d);
+    expect(d.ran.filter((c) => c.startsWith('open ')).length).toBe(2);
+    expect(live.error).toBeUndefined();
+  });
+
+  it('when it never opens, it says the app is closed instead of claiming the old one still runs', () => {
+    const r = repo();
+    liveSet(r.root);
+    const d = fakeDeps(true, { openFails: 99 });
+    const live = liveUpdate(d);
+    expect(live.error).toMatch(/didn't open: open .*Chompyy\.app by hand/);
+    expect(d.lines.at(-1)).toMatch(/^update failed and the app is closed/);
+  });
+
 });
 
 describe('planning an update', () => {

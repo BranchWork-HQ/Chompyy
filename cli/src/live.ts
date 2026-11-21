@@ -74,6 +74,8 @@ export interface LiveDeps {
   log: (line: string) => void;
   /** Is the Mac app running right now? */
   appRunning: () => boolean;
+  /** Wait (blocking): the app takes a moment to quit. */
+  sleep: (ms: number) => void;
   node: string;
 }
 
@@ -90,8 +92,12 @@ const defaultDeps = (log: (line: string) => void): LiveDeps => ({
       return false;
     }
   },
+  sleep: (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms),
   node: process.execPath,
 });
+
+/** Tries before giving up on opening the new app, one second apart. */
+export const OPEN_TRIES = 3;
 
 export const appBundle = (dir: string) => join(dir, 'mac', 'build', 'Chompyy.app');
 const lockHash = (dir: string) => {
@@ -122,6 +128,7 @@ export function liveUpdate(deps: LiveDeps = defaultDeps((l) => console.log(l))):
   const live = loadLive();
   if (!live) throw new Error('No live copy yet: run `chompyy live set <your Chompyy checkout>` once.');
   const { dir } = live;
+  let appClosed = false;
   try {
     const target = git(live.repo, ['rev-parse', live.branch]);
     git(dir, ['checkout', '--quiet', '--force', '--detach', target]);
@@ -154,8 +161,24 @@ export function liveUpdate(deps: LiveDeps = defaultDeps((l) => console.log(l))):
         try {
           deps.run('pkill', ['-x', 'Chompyy'], dir);
         } catch {}
+        // pkill only asks it to quit. Opening while the old app is still closing fails (2026-11-21): wait up to 10 s.
+        for (let i = 0; i < 50 && deps.appRunning(); i++) deps.sleep(200);
       }
-      deps.run('open', [appBundle(dir)], dir);
+      let failed: unknown;
+      for (let i = 0; i < OPEN_TRIES; i++) {
+        try {
+          deps.run('open', [appBundle(dir)], dir);
+          failed = undefined;
+          break;
+        } catch (err) {
+          failed = err;
+          if (i < OPEN_TRIES - 1) deps.sleep(1000);
+        }
+      }
+      if (failed) {
+        appClosed = wasRunning;
+        throw new Error(`the new app is built but didn't open: open ${appBundle(dir)} by hand (${(failed as Error).message.split('\n')[0]})`);
+      }
       deps.log(wasRunning ? 'restarted the app with the new build.' : 'opened the new app.');
     }
     delete live.error;
@@ -163,7 +186,8 @@ export function liveUpdate(deps: LiveDeps = defaultDeps((l) => console.log(l))):
   } catch (err) {
     const e = err as { message?: string; stderr?: Buffer | string };
     live.error = `${e.message ?? err}${e.stderr ? `\n${String(e.stderr).slice(-2000)}` : ''}`.trim();
-    deps.log(`update failed, the last good build keeps running: ${live.error.split('\n')[0]}`);
+    // Say what is really running: once the old app was closed, nothing is.
+    deps.log(appClosed ? `update failed and the app is closed: ${live.error.split('\n')[0]}` : `update failed, the last good build keeps running: ${live.error.split('\n')[0]}`);
   }
   live.at = new Date().toISOString();
   writeJson(livePath(), live);
