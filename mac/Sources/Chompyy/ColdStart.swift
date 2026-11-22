@@ -67,7 +67,7 @@ struct ColdStartBanner: View {
 
 struct ColdStartView: View {
     @EnvironmentObject var store: Store
-    @Environment(\.dismiss) private var dismiss
+    @Environment(\.closePopup) private var dismiss
 
     enum Phase { case notice, reading, pick, failed(String) }
     @State private var phase: Phase = .notice
@@ -116,9 +116,9 @@ struct ColdStartView: View {
             .onAppear { DispatchQueue.main.async { proxy.scrollTo("top", anchor: .top) } }
             }
         }
-        .frame(minWidth: 640, idealWidth: 700, minHeight: 560, idealHeight: 680)
-        .sheet(item: Binding(get: { digest.map { DiffText(text: $0) } }, set: { digest = $0?.text })) { d in
-            DigestSheet(text: d.text)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .dismissOnOutsideClick(item: $digest, width: 700, height: 600) { text in
+            DigestSheet(text: text)
         }
         .task { await load() }
     }
@@ -367,7 +367,7 @@ struct ColdStartView: View {
 /// The exact digest that would be sent, so nothing about the cold start is hidden.
 struct DigestSheet: View {
     let text: String
-    @Environment(\.dismiss) private var dismiss
+    @Environment(\.closePopup) private var dismiss
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -389,6 +389,6 @@ struct DigestSheet: View {
                     .padding(14)
             }
         }
-        .frame(minWidth: 680, minHeight: 520)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }

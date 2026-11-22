@@ -19,7 +19,7 @@ struct Signal: Decodable, Identifiable {
 
 /// Everything Chompyy has recorded from you (ratings, blueprint edits, answers): the raw material for taste.
 struct FeedbackView: View {
-    @Environment(\.dismiss) private var dismiss
+    @Environment(\.closePopup) private var dismiss
     @EnvironmentObject var store: Store
     @State private var signals: [Signal] = []
     @State private var loaded = false
@@ -102,7 +102,7 @@ struct FeedbackView: View {
                 }
             }
         }
-        .frame(minWidth: 600, minHeight: 520)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task {
             if let r = try? await Task.detached(operation: { try CLI.run(["signals", "--json"]) }).value, r.ok {
                 signals = (try? JSONDecoder().decode([Signal].self, from: Data(r.out.utf8))) ?? []
