@@ -442,7 +442,7 @@ struct ParkIdeaPopover: View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Park an idea for later").font(.headline)
             TextField("e.g. add a CONTRIBUTING.md with 3 rules", text: $idea, axis: .vertical)
-                .lineLimit(2...5)
+                .lineLimit(3...14)
                 .textFieldStyle(.roundedBorder)
                 .focused($ideaFocused)
             HStack(spacing: 8) {
