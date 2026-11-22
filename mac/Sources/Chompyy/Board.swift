@@ -4,8 +4,8 @@ import AppKit
 /// The board window: what's left at the top, the cards as a kanban, the selected card on the right.
 struct BoardView: View {
     @EnvironmentObject var store: Store
+    @Environment(\.openWindow) private var openWindow
     @State private var showFeedback = false
-    @State private var showUsage = false
     @State private var showColdStart = false
 
     var body: some View {
@@ -31,7 +31,7 @@ struct BoardView: View {
         .toolbar {
             ToolbarItemGroup {
                 ParkIdeaButton()
-                Button { showUsage = true } label: { Label("Usage", systemImage: "chart.bar.xaxis").labelStyle(.titleAndIcon) }
+                Button { openWindow(id: "usage") } label: { Label("Usage", systemImage: "chart.bar.xaxis").labelStyle(.titleAndIcon) }
                     .help("Tokens and API value of every Claude Code conversation on this Mac")
                 Button { showColdStart = true } label: { Label("Suggest from my history", systemImage: "clock.arrow.circlepath") }
                     .help("Read your Claude Code history and suggest tasks and taste lines")
@@ -59,32 +59,26 @@ struct BoardView: View {
             }
         }
         .dismissOnOutsideClick(isPresented: $showFeedback, width: 680, height: 680) { FeedbackView().environmentObject(store) }
-        .dismissOnOutsideClick(isPresented: $showUsage, width: 900, height: 760) { UsageSheet().environmentObject(store) }
-        .onChange(of: store.openUsage) { _, tab in
-            if tab != nil { showUsage = true; store.openUsage = nil }
-        }
         .dismissOnOutsideClick(isPresented: $showColdStart, width: 720, height: 700) { ColdStartView().environmentObject(store) }
         // The toolbar stays clickable over a pop-up, so opening one closes the others: one panel at a time.
+        // (Usage is its own window since #51, so it isn't one of them.)
         .onChange(of: showFeedback) { _, on in if on { only(feedback: true) } }
-        .onChange(of: showUsage) { _, on in if on { only(usage: true) } }
         .onChange(of: showColdStart) { _, on in if on { only(coldStart: true) } }
         .onChange(of: store.selectedCardID) { _, id in if id != nil { only() } }
         .onAppear {
             // For testing: open a sheet straight away.
             if ProcessInfo.processInfo.environment["CHOMPYY_OPEN_COLDSTART"] != nil { showColdStart = true }
             if ProcessInfo.processInfo.environment["CHOMPYY_OPEN_FEEDBACK"] != nil { showFeedback = true }
-            if ProcessInfo.processInfo.environment["CHOMPYY_OPEN_USAGE"] != nil { showUsage = true }
-            if store.openUsage != nil { showUsage = true; store.openUsage = nil }
+            if ProcessInfo.processInfo.environment["CHOMPYY_OPEN_USAGE"] != nil { openWindow(id: "usage") }
         }
         .frame(minWidth: 1080, minHeight: 560)
     }
 
     /// Keep the named pop-up open and close the rest, the open card included.
-    private func only(feedback: Bool = false, usage: Bool = false, coldStart: Bool = false) {
+    private func only(feedback: Bool = false, coldStart: Bool = false) {
         if !feedback { showFeedback = false }
-        if !usage { showUsage = false }
         if !coldStart { showColdStart = false }
-        if feedback || usage || coldStart { store.selectedCardID = nil }
+        if feedback || coldStart { store.selectedCardID = nil }
     }
 }
 

@@ -87,6 +87,7 @@ struct TrendView: View {
     let days: [UsageData.Day]
     let metric: UsageMetric
     var compact = false
+    var label = "Last 14 days"
 
     var body: some View {
         let values = days.map { metric.of($0.total) }
@@ -108,7 +109,7 @@ struct TrendView: View {
                 }
             }
             .frame(height: compact ? 56 : 168, alignment: .bottom)
-            Text("Last 14 days · peak \(metric.format(peak)) · average \(metric.format(avg)) on days you worked")
+            Text("\(label) · peak \(metric.format(peak)) · average \(metric.format(avg)) on days you worked")
                 .font(.caption2).foregroundStyle(.secondary)
         }
     }
@@ -412,79 +413,20 @@ struct ContextLine: View {
     }
 }
 
-/// The board's usage sheet: today, the switcher, and a note on what the numbers mean.
-struct UsageSheet: View {
-    @EnvironmentObject var store: Store
-    @Environment(\.closePopup) private var dismiss
-    /// The conversation open turn by turn, over this whole panel rather than just the list.
-    @State private var trace: String?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Usage").font(.title3.weight(.semibold))
-                    Text("Every Claude Code conversation on this Mac. API value is what the work would cost at list prices; on a subscription you pay your plan, not this.")
-                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer()
-                Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
-            }
-            if let t = store.usage?.today { UsageToday(today: t) }
-            UsageInsights()
-            Spacer(minLength: 0)
-        }
-        .padding(20)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .environment(\.openTrace, OpenTraceAction { trace = $0 })
-        .dismissOnOutsideClick(item: $trace, width: 860, height: 700) { session in
-            TraceSheet(session: session)
-        }
-        .task { await store.loadUsage(force: true) }
-    }
-}
-
-/// Opens one conversation turn by turn. Set by the Usage panel; does nothing elsewhere (the menu bar's
-/// compact view never lists conversations).
-struct OpenTraceAction {
-    var action: (String) -> Void = { _ in }
-    func callAsFunction(_ session: String) { action(session) }
-}
-
-private struct OpenTraceKey: EnvironmentKey {
-    static let defaultValue = OpenTraceAction()
-}
-
-extension EnvironmentValues {
-    var openTrace: OpenTraceAction {
-        get { self[OpenTraceKey.self] }
-        set { self[OpenTraceKey.self] = newValue }
-    }
-}
-
 /// For checking the look without opening a window: `CHOMPYY_RENDER_USAGE=/path/usage.png Chompyy` reads the
 /// ledger once, draws every usage view (dark, then light) and quits.
 @MainActor
 func renderUsageSheet(to path: String) {
-    guard let r = try? CLI.run(["usage", "--json", "--app"]), r.ok,
+    guard let r = try? CLI.run(["usage", "--json", "--app", "--period", "month"]), r.ok,
           let u = try? JSONDecoder().decode(UsageData.self, from: Data(r.out.utf8)) else { return }
     func page(_ scheme: ColorScheme) -> some View {
         VStack(alignment: .leading, spacing: 18) {
-            UsageToday(today: u.today)
-            TrendView(days: Array(u.days.suffix(14)), metric: .tokens)
-            HStack(alignment: .top, spacing: 30) {
-                CalendarHeatmap(days: u.days, metric: .tokens)
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Menu bar size").font(.caption).foregroundStyle(.secondary)
-                    TrendView(days: Array(u.days.suffix(14)), metric: .value, compact: true).frame(width: 300)
-                    CalendarHeatmap(days: u.days, metric: .value, compact: true)
-                }
-            }
-            ProjectsView(week: u.week, metric: .value)
-            ConversationsView(week: u.week, metric: .value)
+            UsageOverview(usage: u, metric: .value)
+            Text("Pull requests").font(.title3.weight(.semibold))
+            PullRequestsView(prs: Array((u.view?.prs ?? []).prefix(6)), metric: .value)
         }
         .padding(24)
-        .frame(width: 760)
+        .frame(width: 900)
         .background(scheme == .dark ? Color(red: 0.11, green: 0.10, blue: 0.09) : Color(red: 0.98, green: 0.95, blue: 0.90))
         .environment(\.colorScheme, scheme)
     }
@@ -509,5 +451,20 @@ func renderTraceSheet(to path: String, session: String) {
     renderer.scale = 2
     if let tiff = renderer.nsImage?.tiffRepresentation, let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) {
         try? png.write(to: URL(fileURLWithPath: path))
+    }
+}
+
+/// Opens a conversation turn by turn over the whole Usage window (card #23), from any list inside it.
+struct OpenTraceAction {
+    var action: (String) -> Void = { _ in }
+    func callAsFunction(_ session: String) { action(session) }
+}
+private struct OpenTraceKey: EnvironmentKey {
+    static let defaultValue = OpenTraceAction()
+}
+extension EnvironmentValues {
+    var openTrace: OpenTraceAction {
+        get { self[OpenTraceKey.self] }
+        set { self[OpenTraceKey.self] = newValue }
     }
 }

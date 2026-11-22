@@ -36,6 +36,11 @@ struct ChompyyApp: App {
             BoardView().environmentObject(store)
         }
         .defaultSize(width: 1280, height: 760)
+
+        Window("Usage", id: "usage") {
+            UsageWindow().environmentObject(store)
+        }
+        .defaultSize(width: 1100, height: 760)
     }
 }
 
@@ -106,11 +111,11 @@ struct MenuPanel: View {
             if let t = store.usage?.today { UsageToday(today: t) }
             UsageInsights(compact: true)
             HStack(spacing: 14) {
-                Button { openUsage("conversations") } label: { Label("Conversations", systemImage: "list.bullet.rectangle") }
-                Button { openUsage("trend") } label: { Label("All usage", systemImage: "chart.bar.xaxis") }
+                Button { openUsage(.conversations) } label: { Label("Conversations", systemImage: "list.bullet.rectangle") }
+                Button { openUsage(.overview) } label: { Label("All usage", systemImage: "chart.bar.xaxis") }
             }
             .buttonStyle(.link).font(.caption)
-            .help("Open the board's Usage view: click a conversation to see it turn by turn")
+            .help("Open the Usage window: click a conversation to see it turn by turn")
             Divider()
             let needs = store.needsYou
             if needs.isEmpty {
@@ -161,10 +166,10 @@ struct MenuPanel: View {
         .overlay(alignment: .bottom) { Toast() }
     }
 
-    private func openUsage(_ tab: String) {
-        UserDefaults.standard.set(tab, forKey: "usageTab")
-        store.openUsage = tab
-        openBoard()
+    private func openUsage(_ section: UsageSection) {
+        UserDefaults.standard.set(section.rawValue, forKey: "usageSection")
+        openWindow(id: "usage")
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     private func openBoard() {
