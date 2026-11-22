@@ -7,8 +7,9 @@
 // (token-saving-research-board) that had been switched to another branch, and nothing rebuilt after Keep.
 import { execFileSync, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { closeSync, existsSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { basename, dirname, join, resolve } from 'node:path';
 import { chompyyHome, homePath, readJson, writeJson } from './home.js';
 
 export interface LiveState {
@@ -22,6 +23,8 @@ export interface LiveState {
   builtCommit?: string;
   /** The commit the Mac app was last built from. */
   appCommit?: string;
+  /** The commit of the copy in ~/Applications (what Spotlight, Launchpad and the Dock open). */
+  installedCommit?: string;
   /** Hash of cli/package-lock.json when dependencies were last installed. */
   depsHash?: string;
   at?: string;
@@ -100,6 +103,12 @@ const defaultDeps = (log: (line: string) => void): LiveDeps => ({
 export const OPEN_TRIES = 3;
 
 export const appBundle = (dir: string) => join(dir, 'mac', 'build', 'Chompyy.app');
+
+/**
+ * Where the app is installed so you can open it like any Mac app (Spotlight, Launchpad, the Dock), without a
+ * terminal: ~/Applications/Chompyy.app. No admin rights needed. CHOMPYY_APPLICATIONS moves it (tests).
+ */
+export const installedApp = () => join(process.env.CHOMPYY_APPLICATIONS || join(homedir(), 'Applications'), 'Chompyy.app');
 const lockHash = (dir: string) => {
   const p = join(dir, 'cli', 'package-lock.json');
   return existsSync(p) ? createHash('sha256').update(readFileSync(p)).digest('hex').slice(0, 16) : 'none';
@@ -152,10 +161,15 @@ export function liveUpdate(deps: LiveDeps = defaultDeps((l) => console.log(l))):
       live.builtCommit = target;
     }
     pinCli(dir, deps.node);
+    const installed = installedApp();
+    // Also when only the installed copy is missing or behind (an older download sat there: 0.1.0 on 2026-11-22).
+    const install = plan.buildApp || !existsSync(installed) || live.installedCommit !== live.appCommit;
     if (plan.buildApp) {
       deps.log('building the Mac app (its code changed)…');
       deps.run(join(dir, 'mac', 'Scripts', 'build-app.sh'), [], join(dir, 'mac'));
       live.appCommit = target;
+    }
+    if (install) {
       const wasRunning = deps.appRunning();
       if (wasRunning) {
         try {
@@ -164,10 +178,17 @@ export function liveUpdate(deps: LiveDeps = defaultDeps((l) => console.log(l))):
         // pkill only asks it to quit. Opening while the old app is still closing fails (2026-11-21): wait up to 10 s.
         for (let i = 0; i < 50 && deps.appRunning(); i++) deps.sleep(200);
       }
+      // Replace the copy in Applications with this build, then open that copy.
+      if (basename(installed) !== 'Chompyy.app') throw new Error(`refusing to replace ${installed}`);
+      mkdirSync(dirname(installed), { recursive: true });
+      rmSync(installed, { recursive: true, force: true });
+      deps.run('ditto', [appBundle(dir), installed], dir);
+      live.installedCommit = live.appCommit;
       let failed: unknown;
       for (let i = 0; i < OPEN_TRIES; i++) {
         try {
-          deps.run('open', [appBundle(dir)], dir);
+          // In the background and marked as an update: the app comes back quietly to the menu bar.
+          deps.run('open', ['-g', installed, '--args', '--updated'], dir);
           failed = undefined;
           break;
         } catch (err) {
@@ -177,12 +198,12 @@ export function liveUpdate(deps: LiveDeps = defaultDeps((l) => console.log(l))):
       }
       if (failed) {
         appClosed = wasRunning;
-        throw new Error(`the new app is built but didn't open: open ${appBundle(dir)} by hand (${(failed as Error).message.split('\n')[0]})`);
+        throw new Error(`the new app is built but didn't open: open ${installed} by hand (${(failed as Error).message.split('\n')[0]})`);
       }
-      deps.log(wasRunning ? 'restarted the app with the new build.' : 'opened the new app.');
+      deps.log(`${wasRunning ? 'restarted the app with the new build' : 'opened the new app'} (installed in ${installed.replace(homedir(), '~')}).`);
     }
     delete live.error;
-    if (!plan.buildCli && !plan.buildApp && !plan.installDeps) deps.log(`already up to date at ${target.slice(0, 7)}.`);
+    if (!plan.buildCli && !install && !plan.installDeps) deps.log(`already up to date at ${target.slice(0, 7)}.`);
   } catch (err) {
     const e = err as { message?: string; stderr?: Buffer | string };
     live.error = `${e.message ?? err}${e.stderr ? `\n${String(e.stderr).slice(-2000)}` : ''}`.trim();
