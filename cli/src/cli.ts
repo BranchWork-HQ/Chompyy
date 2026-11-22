@@ -23,7 +23,7 @@ import { changedFiles, diffCard, keepCard, overlaps, questionsOf, undoCard } fro
 import { CappedText, ClaudeRunner, claudeAvailable } from './runner.js';
 import { branchOf, commitLeftovers, gitRoot, planWorkspace, prepareWorkspace } from './workspace.js';
 import { answerCard, appState, cardView, currentBranch, editBlueprint, editIdea, recordCliLocation } from './appstate.js';
-import { refreshLiveQuota } from './livequota.js';
+import { loadLiveState, refreshLiveQuota } from './livequota.js';
 import { recentProjects } from './projects.js';
 import { cliVersion, installApp } from './macapp.js';
 import { buildDigest, historyRetention, scanHistory } from './history.js';
@@ -36,7 +36,7 @@ import {
   readSignals, recordOutcome, retirePreference, syncTasteFile, tasteChangesSince, type Answer,
 } from './taste.js';
 import { cachedWorkspaces, dream, dreamDue, formatDream, formatWorkspaces, readLogPath, setTicked } from './dream.js';
-import { formatUsage, loadLedger, usageView } from './usage.js';
+import { byKind, compare, formatExtras, formatUsage, loadLedger, periodDays, PERIODS, prCosts, usageView, type Period } from './usage.js';
 import { formatTrace, traceSession } from './trace.js';
 import { homedir } from 'node:os';
 import { clashOf, refreshCard, refreshGate, refreshClashing, withRefreshLock, type RefreshDeps } from './refresh.js';
@@ -85,7 +85,8 @@ Back
 
 Taste (learned from what you keep, undo, edit and rate)
   chompyy trace <id>            one conversation turn by turn: cost per turn, context size, what ate the tokens
-  chompyy usage [--days 7]      tokens and API-value cost of every Claude Code conversation on this Mac
+  chompyy plan-price <usd|auto> what your plan costs a month, for "your plan did N× its price"
+  chompyy usage [--period today|7d|30d|month]   tokens and API-value cost of every Claude Code conversation on this Mac
   chompyy dream                 the nightly read: learn how you like to work from your coding sessions
                                 (--dry-run shows exactly what it would read; --since 3d to re-read)
   chompyy dream workspaces      the folders and apps it can read, ticked or not
@@ -468,6 +469,7 @@ async function main(argv: string[]): Promise<void> {
       since: { type: 'string' },
       days: { type: 'string' },
       app: { type: 'boolean' },
+      period: { type: 'string' },
     },
   });
   const [command, ...args] = values.help ? ["help"] : positionals;
@@ -943,6 +945,14 @@ async function main(argv: string[]): Promise<void> {
       console.log(`Bedtime set to ${v}: approved cards run then, with the window that is left.${agentInstalled() ? '' : ' Turn triggers on with `chompyy triggers on`.'}`);
       return;
     }
+    case 'plan-price': {
+      const v = need(args[0], 'chompyy plan-price <dollars per month | auto>');
+      const n = Number(v);
+      if (v !== 'auto' && !(Number.isFinite(n) && n > 0)) throw new Error('Usage: chompyy plan-price <dollars per month | auto>');
+      setConfig('planPriceUsd', v === 'auto' ? null : n);
+      console.log(v === 'auto' ? 'Plan price: the list price for the plan Chompyy sees.' : `Plan price: $${n} a month.`);
+      return;
+    }
     case 'last-hour': {
       const v = need(args[0], 'chompyy last-hour <on|off>');
       if (v !== 'on' && v !== 'off') throw new Error('Usage: chompyy last-hour <on|off>');
@@ -967,19 +977,29 @@ async function main(argv: string[]): Promise<void> {
       return;
     }
     case 'usage': {
-      const days = values.days ? Number(values.days) : 7;
-      if (!Number.isInteger(days) || days < 1 || days > 400) throw new Error('Usage: chompyy usage [--days 7] [--json]');
+      const period = (values.period ?? '') as Period;
+      if (values.period && !PERIODS.includes(period)) throw new Error(`Usage: chompyy usage [--period ${PERIODS.join('|')}] [--days 7] [--json]`);
+      const days = period ? periodDays(period, now) : values.days ? Number(values.days) : 7;
+      if (!Number.isInteger(days) || days < 1 || days > 400) throw new Error('Usage: chompyy usage [--period today|7d|30d|month] [--days 7] [--json]');
       // Titles only for workspaces the nightly read may see (your ticks); numbers count everywhere.
       const ticked = new Set(cachedWorkspaces(now).filter((w) => w.ticked).map((w) => w.path));
+      const canShow = (ws: string) => ticked.has(ws);
       const ledger = loadLedger();
-      const view = usageView(ledger, now, days, 10, (ws) => ticked.has(ws));
-      // For the app: 12 weeks of days (the calendar) plus this week's detail, in one call.
+      const view = usageView(ledger, now, days, 25, canShow);
+      const to = now.toISOString();
+      const cmp = compare(ledger, now, { label: loadLiveState().plan ?? null, priceUsd: loadConfig().planPriceUsd });
+      const kinds = byKind(ledger, view.from, to);
+      const prs = prCosts(ledger, view.from, to, canShow);
+      // For the app: 12 weeks of days (the calendar), this week (the menu bar), the chosen period with kinds of
+      // work and pull requests, and the comparisons, in one call.
       if (values.json && values.app) {
-        const long = usageView(ledger, now, 84, 0, (ws) => ticked.has(ws));
-        return json({ generatedAt: now.toISOString(), days: long.days, today: long.today, week: view, unpriced: long.unpriced });
+        const long = usageView(ledger, now, 84, 0, canShow);
+        const week = usageView(ledger, now, 7, 10, canShow);
+        return json({ generatedAt: to, period: period || `${days}d`, days: long.days, today: long.today, week, view: { ...view, byKind: kinds, prs }, compare: cmp, unpriced: long.unpriced });
       }
-      if (values.json) return json(view);
+      if (values.json) return json({ ...view, byKind: kinds, prs, compare: cmp });
       console.log(formatUsage(view, homedir()));
+      console.log(formatExtras(kinds, prs, cmp));
       return;
     }
     case 'dream': {

@@ -12,8 +12,6 @@ final class Store: ObservableObject {
     @Published var selectedCardID: String?
     /// Tokens and API value from the usage ledger; loaded when a usage view shows (and kept fresh for the menu bar).
     @Published var usage: UsageData?
-    /// Set from the menu bar: the board opens its Usage sheet on this tab.
-    @Published var openUsage: String?
     private var usageLoadedAt: Date?
     /// Cards a Keep or Undo is finishing: shown in the column they're headed for until the CLI confirms.
     @Published var landing: [String: Column] = [:]
@@ -57,7 +55,8 @@ final class Store: ObservableObject {
     func loadUsage(force: Bool = false) async {
         if !force, let at = usageLoadedAt, Date().timeIntervalSince(at) < 120 { return }
         usageLoadedAt = Date()
-        guard let r = try? await Task.detached(operation: { try CLI.run(["usage", "--json", "--app"]) }).value, r.ok,
+        let period = UserDefaults.standard.string(forKey: "usagePeriod") ?? "7d"
+        guard let r = try? await Task.detached(operation: { try CLI.run(["usage", "--json", "--app", "--period", period]) }).value, r.ok,
               let data = try? JSONDecoder().decode(UsageData.self, from: Data(r.out.utf8)) else { return }
         usage = data
     }
