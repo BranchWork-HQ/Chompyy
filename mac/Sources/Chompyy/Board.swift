@@ -108,6 +108,7 @@ struct QuotaHeader: View {
                 } else {
                     Text("Window unknown").font(.title3.weight(.semibold))
                     Text(q?.note ?? "Refresh to read live quota from Anthropic.").foregroundStyle(.secondary)
+                    if q?.askKeychain == true { AllowKeychainButton() }
                 }
             }
             Spacer()
@@ -536,5 +537,16 @@ struct Toast: View {
                 .transition(.move(edge: .bottom).combined(with: .opacity))
                 .onTapGesture { store.toast = nil }
         }
+    }
+}
+
+/// Live quota reads Claude Code's saved login from the Keychain only after you press this (#24). macOS then asks
+/// once whether `security` may read the "Claude Code-credentials" item.
+struct AllowKeychainButton: View {
+    @EnvironmentObject var store: Store
+    var body: some View {
+        Button("Allow") { Task { await store.act("keychain", ["quota", "--allow-keychain"]) } }
+            .disabled(store.busy.contains("keychain"))
+            .help("Read Claude Code's saved login from your Keychain, only to ask Anthropic how much quota is left")
     }
 }

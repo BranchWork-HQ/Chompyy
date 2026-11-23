@@ -57,6 +57,12 @@ export interface Config {
   sandboxAllowedDomains: string[];
   /** Where quota comes from: Anthropic's usage endpoint with Claude Code's saved login ("api"), or only the status line. */
   quotaSource: 'api' | 'statusline';
+  /**
+   * May the quota check read Claude Code's saved login from the macOS Keychain? null = not asked yet: no Keychain
+   * read until you allow it (`chompyy quota --allow-keychain`, or Allow in the app). #24: a tester wanted an opt-in
+   * rather than "choose Always Allow".
+   */
+  allowKeychain: boolean | null;
   /** Appended verbatim to every away-run `claude -p` call. */
   extraArgs: string[];
   /** Model that distils taste from your signals (a stronger model: it runs rarely and decides what gets asked). */
@@ -145,6 +151,7 @@ export const DEFAULT_CONFIG: Config = {
   maxDenied: 300,
   suggestedExpiryDays: 14,
   quotaSource: 'api',
+  allowKeychain: null,
   extraArgs: [],
   distillModel: 'sonnet',
   distillAfterAway: true,
