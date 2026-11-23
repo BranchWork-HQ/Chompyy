@@ -23,6 +23,7 @@ import { changedFiles, diffCard, keepCard, overlaps, questionsOf, undoCard } fro
 import { CappedText, ClaudeRunner, claudeAvailable } from './runner.js';
 import { branchOf, commitLeftovers, gitRoot, planWorkspace, prepareWorkspace } from './workspace.js';
 import { answerCard, appState, cardView, currentBranch, editBlueprint, editIdea, recordCliLocation } from './appstate.js';
+import { allWindowEnds, archiveWindowEnds, premise, premiseText } from './premise.js';
 import { keychainAllowed, loadLiveState, refreshLiveQuota } from './livequota.js';
 import { recentProjects } from './projects.js';
 import { cliVersion, installApp } from './macapp.js';
@@ -50,6 +51,7 @@ Quota
   chompyy status                % left, time to reset, pace, weekly used, staleness
   chompyy quota [--refresh]     read live quota from Anthropic now (uses Claude Code's saved login; sends no message)
   chompyy quota --allow-keychain | --no-keychain   allow (or stop) reading that login from the macOS Keychain
+  chompyy premise [--json]      how often a 5-hour window reset with capacity left while the week still had room
   chompyy eat-tokens            show leftover quota and cards you could choose to run (read-only)
 
 Board
@@ -1028,6 +1030,14 @@ async function main(argv: string[]): Promise<void> {
     }
     case 'distill': {
       console.log(await distillNow(now, Boolean(values.force)));
+      return;
+    }
+    case 'premise': {
+      const ends = allWindowEnds(loadSamples(), now.getTime());
+      archiveWindowEnds(loadSamples(), now.getTime());
+      const p = premise(ends);
+      if (values.json) return json({ ...p, windows: ends });
+      console.log(premiseText(p).join('\n'));
       return;
     }
     case 'trends': {
