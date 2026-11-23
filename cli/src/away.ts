@@ -27,9 +27,9 @@ export function safetyRules(workdir: string): string {
    no publishing packages, no purchases, no changes to remote services.
 3. If you need a decision only the user can make, stop and write the question(s) to QUESTIONS.md in this
    directory, with the options you see and your recommendation. Don't guess on anything irreversible.
-4. Stay inside the blueprint's scope. If this is a git repo, commit your work to the current branch: that is
-   always allowed, even if the blueprint says otherwise, because the branch is how the user reviews and undoes it.
-   Don't commit QUESTIONS.md.
+4. Stay inside the blueprint's scope. Don't commit: leave your changes as files in this directory. Chompyy
+   commits them to this folder's branch when you finish (the branch is how the user reviews and undoes it), and
+   the repo's .git is read-only to you. git status, git diff and git log work.
 5. Check your work the way the blueprint says (run the tests if there are any). Shell commands run in a
    sandbox, so local commands like tests and scripts are fine. The sandbox has no network: don't install or
    download anything (no npm install/ci, pip install, brew, curl). Dependencies the repo already has installed
@@ -41,7 +41,6 @@ export function safetyRules(workdir: string): string {
    CHECKS: not run — <why you couldn't check>`;
 }
 
-/** Claude Code sandbox settings for an away run: writes only in the card's folder (+ its repo's .git), no network. */
 /**
  * Build tools keep caches in your home folder (Go in ~/Library/Caches/go-build, npm in ~/.npm), which the
  * sandbox blocks. Point them at one Chompyy cache folder the sandbox allows, so tests and builds work.
@@ -58,19 +57,39 @@ export function cacheEnv(dir: string): Record<string, string> {
   };
 }
 
-export function sandboxSettings(ws: Workspace, allowedDomains: string[], cacheDir?: string, denyRead: string[] = []): Record<string, unknown> {
+/**
+ * Claude Code sandbox settings for an away run: writes only in the card's folder, the tool cache and temp folders;
+ * no network. Not the repo's .git: from there a hook or a config line (core.fsmonitor, core.hooksPath) would run
+ * outside the sandbox the next time git runs in your checkout, keep included (#24). Chompyy commits instead.
+ */
+export function sandboxSettings(_ws: Workspace, allowedDomains: string[], cacheDir?: string, denyRead: string[] = []): Record<string, unknown> {
   return {
     sandbox: {
       enabled: true,
       failIfUnavailable: true, // refuse to run rather than run unprotected
       allowUnsandboxedCommands: false, // no retrying outside the sandbox
-      filesystem: { allowWrite: [...(ws.gitDir ? [ws.gitDir] : []), ...(cacheDir ? [cacheDir] : []), ...boxTempDirs()], ...(denyRead.length ? { denyRead } : {}) },
+      filesystem: { allowWrite: [...(cacheDir ? [cacheDir] : []), ...boxTempDirs()], ...(denyRead.length ? { denyRead } : {}) },
       network: { allowedDomains },
       // Commands are confined by the sandbox, so local ones (tests, scripts) run without a prompt.
       // The deny list still blocks outward commands (push, publish, curl, …).
       autoAllowBashIfSandboxed: true,
     },
   };
+}
+
+/** Web tools: they don't go through the sandbox's network block, so away runs only get them when you turn on awayWeb. */
+const WEB_TOOLS = new Set(['WebSearch', 'WebFetch']);
+/** Read, Glob and Grep with no path open every file on the Mac; without them, the file tools read the card's folder only. */
+const READ_ANYWHERE = new Set(['Read', 'Glob', 'Grep']);
+
+/**
+ * The tools an unattended run may use without asking (#24). A run tricked by text in the repo could otherwise read
+ * files outside its folder and send them out in a WebFetch URL. Also applied to an older config.json that still
+ * lists them.
+ */
+export function awayTools(config: Pick<Config, 'allowedTools' | 'awayWeb'>, extra: string[] = []): string[] {
+  const tools = [...config.allowedTools, ...extra].filter((t) => !READ_ANYWHERE.has(t) && !WEB_TOOLS.has(t));
+  return config.awayWeb ? [...tools, ...WEB_TOOLS] : tools;
 }
 
 /** Read rules for the file tools: the sandbox's denyRead only covers shell commands. */
@@ -319,7 +338,7 @@ export async function runCard(id: string, timeoutMs: number, deps: AwayDeps, tri
       maxTurns: config.maxTurns,
       permissionMode: config.permissionMode,
       permissionPrompts: config.permissionPrompts,
-      allowedTools: [...config.allowedTools, ...granted.allowedTools],
+      allowedTools: awayTools(config, granted.allowedTools),
       disallowedTools: [...config.disallowedTools, ...denyReadRules(config.denyReadPaths)],
       ...(config.sandbox ? { settings: sandboxSettings(ws, [...config.sandboxAllowedDomains, ...granted.domains], cacheDir, config.denyReadPaths) } : {}),
       env: cacheEnv(cacheDir),
@@ -342,7 +361,7 @@ export async function runCard(id: string, timeoutMs: number, deps: AwayDeps, tri
       out(`  blocked on: ${[...result.needs.commands, ...result.needs.hosts].join(', ')} (offered on the next blueprint here)`);
     }
     try {
-      if (deps.commitLeftovers?.(ws, card)) out('  (committed changes the agent left uncommitted)');
+      if (deps.commitLeftovers?.(ws, card)) out("  (Chompyy committed the agent's changes)");
     } catch (err) {
       out(`  couldn't commit leftover changes: ${err instanceof Error ? err.message : err}`);
     }

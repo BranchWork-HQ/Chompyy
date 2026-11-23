@@ -123,6 +123,16 @@ describe('refreshing a card', () => {
     expect(d.kept).toEqual([]); // you didn't press Keep: it waits for you
   });
 
+  it("the agent only fixes the files (it can't write .git); Chompyy finishes the merge (#24)", async () => {
+    const c = clashingCard();
+    const runner = agent((dir) => writeFileSync(join(dir, 'app.ts'), 'line1\nimport a, card, kept\nline3\n'));
+    const r = await refreshCard(c.id, deps(runner));
+    expect(r).toMatchObject({ state: 'done', by: 'agent' });
+    expect(runner.prompts[0]).toMatch(/don't `git add` or commit/);
+    expect(g(c.wt, 'status', '--porcelain')).toBe('');
+    expect(g(c.wt, 'rev-parse', 'HEAD^2')).toBe(g(c.repo, 'rev-parse', 'main')); // a real merge commit with main
+  });
+
   it('keeps it by itself when you had pressed Keep and the check passes', async () => {
     const c = clashingCard();
     updateBoard((b) => (getCard(b, c.id).keepWhenRefreshed = true));

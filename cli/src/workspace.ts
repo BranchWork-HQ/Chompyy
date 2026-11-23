@@ -1,8 +1,8 @@
 // Where a card runs (spec §5.5): its own git worktree on chompyy/<id>, or a draft folder.
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync } from 'node:fs';
-import { basename, join } from 'node:path';
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { basename, dirname, join, resolve } from 'node:path';
 import type { Card } from './board.js';
 import { setupDependencies, type DepsStep } from './deps.js';
 import { homePath } from './home.js';
@@ -15,7 +15,7 @@ export interface Workspace {
   base?: { ref: string; commit: string; branch: string };
   /** Where each package folder's dependencies came from (setup stage). */
   setup?: DepsStep[];
-  /** The repo's shared .git folder: commits in a worktree write here. */
+  /** The repo's shared .git folder. Read-only to the agent; Chompyy commits for it. */
   gitDir?: string;
 }
 
@@ -123,19 +123,57 @@ export const NEVER_COMMIT = ['QUESTIONS.md', '.claude'];
 export const JUNK_FILES = ['.DS_Store', 'Thumbs.db', 'desktop.ini'];
 
 /**
- * Safety net after a run: commit anything the agent left uncommitted in its worktree, so keep merges the
- * whole result and undo removes it. Without this, keep would merge nothing and then delete the folder.
- * Returns true when it made a commit.
+ * The agent can edit any file in its folder, the `.git` link file included. Pointed at a folder it made, git would
+ * read that folder's config (hooks, core.fsmonitor, filters) and run it, outside the sandbox, the next time Chompyy
+ * runs git there (#24). So after a run, before any git command in the folder, the link goes back to the repo's own
+ * record of this worktree (in .git, which the agent can't write). Returns true when it had to repair it.
+ */
+export function restoreGitLink(dir: string, gitDir: string): boolean {
+  const want = realpathSync(dir);
+  const records = join(gitDir, 'worktrees');
+  const name = existsSync(records)
+    ? readdirSync(records).find((n) => {
+        try {
+          const linked = resolve(gitDir, readFileSync(join(records, n, 'gitdir'), 'utf8').trim());
+          return existsSync(dirname(linked)) && realpathSync(dirname(linked)) === want;
+        } catch {
+          return false;
+        }
+      })
+    : undefined;
+  if (!name) throw new Error(`${gitDir} has no record of the worktree ${dir}`);
+  const link = `gitdir: ${join(records, name)}\n`;
+  const path = join(dir, '.git');
+  const stat = existsSync(path) || isLink(path) ? lstatSync(path) : null;
+  if (stat?.isFile() && readFileSync(path, 'utf8') === link) return false;
+  rmSync(path, { recursive: true, force: true });
+  writeFileSync(path, link);
+  return true;
+}
+
+const isLink = (p: string) => {
+  try {
+    return lstatSync(p).isSymbolicLink();
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * After a run: commit the agent's changes in its worktree (the agent can't write .git, so it never commits
+ * itself), so keep merges the whole result and undo removes it. Puts the worktree's .git link back first when
+ * the workspace knows its repo. Returns true when it made a commit.
  */
 export function commitLeftovers(ws: Workspace, card: Pick<Card, 'id' | 'title'>): boolean {
   if (ws.kind !== 'worktree' || !existsSync(ws.dir)) return false;
+  if (ws.gitDir) restoreGitLink(ws.dir, ws.gitDir);
   // Add exactly the changed files we want, by name. Naming excluded paths instead (":(exclude).claude") makes git
   // fail outright when the repo also gitignores them (Keep broke this way on 2026-11-18).
   const files = changedPaths(ws.dir).filter((f) => !neverCommit(f));
   for (let i = 0; i < files.length; i += 200) git(ws.dir, ['add', '-A', '--', ...files.slice(i, i + 200)]);
   const staged = git(ws.dir, ['diff', '--cached', '--name-only']);
   if (!staged) return false;
-  git(ws.dir, ['-c', 'user.name=Chompyy', '-c', 'user.email=chompyy@localhost', 'commit', '--no-verify', '-m', `Chompyy card #${card.id}: ${card.title}\n\nCommitted by Chompyy: the agent left these changes uncommitted.`]);
+  git(ws.dir, ['-c', 'user.name=Chompyy', '-c', 'user.email=chompyy@localhost', 'commit', '--no-verify', '-m', `Chompyy card #${card.id}: ${card.title}\n\nMade by an away run; committed by Chompyy.`]);
   return true;
 }
 

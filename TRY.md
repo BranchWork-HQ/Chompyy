@@ -43,7 +43,7 @@ The board starts with **Let Chompyy get to know you**. Press **Get started**: it
 ## Good to know
 
 - **Your code is safe by default.** Each card runs in its own copy (`~/.chompyy/worktrees/<id>`, branch `chompyy/<id>`). Nothing reaches your branch until you press Keep.
-- **It can't go outward.** Away runs are sandboxed: no push, no publish, no network from the shell. It can read web pages for research.
+- **It can't go outward.** Away runs are sandboxed: no push, no publish, no network from the shell, and no web tools (blueprints still search the web while you're there). The agent reads only its own folder and can't write your repo's `.git`; Chompyy makes the commit after it finishes. Set `"awayWeb": true` in config.json to give away runs web search back.
 - **It only uses capacity you'd lose.** It waits for an active 5-hour window, stops when the window runs low, and never starts a new window just to draft.
 - **Everything stays on your Mac** in `~/.chompyy/`. The only calls out are Claude Code itself and the quota check to Anthropic.
 

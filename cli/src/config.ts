@@ -29,6 +29,11 @@ export interface Config {
   /** --permission-prompts for away runs; "none" denies anything that would prompt instead of hanging. */
   permissionPrompts: string | null;
   allowedTools: string[];
+  /**
+   * WebSearch and WebFetch in away runs. Off by default: they don't go through the sandbox's network block, so a run
+   * tricked by text in the repo could send what it read out in a URL (#24). Blueprints keep them.
+   */
+  awayWeb: boolean;
   disallowedTools: string[];
   /** Run away cards in Claude Code's OS sandbox: shell writes only in the card's folder, network off. */
   sandbox: boolean;
@@ -91,17 +96,10 @@ export const DEFAULT_CONFIG: Config = {
   permissionMode: 'acceptEdits',
   permissionPrompts: 'none',
   allowedTools: [
-    'Read',
-    'Glob',
-    'Grep',
-    'WebSearch',
-    'WebFetch',
     'Bash(ls *)',
     'Bash(git status *)',
     'Bash(git diff *)',
     'Bash(git log *)',
-    'Bash(git add *)',
-    'Bash(git commit *)',
     'Bash(npm test *)',
     'Bash(npm run *)',
     'Bash(npx vitest *)',
@@ -120,6 +118,7 @@ export const DEFAULT_CONFIG: Config = {
     'Bash(curl *)',
     'Bash(rm -rf *)',
   ],
+  awayWeb: false,
   sandbox: true,
   sandboxAllowedDomains: [],
   denyReadPaths: [

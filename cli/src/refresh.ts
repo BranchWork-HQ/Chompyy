@@ -7,7 +7,7 @@
 import { execFileSync } from 'node:child_process';
 import { closeSync, existsSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { cacheEnv, denyReadRules, safetyRules, sandboxSettings } from './away.js';
+import { awayTools, cacheEnv, denyReadRules, safetyRules, sandboxSettings } from './away.js';
 import { getCard, loadBoard, updateBoard, type Card, type Refresh } from './board.js';
 import type { Config } from './config.js';
 import { homePath } from './home.js';
@@ -15,7 +15,7 @@ import { windowView, type Snapshot } from './quota.js';
 import type { Runner } from './runner.js';
 import type { Verified } from './verify.js';
 import type { RunTokens } from './tokens.js';
-import { commitLeftovers, gitRoot, type Workspace } from './workspace.js';
+import { commitLeftovers, gitRoot, restoreGitLink, type Workspace } from './workspace.js';
 
 const git = (cwd: string, args: string[]) =>
   execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
@@ -87,7 +87,8 @@ ${files.map((f) => `- ${f}`).join('\n')}
 Resolve every conflict so that BOTH changes work: this card's change (what it was for: ${card.idea}) and what is
 already on ${branch}. Usually that means keeping both sides and fitting them together: both imports, both fields,
 both functions, both tests. Don't drop either side's feature, don't change anything else, and don't restart or
-abort the merge. Then \`git add\` the files and finish with \`git commit --no-edit\`.
+abort the merge. Leave the resolved files as they are: don't \`git add\` or commit (.git is read-only to you).
+Chompyy checks them and finishes the merge.
 ${checks.length ? `
 After the merge, check it (these pass on ${branch}):
 ${checks.map((c) => `- in ${c.dir || 'the top folder'}: \`${c.label}\``).join('\n')}
@@ -159,7 +160,9 @@ export async function refreshCard(id: string, deps: RefreshDeps): Promise<Refres
 
   commitLeftovers({ kind: 'worktree', dir }, card);
   const before = git(dir, ['rev-parse', 'HEAD']);
+  let agentGitDir: string | undefined;
   const undo = () => {
+    if (agentGitDir) restoreGitLink(dir, agentGitDir); // the agent may have repointed it; never run git through its link
     if (ok(dir, ['rev-parse', '-q', '--verify', 'MERGE_HEAD'])) ok(dir, ['merge', '--abort']);
     ok(dir, ['reset', '-q', '--hard', before]);
   };
@@ -171,6 +174,7 @@ export async function refreshCard(id: string, deps: RefreshDeps): Promise<Refres
     const config = deps.config;
     const gitDir = resolve(dir, git(dir, ['rev-parse', '--git-common-dir']));
     const ws: Workspace = { kind: 'worktree', dir, branch: run.branch!, gitDir };
+    agentGitDir = gitDir;
     const cacheDir = homePath('cache', 'tools');
     try {
       const result = await deps.runner.run({
@@ -181,7 +185,7 @@ export async function refreshCard(id: string, deps: RefreshDeps): Promise<Refres
         maxTurns: config.maxTurns,
         permissionMode: config.permissionMode,
         permissionPrompts: config.permissionPrompts,
-        allowedTools: config.allowedTools,
+        allowedTools: awayTools(config),
         disallowedTools: [...config.disallowedTools, ...denyReadRules(config.denyReadPaths)],
         ...(config.sandbox ? { settings: sandboxSettings(ws, config.sandboxAllowedDomains, cacheDir, config.denyReadPaths) } : {}),
         env: cacheEnv(cacheDir),
@@ -198,7 +202,15 @@ export async function refreshCard(id: string, deps: RefreshDeps): Promise<Refres
       undo();
       return fail(`the agent didn't run (${err instanceof Error ? err.message : err}); nothing was changed`);
     }
-    // Chompyy checks the agent's merge itself, never on its word.
+    // The agent can't write .git, so Chompyy finishes the merge: only once no conflict markers are left.
+    restoreGitLink(dir, gitDir);
+    const resolved = clash.files.every((f) => !existsSync(join(dir, f)) || !MARKERS.test(readFileSync(join(dir, f), 'utf8')));
+    if (resolved && ok(dir, ['rev-parse', '-q', '--verify', 'MERGE_HEAD'])) {
+      ok(dir, ['add', '-A', '--', ...clash.files]);
+      ok(dir, ['add', '-u']);
+      ok(dir, [...ident, 'commit', '--no-verify', '--no-edit']);
+    }
+    // Chompyy checks the merge itself, never on the agent's word.
     const stillMerging = ok(dir, ['rev-parse', '-q', '--verify', 'MERGE_HEAD']);
     const leftMarkers = clash.files.filter((f) => existsSync(join(dir, f)) && MARKERS.test(readFileSync(join(dir, f), 'utf8')));
     const hasMain = ok(dir, ['merge-base', '--is-ancestor', clash.onto, 'HEAD']);
