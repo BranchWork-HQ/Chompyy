@@ -1,8 +1,62 @@
 import SwiftUI
 import AppKit
+import ServiceManagement
+
+/// Opening Chompyy like any Mac app (Launchpad, Spotlight, the Dock, Finder) shows the board. It's a menu bar
+/// app with no Dock icon, so otherwise opening it looks like nothing happened. Starting at login or restarting
+/// after an update (`--updated`) stays quietly in the menu bar.
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    /// Set by the menu bar icon, which can open windows.
+    static var openBoard: (() -> Void)?
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        let event = NSAppleEventManager.shared().currentAppleEvent
+        let atLogin = event?.paramDescriptor(forKeyword: keyAEPropData)?.enumCodeValue == keyAELaunchedAsLogInItem
+        let updated = CommandLine.arguments.contains("--updated")
+        LoginItem.turnOnOnce()
+        if !atLogin && !updated {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { AppDelegate.openBoard?() }
+        }
+    }
+
+    /// Opened again while already running (clicked in Launchpad or Spotlight): show the board.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        AppDelegate.openBoard?()
+        return true
+    }
+}
+
+/// "Open Chompyy at login", through macOS's own login items (System Settings › General › Login Items).
+enum LoginItem {
+    static var isOn: Bool { SMAppService.mainApp.status == .enabled }
+
+    /// Chompyy lives in the menu bar, so it starts at login by default: turned on the first time the installed
+    /// copy (~/Applications) runs. Only once, so turning it off in the ⋯ menu sticks. Dev builds are left alone.
+    static func turnOnOnce() {
+        let key = "loginItemDefaulted"
+        guard Bundle.main.bundlePath.hasSuffix("/Applications/Chompyy.app"),
+              !UserDefaults.standard.bool(forKey: key) else { return }
+        UserDefaults.standard.set(true, forKey: key)
+        if !isOn { try? SMAppService.mainApp.register() }
+    }
+
+    /// Turn it on or off; returns what to tell you when macOS wants your approval or says no.
+    static func set(_ on: Bool) -> String? {
+        do {
+            if on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
+        } catch {
+            return "Couldn't change it: \(error.localizedDescription)"
+        }
+        if on && SMAppService.mainApp.status == .requiresApproval {
+            return "macOS needs your OK: System Settings › General › Login Items, then allow Chompyy."
+        }
+        return on ? "Chompyy will open when you log in." : "Chompyy won't open at login."
+    }
+}
 
 @main
 struct ChompyyApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @StateObject private var store = Store()
 
     init() {
@@ -59,6 +113,10 @@ struct MenuBarIcon: View {
             Text(title)
         }
         .task {
+            AppDelegate.openBoard = {
+                openWindow(id: "board")
+                NSApp.activate(ignoringOtherApps: true)
+            }
             if ProcessInfo.processInfo.environment["CHOMPYY_OPEN_BOARD"] == "1" {
                 openWindow(id: "board")
                 NSApp.activate(ignoringOtherApps: true)
@@ -81,6 +139,7 @@ extension MenuBarIcon {
 struct MenuPanel: View {
     @EnvironmentObject var store: Store
     @AppStorage("menuBarShows") private var menuBarShows = "left"
+    @State private var loginItem = LoginItem.isOn
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
@@ -149,6 +208,10 @@ struct MenuPanel: View {
                 AwayMenu()
                 Menu {
                     Button("Refresh now") { Task { await store.refresh(forceQuota: true); await store.loadUsage(force: true) } }
+                    Toggle("Open Chompyy at login", isOn: Binding(get: { loginItem }, set: { on in
+                        if let message = LoginItem.set(on) { store.show(message) }
+                        loginItem = LoginItem.isOn
+                    }))
                     Picker("Menu bar shows", selection: $menuBarShows) {
                         Text("% of the window left").tag("left")
                         Text("Today's tokens").tag("tokens")

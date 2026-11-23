@@ -10,6 +10,9 @@ beforeEach(() => {
   process.env.CHOMPYY_HOME = mkdtempSync(join(tmpdir(), 'chompyy-default-home-'));
 });
 
+// Tests never replace the real ~/Applications/Chompyy.app (the live update installs the app there).
+process.env.CHOMPYY_APPLICATIONS ??= mkdtempSync(join(tmpdir(), 'chompyy-applications-'));
+
 // Tests never read the real Claude Code sessions on this Mac (the nightly read, dream.ts).
 process.env.CHOMPYY_CLAUDE_PROJECTS ??= mkdtempSync(join(tmpdir(), 'chompyy-no-sessions-'));
 
