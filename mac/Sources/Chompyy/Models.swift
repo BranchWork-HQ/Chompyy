@@ -71,6 +71,8 @@ struct Quota: Decodable {
     let capturedAt: String?
     let plan: String?
     let note: String?
+    /// Live quota waits for your OK to read Claude Code's login from the Keychain (#24).
+    let askKeychain: Bool?
     let fiveHour: WindowView
     let sevenDay: WindowView
 

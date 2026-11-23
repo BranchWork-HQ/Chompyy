@@ -20,11 +20,10 @@ Thanks for trying it. Chompyy is in its first test version: it has rough edges, 
 
 ```bash
 npm install -g chompyy
-chompyy status      # first run: reads your quota
-chompyy app         # downloads the Mac app to ~/Applications and opens it
+chompyy app         # downloads the Mac app to ~/Applications, checks it, and opens it
 ```
 
-On the first `chompyy status`, macOS asks whether `security` may use the **"Claude Code-credentials"** keychain item. Choose **Always Allow**. Chompyy uses Claude Code's own login only to ask Anthropic how much of your 5-hour and weekly limit is left; it never sends a message and never changes your limits. Choose Deny and Chompyy falls back to reading Claude Code's status line (see [cli/README.md](cli/README.md#set-up-the-quota-snapshot-fallback)).
+**Live quota is your choice.** To show how much of your 5-hour and weekly limit is left, Chompyy can use Claude Code's own saved login, which lives in your macOS Keychain. It asks first: press **Allow** next to the quota in the app, or run `chompyy quota --allow-keychain`. macOS then asks whether `security` may use the **"Claude Code-credentials"** item; choose **Always Allow** so it doesn't ask every 5 minutes. The login is used only to ask Anthropic for your quota: no message is sent and your limits aren't changed. Rather not? Run `chompyy quota --no-keychain`, and Chompyy reads Claude Code's status line instead (see [cli/README.md](cli/README.md#set-up-the-quota-snapshot-fallback)).
 
 A 🍪 appears in your menu bar. Click it, then **Open board**.
 

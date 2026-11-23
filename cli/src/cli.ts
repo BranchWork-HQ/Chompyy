@@ -23,7 +23,7 @@ import { changedFiles, diffCard, keepCard, overlaps, questionsOf, undoCard } fro
 import { CappedText, ClaudeRunner, claudeAvailable } from './runner.js';
 import { branchOf, commitLeftovers, gitRoot, planWorkspace, prepareWorkspace } from './workspace.js';
 import { answerCard, appState, cardView, currentBranch, editBlueprint, editIdea, recordCliLocation } from './appstate.js';
-import { loadLiveState, refreshLiveQuota } from './livequota.js';
+import { keychainAllowed, loadLiveState, refreshLiveQuota } from './livequota.js';
 import { recentProjects } from './projects.js';
 import { cliVersion, installApp } from './macapp.js';
 import { buildDigest, historyRetention, scanHistory } from './history.js';
@@ -49,6 +49,7 @@ Quota
   chompyy statusline            Claude Code statusLine command: reads JSON on stdin, saves a snapshot
   chompyy status                % left, time to reset, pace, weekly used, staleness
   chompyy quota [--refresh]     read live quota from Anthropic now (uses Claude Code's saved login; sends no message)
+  chompyy quota --allow-keychain | --no-keychain   allow (or stop) reading that login from the macOS Keychain
   chompyy eat-tokens            show leftover quota and cards you could choose to run (read-only)
 
 Board
@@ -458,6 +459,8 @@ async function main(argv: string[]): Promise<void> {
       help: { type: 'boolean', short: 'h' },
       json: { type: 'boolean' },
       refresh: { type: 'boolean' },
+      'allow-keychain': { type: 'boolean' },
+      'no-keychain': { type: 'boolean' },
       'to-five': { type: 'string', multiple: true },
       digest: { type: 'boolean' },
       taste: { type: 'string' },
@@ -480,7 +483,8 @@ async function main(argv: string[]): Promise<void> {
   const freshQuota = async (force = false) => {
     if (loadConfig().quotaSource !== 'api') return null;
     try {
-      return await refreshLiveQuota({ force });
+      const config = loadConfig();
+      return await refreshLiveQuota({ force, allowKeychain: keychainAllowed(config), keychainOff: config.allowKeychain === false });
     } catch {
       return null;
     }
@@ -507,7 +511,9 @@ async function main(argv: string[]): Promise<void> {
       return;
     }
     case 'quota': {
-      const r = await freshQuota(Boolean(values.refresh));
+      if (values['allow-keychain']) setConfig('allowKeychain', true);
+      if (values['no-keychain']) setConfig('allowKeychain', false);
+      const r = await freshQuota(Boolean(values.refresh || values['allow-keychain']));
       if (r) console.log(r.message);
       else if (loadConfig().quotaSource !== 'api') console.log('quotaSource is "statusline" in config.json; live reading is off.');
       console.log(statusText(loadSnapshot(), now));

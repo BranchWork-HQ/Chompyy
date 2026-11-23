@@ -8,7 +8,7 @@ import { getCard, titleFrom, type BoardData, type Card } from './board.js';
 import type { Config } from './config.js';
 import { budgetGate } from './gate.js';
 import { appendJsonl, homePath, readJson, writeJson } from './home.js';
-import { loadLiveState } from './livequota.js';
+import { keychainAsk, loadLiveState } from './livequota.js';
 import { windowView, type Snapshot } from './quota.js';
 import { loadSamples, pacing } from './pacing.js';
 import { changedFiles } from './review.js';
@@ -83,6 +83,7 @@ export function appState(board: BoardData, snap: Snapshot | null, config: Config
       capturedAt: snap?.capturedAt ?? null,
       plan: live.plan ?? null,
       note: live.note ?? null,
+      askKeychain: keychainAsk(config),
       fiveHour: windowView(snap?.fiveHour, now),
       sevenDay: windowView(snap?.sevenDay, now),
       pacing: pacing(snap, loadSamples(), now, config.bedtime),

@@ -5,7 +5,8 @@ import { answerCard, appState, editBlueprint, editIdea } from '../src/appstate.j
 import { taskPrompt } from '../src/away.js';
 import { addCard, type BoardData } from '../src/board.js';
 import { DEFAULT_CONFIG } from '../src/config.js';
-import { refreshLiveQuota, snapshotFromProvider } from '../src/livequota.js';
+import { KEYCHAIN_ASK, KEYCHAIN_OFF, keychainAllowed, keychainAsk, refreshLiveQuota, snapshotFromProvider } from '../src/livequota.js';
+import { loadConfig } from '../src/config.js';
 import { loadSnapshot, saveSnapshot } from '../src/quota.js';
 import type { QuotaProvider } from '../src/vendor/codeburn/types.js';
 import { NOW, nowSec, useTempHome } from './helpers.js';
@@ -134,5 +135,39 @@ describe('checks', () => {
     const text = formatReport([card], null, () => ({ files: [], questions: [] }));
     expect(text).toContain("couldn't check its work");
     expect(text).toContain('npm install was blocked');
+  });
+});
+
+// #24: a tester wanted reading Claude Code's login from the Keychain to be an opt-in, not "choose Always Allow".
+describe('the Keychain read is opt-in (#24)', () => {
+  useTempHome();
+  const unchecked: QuotaProvider = { ...connected(0, 0), connection: 'keychainUnchecked', details: [], planLabel: null };
+
+  it("doesn't read the Keychain until you allow it, and says how to", async () => {
+    const asked: boolean[] = [];
+    const r = await refreshLiveQuota({ now: NOW, force: true, fetchQuota: async (o) => (asked.push(o.allowKeychain), { quota: unchecked }) });
+    expect(asked).toEqual([false]);
+    expect(r.message).toBe(KEYCHAIN_ASK);
+    expect(appState({ nextId: 1, cards: [] }, null, DEFAULT_CONFIG, NOW).quota.note).toBe(KEYCHAIN_ASK);
+    expect(keychainAllowed(DEFAULT_CONFIG)).toBe(false);
+    expect(keychainAsk(DEFAULT_CONFIG, 'darwin')).toBe(true); // the app shows Allow
+    expect(keychainAsk(DEFAULT_CONFIG, 'linux')).toBe(false);
+    expect(keychainAsk({ ...DEFAULT_CONFIG, allowKeychain: false }, 'darwin')).toBe(false); // you said no: don't nag
+  });
+
+  it('a Mac that already read it (Always Allow, before Chompyy asked) counts as a yes, saved', async () => {
+    await refreshLiveQuota({ now: NOW, force: true, fetchQuota: async () => ({ quota: connected(0.1, 0.1) }) });
+    expect(keychainAllowed(DEFAULT_CONFIG)).toBe(true);
+    expect(loadConfig().allowKeychain).toBe(true);
+  });
+
+  it('once you said no, it says so instead of asking again', async () => {
+    const r = await refreshLiveQuota({ now: NOW, force: true, keychainOff: true, fetchQuota: async () => ({ quota: unchecked }) });
+    expect(r.message).toBe(KEYCHAIN_OFF);
+  });
+
+  it('your answer wins', () => {
+    expect(keychainAllowed({ allowKeychain: true })).toBe(true);
+    expect(keychainAllowed({ allowKeychain: false })).toBe(false);
   });
 });

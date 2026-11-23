@@ -159,6 +159,7 @@ struct MenuPanel: View {
                         Text("Window unknown").font(.title3.weight(.semibold))
                         Text(store.state?.quota.note ?? store.error ?? "Reading quota…")
                             .font(.caption).foregroundStyle(.secondary).lineLimit(3)
+                        if store.state?.quota.askKeychain == true { AllowKeychainButton() }
                     }
                     if let plan = store.state?.quota.plan { Text(plan).font(.caption).foregroundStyle(.tertiary) }
                 }
