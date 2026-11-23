@@ -119,7 +119,7 @@ Each card in a git repo runs in its own worktree at `~/.chompyy/worktrees/<id>` 
 | `chompyy away <1h\|30m\|1h30m> [--dry-run] [--force]` | Run approved cards until the time is up or the gate closes |
 | `chompyy report [--all]` | Cards that ran since the last report: one action each, cards needing you first. No paths or raw agent text; ask for those with `show` |
 | `chompyy diff <id>` | The change the card made on its branch |
-| `chompyy keep <id>` | Merge the card's branch into your current branch and remove its worktree. Refuses if your repo has uncommitted changes |
+| `chompyy keep <id>` | Merge the card's branch into your current branch and remove its worktree. Refuses when you have unsaved changes in a file the card also changed, or anything staged; other unsaved work is left alone |
 | `chompyy undo <id>` | Throw the run away: remove its worktree and branch (or draft folder). Your own branches are never touched |
 | `chompyy rate <id> <1-5> ["why"]` | Rate a result against its blueprint; moves it to *done* and logs a signal |
 | `chompyy taste` | Show `taste.md` |
