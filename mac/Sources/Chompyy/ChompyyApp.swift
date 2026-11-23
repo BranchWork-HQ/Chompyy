@@ -13,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let event = NSAppleEventManager.shared().currentAppleEvent
         let atLogin = event?.paramDescriptor(forKeyword: keyAEPropData)?.enumCodeValue == keyAELaunchedAsLogInItem
         let updated = CommandLine.arguments.contains("--updated")
+        LoginItem.turnOnOnce()
         if !atLogin && !updated {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { AppDelegate.openBoard?() }
         }
@@ -28,6 +29,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 /// "Open Chompyy at login", through macOS's own login items (System Settings › General › Login Items).
 enum LoginItem {
     static var isOn: Bool { SMAppService.mainApp.status == .enabled }
+
+    /// Chompyy lives in the menu bar, so it starts at login by default: turned on the first time the installed
+    /// copy (~/Applications) runs. Only once, so turning it off in the ⋯ menu sticks. Dev builds are left alone.
+    static func turnOnOnce() {
+        let key = "loginItemDefaulted"
+        guard Bundle.main.bundlePath.hasSuffix("/Applications/Chompyy.app"),
+              !UserDefaults.standard.bool(forKey: key) else { return }
+        UserDefaults.standard.set(true, forKey: key)
+        if !isOn { try? SMAppService.mainApp.register() }
+    }
 
     /// Turn it on or off; returns what to tell you when macOS wants your approval or says no.
     static func set(_ on: Bool) -> String? {
