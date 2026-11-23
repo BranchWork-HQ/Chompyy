@@ -9,6 +9,7 @@
 // The burn rate comes from a small history of quota readings (quota-history.json), saved whenever the snapshot
 // changes, so no extra calls are made.
 import { homePath, readJson, writeJson } from './home.js';
+import { archiveWindowEnds } from './premise.js';
 import { windowView, type QuotaWindow, type Snapshot } from './quota.js';
 
 export const FIVE_HOURS = 5 * 3600_000;
@@ -45,6 +46,9 @@ export function recordSample(snap: Snapshot, nowMs: number = Date.parse(snap.cap
   if (last && nowMs < last.at) return false; // out of order
   samples.push({ at: nowMs, ...(snap.fiveHour ? { five: snap.fiveHour } : {}), ...(snap.sevenDay ? { week: snap.sevenDay } : {}) });
   writeJson(historyPath(), { samples: samples.filter((s) => s.at > nowMs - KEEP_MS) });
+  try {
+    archiveWindowEnds(samples, nowMs); // windows that ended, kept beyond the 8 days (premise.ts)
+  } catch {}
   return true;
 }
 

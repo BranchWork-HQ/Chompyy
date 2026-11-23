@@ -368,7 +368,7 @@ From the [research cards](research/atomic-knowledge.md); combined as a measured 
 - The sandbox on Linux and WSL2 (needs `bubblewrap` and `socat`).
 - Claude Code versions older than 2.1.322 (`--permission-prompts`).
 - The allow list is fussy (a chained `echo` was refused once).
-- **Measure the premise**: how often a 5-hour window resets with capacity left *and* the weekly limit isn't binding. Without that, "saved capacity" claims aren't proven.
+- **Measure the premise**: how often a 5-hour window resets with capacity left *and* the weekly limit isn't binding. Without that, "saved capacity" claims aren't proven. ◐ 2026-11-23: `chompyy premise` measures it for one person; across volunteers still to do.
 
 ## 11. Proof: evals and benchmarks
 
@@ -376,7 +376,7 @@ Numbers that make the pitch convincing to people who doubt it. Eval projects: [f
 
 | Measure | How | Status |
 |---|---|---|
-| **The premise**: share of 5-hour windows that reset with capacity left while the weekly limit isn't binding | From saved quota snapshots and transcripts, across volunteer users | 📋 first |
+| **The premise**: share of 5-hour windows that reset with capacity left while the weekly limit isn't binding | From saved quota snapshots and transcripts, across volunteer users | ◐ `chompyy premise` (2026-11-23), one user so far: in the week to 22 Nov, 7 of 8 measured windows (88%) reset with 20%+ left while the week reset with ~23% unused. Next: ask testers for `chompyy premise --json` |
 | **Learning as a number**, shown in the app: rules learned per week and corrections per session over time (§7) | Already recorded with dates (keep/undo, ratings); corrections per session once everyday sessions are read | 📋 |
 | **Taste works**: keep rate and corrections per card, with taste.md vs without | Same cards run both ways, user reviews blind | 📋 the answer to "normal agents can do that" |
 | Taste accuracy: share of proposed preferences you accept | From the one-tap questions | 📋 |
