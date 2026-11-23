@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { away, sandboxSettings, type AwayDeps } from '../src/away.js';
+import { away, awayTools, safetyRules, sandboxSettings, type AwayDeps } from '../src/away.js';
 import { boxTempDirs, sandboxProfile } from '../src/verify.js';
 import { addCard, loadBoard, moveCard, updateBoard } from '../src/board.js';
 import { DEFAULT_CONFIG } from '../src/config.js';
@@ -292,13 +292,13 @@ describe('a long away run waits out a 5-hour reset', () => {
 
 describe('sandbox', () => {
   const home = useTempHome();
-  it('runs away cards sandboxed by default, allowing writes to the repo .git, the tool cache and temp folders only', async () => {
+  it('runs away cards sandboxed by default, allowing writes to the tool cache and temp folders only, not the repo .git (#24)', async () => {
     const { deps, requests } = setup(home, { cards: 1 });
     deps.prepare = (card) => ({ kind: 'worktree', dir: join(home(), 'worktrees', card.id), branch: `chompyy/${card.id}`, gitDir: '/repo/.git' });
     mkdirSync(join(home(), 'worktrees', '1'), { recursive: true });
     await away(60 * MIN, deps);
     expect(requests[0]!.settings).toEqual({
-      sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, filesystem: { allowWrite: ['/repo/.git', join(home(), 'cache', 'tools'), ...boxTempDirs()], denyRead: DEFAULT_CONFIG.denyReadPaths }, network: { allowedDomains: [] }, autoAllowBashIfSandboxed: true },
+      sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, filesystem: { allowWrite: [join(home(), 'cache', 'tools'), ...boxTempDirs()], denyRead: DEFAULT_CONFIG.denyReadPaths }, network: { allowedDomains: [] }, autoAllowBashIfSandboxed: true },
     });
     expect(requests[0]!.env?.GOCACHE).toBe(join(home(), 'cache', 'tools', 'go-build'));
     expect(requests[0]!.disallowedTools).toEqual(expect.arrayContaining(['Bash(git push *)', 'Read(~/.ssh)', 'Read(~/.ssh/**)', 'Read(~/.aws/**)']));
@@ -384,5 +384,21 @@ describe('circuit breaker and independent check', () => {
     await away(60 * MIN, deps);
     expect(checked).toEqual(['1']); // draft folders aren't checked
     expect(loadBoard().cards[0]!.run!.verified).toMatchObject({ result: 'failed' });
+  });
+});
+
+// #24 (a tester's review of v0.3.0): a sandboxed run could plant .git hooks, and WebFetch bypassed the no-network box.
+describe('what an unattended run may touch (#24)', () => {
+  it('gets no web tools and no read-anywhere tools by default, even from an older config.json that lists them', () => {
+    const old = { allowedTools: ['Read', 'Glob', 'Grep', 'WebSearch', 'WebFetch', 'Bash(npm test *)', 'Read(/opt/docs/**)'], awayWeb: false };
+    expect(awayTools(old, ['Bash(swiftc *)'])).toEqual(['Bash(npm test *)', 'Read(/opt/docs/**)', 'Bash(swiftc *)']);
+    expect(awayTools(DEFAULT_CONFIG)).not.toEqual(expect.arrayContaining(['WebFetch']));
+  });
+  it('awayWeb turns the web tools back on', () => {
+    expect(awayTools({ allowedTools: ['Bash(ls *)'], awayWeb: true })).toEqual(['Bash(ls *)', 'WebSearch', 'WebFetch']);
+  });
+  it('tells the agent not to commit: Chompyy does', () => {
+    expect(safetyRules('/w')).toMatch(/Don't commit/);
+    expect(safetyRules('/w')).not.toMatch(/commit your work/);
   });
 });
