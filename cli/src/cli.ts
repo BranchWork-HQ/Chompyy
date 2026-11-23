@@ -23,6 +23,7 @@ import { changedFiles, diffCard, keepCard, overlaps, questionsOf, undoCard } fro
 import { CappedText, ClaudeRunner, claudeAvailable } from './runner.js';
 import { branchOf, commitLeftovers, gitRoot, planWorkspace, prepareWorkspace } from './workspace.js';
 import { answerCard, appState, cardView, currentBranch, editBlueprint, editIdea, recordCliLocation } from './appstate.js';
+import { detect, detectText } from './detect.js';
 import { allWindowEnds, archiveWindowEnds, premise, premiseText } from './premise.js';
 import { keychainAllowed, loadLiveState, refreshLiveQuota } from './livequota.js';
 import { recentProjects } from './projects.js';
@@ -51,6 +52,7 @@ Quota
   chompyy status                % left, time to reset, pace, weekly used, staleness
   chompyy quota [--refresh]     read live quota from Anthropic now (uses Claude Code's saved login; sends no message)
   chompyy quota --allow-keychain | --no-keychain   allow (or stop) reading that login from the macOS Keychain
+  chompyy detect [--days 30] [--json]   find what wastes tokens in your setup and habits (startup tax, cache), with evidence
   chompyy premise [--json]      how often a 5-hour window reset with capacity left while the week still had room
   chompyy eat-tokens            show leftover quota and cards you could choose to run (read-only)
 
@@ -1030,6 +1032,12 @@ async function main(argv: string[]): Promise<void> {
     }
     case 'distill': {
       console.log(await distillNow(now, Boolean(values.force)));
+      return;
+    }
+    case 'detect': {
+      const r = detect({ days: values.days ? Number(values.days) : 30, now });
+      if (values.json) return json(r);
+      console.log(detectText(r).join('\n'));
       return;
     }
     case 'premise': {
