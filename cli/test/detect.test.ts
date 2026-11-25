@@ -181,3 +181,57 @@ describe('S2 and S5: what loads before you type', () => {
     expect(found[0]!.say).toMatch(/241 lines .* only the first 200 lines/);
   });
 });
+
+describe('C2: cache thrown away mid-session, with its cause', () => {
+  const deferred = (names: string[]) => JSON.stringify({ type: 'attachment', attachment: { type: 'deferred_tools_record', entries: names.map((name) => ({ name, description: 'x' })) } });
+  it('names the server whose tools Tool Search loaded just before the rebuild', () => {
+    const root = projects({
+      '-work-app/s1.jsonl': [
+        turn('m1', NOW - 10 * MIN, { write: 20_000, h1: true, tools: [{ name: 'ToolSearch', input: { query: 'select:mcp__claude-in-chrome__navigate' } }] }),
+        deferred(['mcp__claude-in-chrome__navigate', 'mcp__claude-in-chrome__computer']),
+        turn('m2', NOW - 9 * MIN, { write: 166_000, h1: true, miss: 'tools_changed' }),
+        turn('m3', NOW - 8 * MIN, { write: 1_000, h1: true }),
+      ],
+    });
+    const s = scan({ root, now: new Date(NOW) });
+    expect(s.sessions[0]!.turns.map((t) => t.loaded ?? null)).toEqual([null, ['claude-in-chrome'], null]);
+    const [f] = detect({ root, now: new Date(NOW), claudeDir: temp(), home: temp() }).findings;
+    expect(f!.rule).toBe('C2');
+    expect(f!.say).toMatch(/Tool Search loaded claude-in-chrome's tools mid-session \(166k re-cached\)/);
+    expect(f!.fix).toMatch(/^Load claude-in-chrome at the start of a session/);
+    expect(f!.tokens).toBe(166_000);
+  });
+
+  it("doesn't blame a load that came before an earlier, unchanged request; names /mcp when that came first", () => {
+    const root = projects({
+      '-work-app/s1.jsonl': [
+        deferred(['WebSearch']),
+        turn('m1', NOW - 10 * MIN, { write: 20_000, h1: true }),
+        JSON.stringify({ type: 'user', message: { content: '<command-name>/mcp</command-name>' } }),
+        turn('m2', NOW - 9 * MIN, { write: 80_000, h1: true, miss: 'tools_changed' }),
+      ],
+    });
+    const [f] = detect({ root, now: new Date(NOW), claudeDir: temp(), home: temp() }).findings;
+    expect(f!.say).toMatch(/once right after you ran \/mcp \(80k re-cached\)/);
+    expect(f!.say).not.toMatch(/WebSearch/);
+  });
+});
+
+describe('the one-screen summary', () => {
+  const r = (findings: object[], sessions = 40) => ({ scanned: { sessions, days: 30, skills: 10, mcpServers: 1 }, findings }) as never;
+  const f = (rule: string, title: string, tokens?: number, basis = 'measured') => ({ rule, title, say: 's', basis, fix: `Fix ${rule} first. Then more.`, lane: 'habit', ...(tokens === undefined ? {} : { tokens }) });
+  it('ranks findings by tokens, starts with the biggest one, and keeps the evidence for --all', () => {
+    const text = detectText(r([f('S4', 'Idle servers'), f('S3', 'Unused skills', 104_000, 'estimated'), f('C1', 'Cold returns', 5_100_000)])).join('\n');
+    expect(text.split('\n').filter((l) => l.startsWith('  ')).map((l) => l.trim().split(/\s+/).pop())).toEqual(['C1', 'S3', 'S4']);
+    expect(text).toMatch(/5\.1M tokens/);
+    expect(text).toMatch(/~104k tokens/);
+    expect(text).toMatch(/Start here: Fix C1 first\.$/m);
+    expect(text).not.toMatch(/What this doesn't prove/);
+    expect(detectText(r([f('C1', 'Cold returns', 5)]), { all: true }).join('\n')).toMatch(/Fix \(habit\): Fix C1 first\. Then more\./);
+  });
+  it('says where it looked when there are no sessions, instead of "nothing to fix"', () => {
+    const text = detectText(r([], 0), { projects: '~/.claude/projects' }).join('\n');
+    expect(text).toMatch(/No Claude Code sessions from the last 30 days in ~\/\.claude\/projects/);
+    expect(text).not.toMatch(/Nothing to fix/);
+  });
+});

@@ -22,6 +22,10 @@ export interface Finding {
   notProve?: string;
   fix: string;
   lane: Lane;
+  /** Tokens it costs over the scan, for ranking the summary (per-session costs times the sessions seen). */
+  tokens?: number;
+  /** How `tokens` was reached, when it isn't a plain measured total, e.g. "~3.1k × 214 sessions". */
+  tokensHow?: string;
 }
 
 // ---------- reading the transcripts ----------
@@ -34,6 +38,9 @@ export interface Turn {
   wrote1h: boolean;
   miss?: string;
   missedTokens?: number;
+  /** What happened just before a `tools_changed` rebuild: deferred tools loaded (by server), or a command run. */
+  loaded?: string[];
+  after?: string;
 }
 
 export interface Session {
@@ -66,8 +73,11 @@ export function readSession(file: string): Session | null {
   const skills = new Map<string, number>();
   const commands = new Map<string, number>();
   const mcp = new Map<string, number>();
+  // What changed since the last request: read back when the next request says the tool list changed.
+  let loaded: string[] = [];
+  let after = '';
   for (const line of readFileSync(file, 'utf8').split('\n')) {
-    if (!line.includes('"assistant"') && !line.includes('<command-name>')) continue;
+    if (!line.includes('"assistant"') && !line.includes('<command-name>') && !line.includes('deferred_tools_record')) continue;
     let e: Record<string, unknown>;
     try {
       e = JSON.parse(line);
@@ -75,12 +85,21 @@ export function readSession(file: string): Session | null {
       continue;
     }
     if (!cwd && typeof e.cwd === 'string') cwd = e.cwd;
+    const att = e.attachment as { type?: string; entries?: { name?: string }[] } | undefined;
+    if (e.type === 'attachment' && att?.type === 'deferred_tools_record' && att.entries?.length) {
+      // Tool Search loaded these tools into the list; an MCP tool counts as its server.
+      loaded = [...new Set(att.entries.map((x) => String(x.name ?? '')).filter(Boolean).map((n) => (n.startsWith('mcp__') ? n.split('__')[1]! : n)))];
+      continue;
+    }
     if (typeof e.sessionId === 'string') id = e.sessionId;
     const msg = e.message as { id?: string; usage?: Record<string, unknown>; content?: unknown; diagnostics?: Record<string, unknown> } | undefined;
     const content = msg?.content;
     if (typeof content === 'string' || Array.isArray(content)) {
       const text = typeof content === 'string' ? content : content.map((b: { text?: string }) => (typeof b?.text === 'string' ? b.text : '')).join('');
-      for (const m of text.matchAll(/<command-name>\/?([^<\s]+)<\/command-name>/g)) commands.set(m[1]!, (commands.get(m[1]!) ?? 0) + 1);
+      for (const m of text.matchAll(/<command-name>\/?([^<\s]+)<\/command-name>/g)) {
+        commands.set(m[1]!, (commands.get(m[1]!) ?? 0) + 1);
+        if (/^(mcp|model|plugin|config|permissions)$/.test(m[1]!)) after = `/${m[1]}`;
+      }
     }
     if (e.type !== 'assistant' || !msg?.usage || e.isSidechain) continue;
     if (Array.isArray(content)) {
@@ -108,7 +127,15 @@ export function readSession(file: string): Session | null {
     };
     // One request is logged once per content block: keep the first time and the largest numbers.
     const had = turns.get(key);
-    turns.set(key, had ? { ...turn, at: had.at || turn.at, miss: had.miss ?? turn.miss, cacheWrite: Math.max(had.cacheWrite, turn.cacheWrite), cacheRead: Math.max(had.cacheRead, turn.cacheRead) } : turn);
+    if (!had) {
+      if (turn.miss === 'tools_changed') {
+        if (loaded.length) turn.loaded = loaded;
+        if (after) turn.after = after;
+      }
+      loaded = [];
+      after = '';
+    }
+    turns.set(key, had ? { ...turn, at: had.at || turn.at, miss: had.miss ?? turn.miss, loaded: had.loaded, after: had.after, cacheWrite: Math.max(had.cacheWrite, turn.cacheWrite), cacheRead: Math.max(had.cacheRead, turn.cacheRead) } : turn);
   }
   if (!turns.size) return null;
   const session: Session & { skills?: Map<string, number>; commands?: Map<string, number>; mcp?: Map<string, number> } = {
@@ -266,7 +293,7 @@ export function configuredMcp(workspaces: string[], home = homedir()): McpServer
 // ---------- the rules ----------
 
 const DAY = 86_400_000;
-const fmt = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 10_000 ? 0 : 1)}k` : String(Math.round(n)));
+const fmt = (n: number) => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M` : n >= 1000 ? `${(n / 1000).toFixed(n >= 10_000 ? 0 : 1)}k` : String(Math.round(n)));
 const median = (xs: number[]) => {
   const s = [...xs].sort((a, b) => a - b);
   return s.length ? (s.length % 2 ? s[(s.length - 1) / 2]! : (s[s.length / 2 - 1]! + s[s.length / 2]!) / 2) : 0;
@@ -291,6 +318,8 @@ export function ruleS2(s: Scan, claudeDir = join(homedir(), '.claude')): Finding
       title: 'CLAUDE.md is long',
       say: `${home(f)} is ${lines} lines (~${fmt(tokens)} tokens) and loads in every session there: ${sessions} sessions in this scan.`,
       basis: 'estimated',
+      tokens: tokens * sessions,
+      tokensHow: `~${fmt(tokens)} × ${sessions} sessions`,
       notProve: "Long isn't wrong: lines that stop the agent repeating a mistake earn their place.",
       fix: 'A card to tier it: keep identity, critical rules and key paths; move workflows into skills and long guides into files it reads when needed. No rule deleted without saying where it went.',
       lane: 'work',
@@ -317,6 +346,8 @@ export function ruleS3(s: Scan, skills: InstalledSkill[], now: number): Finding[
       title: 'Skills you never use still load every session',
       say: `${unused.length} of ${skills.length} installed skills had no use in ${s.sessions.length} sessions over ${Math.round(spanDays)} days (${parts.map(([src, l]) => `${l.length} ${label[src]}`).join(', ')}). Their names and descriptions add ~${fmt(tokens)} tokens to every session start. Examples: ${unused.slice(0, 5).map((k) => k.calledAs).join(', ')}.`,
       basis: 'estimated',
+      tokens: tokens * s.sessions.length,
+      tokensHow: `~${fmt(tokens)} × ${s.sessions.length} sessions`,
       notProve: "Not seeing a skill used doesn't prove you'll never need it.",
       fix: [
         bySource('plugin').length ? 'Turn off plugins you don\'t use (`/plugin`, or enabledPlugins in ~/.claude/settings.json)' : '',
@@ -396,26 +427,54 @@ export function ruleC1(s: Scan, now: number): Finding[] {
       say: `${cold.length} times in the last 14 days you came back to a session after its cache had expired (an hour for the main conversation), so the whole context was written again: median ${fmt(median(cold))} tokens each, ${fmt(coldWrites)} in all, ${Math.round(share * 100)}% of your cache writes.`,
       basis: 'measured',
       notProve: "Some of these returns were worth it: a long session with context you'd otherwise have to rebuild.",
+      tokens: coldWrites,
       fix: 'Before a long break, finish the thought and leave a short note; start fresh from the note when you return. Or /compact before leaving so the rewrite is small. Never automated keep-warm pings (rulebook T2).',
       lane: 'habit',
     },
   ];
 }
 
-/** C2: the cache thrown away mid-session (the tool list or earlier messages changed). */
+/** C2: the cache thrown away mid-session (the tool list or earlier messages changed), with what caused it. */
 export function ruleC2(s: Scan): Finding[] {
-  const hits: { reason: string; tokens: number }[] = [];
-  for (const ses of s.sessions) for (const t of ses.turns) if (t.miss === 'tools_changed' || t.miss === 'messages_changed') hits.push({ reason: t.miss, tokens: t.missedTokens ?? t.cacheWrite });
-  const sessionsHit = s.sessions.filter((ses) => ses.turns.some((t) => t.miss === 'tools_changed' || t.miss === 'messages_changed')).length;
-  if (sessionsHit < 2 && !hits.some((h) => h.tokens >= 50_000)) return [];
-  const tools = hits.filter((h) => h.reason === 'tools_changed');
+  const hits: Turn[] = [];
+  let sessionsHit = 0;
+  for (const ses of s.sessions) {
+    const here = ses.turns.filter((t) => t.miss === 'tools_changed' || t.miss === 'messages_changed');
+    hits.push(...here);
+    if (here.length) sessionsHit++;
+  }
+  const size = (t: Turn) => t.missedTokens ?? t.cacheWrite;
+  if (sessionsHit < 2 && !hits.some((t) => size(t) >= 50_000)) return [];
+  const total = hits.reduce((a, t) => a + size(t), 0);
+  // Group by cause: "loaded claude-in-chrome", "/mcp", or unknown.
+  const causes = new Map<string, Turn[]>();
+  for (const t of hits) {
+    const cause = t.miss === 'messages_changed' ? 'messages' : t.loaded?.length ? `loaded ${t.loaded.join(', ')}` : t.after ?? 'tools';
+    causes.set(cause, [...(causes.get(cause) ?? []), t]);
+  }
+  const sorted = [...causes].sort((x, y) => y[1].reduce((a, t) => a + size(t), 0) - x[1].reduce((a, t) => a + size(t), 0));
+  const said = (cause: string, ts: Turn[]) => {
+    const n = ts.length === 1 ? 'once' : `${ts.length} times`;
+    const sizes = `${ts.map((t) => fmt(size(t))).join(', ')} re-cached`;
+    if (cause.startsWith('loaded ')) return `${n} right after Tool Search loaded ${cause.slice(7)}'s tools mid-session (${sizes})`;
+    if (cause.startsWith('/')) return `${n} right after you ran ${cause} (${sizes})`;
+    if (cause === 'messages') return `${n} because earlier messages changed (${sizes})`;
+    return `${n} because the tool list changed, cause not logged (${sizes})`;
+  };
+  const fixes: string[] = [];
+  const servers = [...new Set(hits.flatMap((t) => t.loaded ?? []))];
+  if (servers.length) fixes.push(`Load ${servers.join(', ')} at the start of a session, or do that work in its own session: loading a tool mid-session puts it at the front of the context and everything after it is written again.`);
+  if (hits.some((t) => t.after)) fixes.push('Change MCP servers, models, plugins or settings between sessions, not in the middle of one.');
+  if (hits.some((t) => t.miss === 'tools_changed' && !t.loaded?.length && !t.after)) fixes.push('Usually an MCP server connecting or disconnecting: keep flaky servers off for that project.');
+  if (hits.some((t) => t.miss === 'messages_changed')) fixes.push('Earlier messages change when you rewind or edit a message: start fresh rather than editing far back.');
   return [
     {
       rule: 'C2',
       title: 'Cache thrown away mid-session',
-      say: `${hits.length} time${hits.length > 1 ? 's' : ''} in ${sessionsHit} session${sessionsHit > 1 ? 's' : ''} the cache was rebuilt mid-session (${tools.length} because the tool list changed, ${hits.length - tools.length} because earlier messages changed): ${hits.map((h) => fmt(h.tokens)).join(', ')} tokens re-cached.`,
+      say: `${hits.length} time${hits.length > 1 ? 's' : ''} in ${sessionsHit} session${sessionsHit > 1 ? 's' : ''} the whole context was written again mid-session: ${sorted.map(([c, ts]) => said(c, ts)).join('; ')}.`,
       basis: 'measured',
-      fix: 'Usually an MCP server connecting or disconnecting, a /mcp toggle, a model switch or a settings change mid-session. Keep flaky servers off for that project; change models or settings between sessions.',
+      tokens: total,
+      fix: fixes.join(' '),
       lane: 'habit',
     },
   ];
@@ -442,11 +501,35 @@ export function detect(opts: { days?: number; now?: Date; root?: string; claudeD
   return { scanned: { sessions: s.sessions.length, days: opts.days ?? 30, skills: skills.length, mcpServers: servers.length }, findings };
 }
 
-export function detectText(r: DetectResult): string[] {
-  const lines = [`Read ${r.scanned.sessions} of your sessions from the last ${r.scanned.days} days (automated runs left out), ${r.scanned.skills} installed skills, ${r.scanned.mcpServers} MCP servers.`];
-  if (!r.findings.length) return [...lines, 'Nothing to fix in what this version checks (startup tax and cache).'];
-  for (const f of r.findings) {
-    lines.push('', `${f.rule} · ${f.title} (${f.basis})`, `  ${f.say}`);
+const short = (text: string) => text.split(/(?<=\.)\s/)[0]!;
+
+/**
+ * One screen: what it read, the findings ranked by tokens, and the one fix to start with. `all` adds each
+ * finding's evidence, what it doesn't prove, and every fix.
+ */
+export function detectText(r: DetectResult, opts: { all?: boolean; projects?: string } = {}): string[] {
+  const { sessions, days, skills, mcpServers } = r.scanned;
+  if (!sessions) {
+    return [
+      `No Claude Code sessions from the last ${days} days in ${opts.projects ?? '~/.claude/projects'}.`,
+      'detect reads the transcripts Claude Code keeps on this computer. Use Claude Code for a few days, then run it again.',
+    ];
+  }
+  const lines = [`Read ${sessions} of your Claude Code sessions from the last ${days} days, ${skills} installed skills and ${mcpServers} MCP servers. Nothing left this computer.`];
+  if (!r.findings.length) return [...lines, '', 'Nothing to fix in what this version checks (startup tax and cache).'];
+  const ranked = [...r.findings].sort((a, b) => (b.tokens ?? -1) - (a.tokens ?? -1));
+  const cost = (f: Finding) => (f.tokens === undefined ? '' : `${f.basis === 'estimated' ? '~' : ''}${fmt(f.tokens)} tokens`);
+  const w = Math.max(...ranked.map((f) => f.title.length));
+  const cw = Math.max(...ranked.map((f) => cost(f).length));
+  lines.push('');
+  for (const f of ranked) lines.push(`  ${f.title.padEnd(w)}  ${cost(f).padStart(cw)}  ${f.basis.padEnd(9)}  ${f.rule}`);
+  if (sessions < 20) lines.push('', `Only ${sessions} sessions: some checks wait for 20 sessions over 14 days before calling anything unused.`);
+  if (!opts.all) {
+    lines.push('', `Start here: ${short(ranked[0]!.fix)}`, '', 'Evidence and every fix: chompyy detect --all');
+    return lines;
+  }
+  for (const f of ranked) {
+    lines.push('', `${f.rule} · ${f.title} (${f.basis}${f.tokensHow ? `: ${f.tokensHow}` : ''})`, `  ${f.say}`);
     if (f.notProve) lines.push(`  What this doesn't prove: ${f.notProve}`);
     lines.push(`  Fix (${f.lane}): ${f.fix}`);
   }
