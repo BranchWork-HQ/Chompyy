@@ -37,7 +37,7 @@ import {
   answerPreference, distill, distillDue, formatPrefs, formatQuestion, formatWhy, getPref, loadStore, nextQuestion,
   readSignals, recordOutcome, retirePreference, syncTasteFile, tasteChangesSince, type Answer,
 } from './taste.js';
-import { cachedWorkspaces, dream, dreamDue, formatDream, formatWorkspaces, readLogPath, setTicked } from './dream.js';
+import { cachedWorkspaces, dream, dreamDue, formatDream, formatWorkspaces, projectsDir, readLogPath, setTicked } from './dream.js';
 import { byKind, compare, formatExtras, formatUsage, loadLedger, periodDays, PERIODS, prCosts, usageView, type Period } from './usage.js';
 import { formatTrace, traceSession } from './trace.js';
 import { homedir } from 'node:os';
@@ -52,7 +52,7 @@ Quota
   chompyy status                % left, time to reset, pace, weekly used, staleness
   chompyy quota [--refresh]     read live quota from Anthropic now (uses Claude Code's saved login; sends no message)
   chompyy quota --allow-keychain | --no-keychain   allow (or stop) reading that login from the macOS Keychain
-  chompyy detect [--days 30] [--json]   find what wastes tokens in your setup and habits (startup tax, cache), with evidence
+  chompyy detect [--days 30] [--all] [--json]   what wastes tokens in your setup and habits, ranked, on one screen (--all: evidence and every fix)
   chompyy premise [--json]      how often a 5-hour window reset with capacity left while the week still had room
   chompyy eat-tokens            show leftover quota and cards you could choose to run (read-only)
 
@@ -482,7 +482,8 @@ async function main(argv: string[]): Promise<void> {
   const [command, ...args] = values.help ? ["help"] : positionals;
   const now = new Date();
   const json = (data: unknown) => console.log(JSON.stringify(data, null, 2));
-  if (command !== 'statusline') recordCliLocation();
+  // detect and premise only read: run once through npx, they must not point the app at npx's temporary copy.
+  if (command !== 'statusline' && command !== 'detect' && command !== 'premise') recordCliLocation();
   /** Fresh quota before anything that reads it (at most every 5 minutes unless forced). */
   const freshQuota = async (force = false) => {
     if (loadConfig().quotaSource !== 'api') return null;
@@ -1037,7 +1038,7 @@ async function main(argv: string[]): Promise<void> {
     case 'detect': {
       const r = detect({ days: values.days ? Number(values.days) : 30, now });
       if (values.json) return json(r);
-      console.log(detectText(r).join('\n'));
+      console.log(detectText(r, { all: Boolean(values.all), projects: projectsDir().replace(homedir(), '~') }).join('\n'));
       return;
     }
     case 'premise': {
