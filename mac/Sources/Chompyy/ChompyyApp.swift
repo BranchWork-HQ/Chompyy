@@ -72,6 +72,10 @@ struct ChompyyApp: App {
             renderUsageSheet(to: path)
             exit(0)
         }
+        if let path = ProcessInfo.processInfo.environment["CHOMPYY_RENDER_ADVICE"] {
+            renderAdviceSheet(to: path)
+            exit(0)
+        }
         if let dir = ProcessInfo.processInfo.environment["CHOMPYY_RENDER_FRAMES"] {
             renderCookieFrames(to: dir)
             exit(0)
@@ -89,7 +93,7 @@ struct ChompyyApp: App {
         Window("Chompyy", id: "board") {
             BoardView().environmentObject(store)
         }
-        .defaultSize(width: 1280, height: 760)
+        .defaultSize(width: 1440, height: 800)
 
         Window("Usage", id: "usage") {
             UsageWindow().environmentObject(store)

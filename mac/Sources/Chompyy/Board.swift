@@ -9,6 +9,30 @@ struct BoardView: View {
     @State private var showColdStart = false
 
     var body: some View {
+        HStack(spacing: 0) {
+            BoardSidebar(showFeedback: $showFeedback, showColdStart: $showColdStart)
+            Divider()
+            boardBody
+        }
+        .overlay { CardOverlay() }
+        .overlay(alignment: .bottom) { Toast() }
+        .dismissOnOutsideClick(isPresented: $showFeedback, width: 680, height: 680) { FeedbackView().environmentObject(store) }
+        .dismissOnOutsideClick(isPresented: $showColdStart, width: 720, height: 700) { ColdStartView().environmentObject(store) }
+        // The sidebar stays clickable over a pop-up, so opening one closes the others: one panel at a time.
+        // (Usage is its own window since #51, so it isn't one of them.)
+        .onChange(of: showFeedback) { _, on in if on { only(feedback: true) } }
+        .onChange(of: showColdStart) { _, on in if on { only(coldStart: true) } }
+        .onChange(of: store.selectedCardID) { _, id in if id != nil { only() } }
+        .onAppear {
+            // For testing: open a sheet straight away.
+            if ProcessInfo.processInfo.environment["CHOMPYY_OPEN_COLDSTART"] != nil { showColdStart = true }
+            if ProcessInfo.processInfo.environment["CHOMPYY_OPEN_FEEDBACK"] != nil { showFeedback = true }
+            if ProcessInfo.processInfo.environment["CHOMPYY_OPEN_USAGE"] != nil { openWindow(id: "usage") }
+        }
+        .frame(minWidth: 1240, minHeight: 560)
+    }
+
+    private var boardBody: some View {
         VStack(spacing: 0) {
             QuotaHeader()
             Divider()
@@ -26,59 +50,6 @@ struct BoardView: View {
                 .background(Brand.boardBackground)
             }
         }
-        .overlay { CardOverlay() }
-        .overlay(alignment: .bottom) { Toast() }
-        .toolbar {
-            ToolbarItemGroup {
-                ParkIdeaButton()
-                Button { openWindow(id: "usage") } label: { Label("Usage", systemImage: "chart.bar.xaxis").labelStyle(.titleAndIcon) }
-                    .help("Tokens and API value of every Claude Code conversation on this Mac")
-                Button {
-                    Task { await store.act("advise", ["advise"]) }
-                } label: {
-                    if store.busy.contains("advise") { ProgressView().controlSize(.small) } else { Label("Find savings", systemImage: "magnifyingglass") }
-                }
-                .disabled(store.busy.contains("advise"))
-                .help("Read your Claude Code sessions and setup (chompyy detect) and turn what wastes tokens into cards to approve")
-                Button { showColdStart = true } label: { Label("Suggest from my history", systemImage: "clock.arrow.circlepath") }
-                    .help("Read your Claude Code history and suggest tasks and taste lines")
-                Button { showFeedback = true } label: {
-                    Label("What Chompyy heard from you", systemImage: "bubble.left.and.text.bubble.right")
-                        .overlay(alignment: .topTrailing) {
-                            // Rules waiting for your yes: a small badge, never a ping.
-                            if let n = store.state?.taste?.waiting.count, n > 0 {
-                                Text("\(n)").font(.system(size: 9, weight: .bold)).foregroundStyle(.white)
-                                    .padding(.horizontal, 4).padding(.vertical, 1)
-                                    .background(Brand.warn, in: Capsule())
-                                    .offset(x: 8, y: -6)
-                            }
-                        }
-                }
-                .help(store.state?.taste?.waiting.isEmpty == false ? "Chompyy noticed something about how you like work done" : "What Chompyy heard from you, and what it learned")
-                AwayMenu()
-                Button {
-                    Task { await store.refresh(forceQuota: true) }
-                } label: {
-                    if store.busy.contains("refresh") { ProgressView().controlSize(.small) } else { Label("Refresh", systemImage: "arrow.clockwise") }
-                }
-                .disabled(store.busy.contains("refresh"))
-                .help("Refresh the board and read live quota now")
-            }
-        }
-        .dismissOnOutsideClick(isPresented: $showFeedback, width: 680, height: 680) { FeedbackView().environmentObject(store) }
-        .dismissOnOutsideClick(isPresented: $showColdStart, width: 720, height: 700) { ColdStartView().environmentObject(store) }
-        // The toolbar stays clickable over a pop-up, so opening one closes the others: one panel at a time.
-        // (Usage is its own window since #51, so it isn't one of them.)
-        .onChange(of: showFeedback) { _, on in if on { only(feedback: true) } }
-        .onChange(of: showColdStart) { _, on in if on { only(coldStart: true) } }
-        .onChange(of: store.selectedCardID) { _, id in if id != nil { only() } }
-        .onAppear {
-            // For testing: open a sheet straight away.
-            if ProcessInfo.processInfo.environment["CHOMPYY_OPEN_COLDSTART"] != nil { showColdStart = true }
-            if ProcessInfo.processInfo.environment["CHOMPYY_OPEN_FEEDBACK"] != nil { showFeedback = true }
-            if ProcessInfo.processInfo.environment["CHOMPYY_OPEN_USAGE"] != nil { openWindow(id: "usage") }
-        }
-        .frame(minWidth: 1080, minHeight: 560)
     }
 
     /// Keep the named pop-up open and close the rest, the open card included.
@@ -428,15 +399,68 @@ struct CardTile: View {
 }
 
 /// Park an idea without leaving the app: the toolbar's way into `ParkIdeaPopover`.
-struct ParkIdeaButton: View {
+/// The board's sidebar: every action with its name, in groups, instead of a row of bare icons.
+struct BoardSidebar: View {
     @EnvironmentObject var store: Store
-    @State private var open = false
+    @Environment(\.openWindow) private var openWindow
+    @Binding var showFeedback: Bool
+    @Binding var showColdStart: Bool
+    @State private var parking = false
 
     var body: some View {
-        Button { open = true } label: { Label("Park an idea", systemImage: "plus") }
-            .popover(isPresented: $open, arrowEdge: .bottom) {
-                ParkIdeaPopover(open: $open).environmentObject(store)
+        VStack(alignment: .leading, spacing: 18) {
+            group("Do") {
+                item("New idea", "plus", help: "Park an idea for later; Chompyy drafts a blueprint") { parking = true }
+                    .popover(isPresented: $parking, arrowEdge: .trailing) { ParkIdeaPopover(open: $parking).environmentObject(store) }
+                item("Find savings", "magnifyingglass", busy: store.busy.contains("advise"),
+                     help: "Read your Claude Code sessions and setup (chompyy detect) and turn what wastes tokens into cards to approve") {
+                    Task { await store.act("advise", ["advise"]) }
+                }
+                item("Ideas from history", "clock.arrow.circlepath", help: "Read your Claude Code history and suggest tasks and taste lines") { showColdStart = true }
             }
+            group("See") {
+                item("Usage", "chart.bar.xaxis", help: "Tokens and API value of every Claude Code conversation on this Mac") { openWindow(id: "usage") }
+                item("Heard from you", "bubble.left.and.text.bubble.right", badge: store.state?.taste?.waiting.count ?? 0,
+                     help: "What Chompyy heard from you, and what it learned") { showFeedback = true }
+            }
+            group("Away") {
+                AwayMenu().menuStyle(.borderlessButton).fixedSize()
+            }
+            Spacer()
+            item("Refresh", "arrow.clockwise", busy: store.busy.contains("refresh"), help: "Refresh the board and read live quota now") {
+                Task { await store.refresh(forceQuota: true) }
+            }
+        }
+        .padding(.horizontal, 12).padding(.vertical, 16)
+        .frame(width: 200, alignment: .topLeading)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .background(Brand.columnBackground.opacity(0.6))
+    }
+
+    private func group<C: View>(_ title: String, @ViewBuilder _ content: () -> C) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title.uppercased()).font(.caption2.weight(.semibold)).foregroundStyle(.tertiary).padding(.leading, 8)
+            content()
+        }
+    }
+
+    private func item(_ title: String, _ symbol: String, busy: Bool = false, badge: Int = 0, help: String, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                if busy { ProgressView().controlSize(.small).frame(width: 18) } else { Image(systemName: symbol).frame(width: 18) }
+                Text(title).lineLimit(1)
+                Spacer(minLength: 0)
+                if badge > 0 {
+                    Text("\(badge)").font(.caption2.weight(.bold)).foregroundStyle(.white)
+                        .padding(.horizontal, 6).padding(.vertical, 1).background(Brand.warn, in: Capsule())
+                }
+            }
+            .padding(.horizontal, 8).padding(.vertical, 6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(busy)
+        .help(help)
     }
 }
 

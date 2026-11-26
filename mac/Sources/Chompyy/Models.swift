@@ -170,6 +170,21 @@ struct CardAdvice: Decodable {
     let state: String?    // waiting | applied | trying | done | undone | failed
     let note: String?
     let since: String?
+    let saw: String?
+    let doing: String?
+    let checkShort: String?
+    let chart: Chart?
+
+    struct Chart: Decodable {
+        let title: String
+        let bars: [Bar]
+        let note: String?
+    }
+    struct Bar: Decodable {
+        let label: String
+        let value: Int
+        let highlight: Bool?
+    }
 }
 
 struct Checks: Decodable {

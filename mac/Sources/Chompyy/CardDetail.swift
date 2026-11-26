@@ -20,11 +20,16 @@ struct CardDetail: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     header
-                    // Picture first: what this card will do, before any text.
-                    if card.blueprint != nil && !editing { picture }
-                    if card.needsYou { reviewSection }
-                    blueprintSection(proxy)
-                    WhereItWorks(card: card)
+                    if card.isAdvice {
+                        // Advice isn't an away run: its own picture, no blueprint map or sandbox.
+                        AdviceView(card: card)
+                    } else {
+                        // Picture first: what this card will do, before any text.
+                        if card.blueprint != nil && !editing { picture }
+                        if card.needsYou { reviewSection }
+                        blueprintSection(proxy)
+                        WhereItWorks(card: card)
+                    }
                     if card.run != nil && !card.needsYou { runFacts }
                     if card.column == "review" || card.column == "done" { ratingSection }
                 }
