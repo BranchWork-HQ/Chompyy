@@ -42,6 +42,7 @@ import { byKind, compare, formatExtras, formatUsage, loadLedger, periodDays, PER
 import { formatTrace, traceSession } from './trace.js';
 import { homedir } from 'node:os';
 import { clashOf, refreshCard, refreshGate, refreshClashing, withRefreshLock, type RefreshDeps } from './refresh.js';
+import { hookCommand, nudgeInstalled, nudgeText, outcomes, runHook, setNudge } from './nudge.js';
 import { formatLive, keepAffectsLive, liveOff, liveSet, liveUpdateLocked, loadLive, startLiveUpdate } from './live.js';
 import { agentInstalled, awayRunning, bedtimeKey, decideTrigger, installAgent, loadTriggerState, markFired, noteTick, parseClock, takeAwayLock, uninstallAgent } from './triggers.js';
 
@@ -53,6 +54,9 @@ Quota
   chompyy quota [--refresh]     read live quota from Anthropic now (uses Claude Code's saved login; sends no message)
   chompyy quota --allow-keychain | --no-keychain   allow (or stop) reading that login from the macOS Keychain
   chompyy detect [--days 30] [--all] [--json]   what wastes tokens in your setup and habits, ranked, on one screen (--all: evidence and every fix)
+  chompyy nudge on|off          live suggestions while you work: stops the first message to a big conversation
+                                whose cache expired, with the price and the cheaper ways (Claude Code hook)
+  chompyy nudge                 on or off, and what the stops saved
   chompyy premise [--json]      how often a 5-hour window reset with capacity left while the week still had room
   chompyy eat-tokens            show leftover quota and cards you could choose to run (read-only)
 
@@ -483,7 +487,7 @@ async function main(argv: string[]): Promise<void> {
   const now = new Date();
   const json = (data: unknown) => console.log(JSON.stringify(data, null, 2));
   // detect and premise only read: run once through npx, they must not point the app at npx's temporary copy.
-  if (command !== 'statusline' && command !== 'detect' && command !== 'premise') recordCliLocation();
+  if (command !== 'statusline' && command !== 'detect' && command !== 'premise' && command !== 'hook') recordCliLocation();
   /** Fresh quota before anything that reads it (at most every 5 minutes unless forced). */
   const freshQuota = async (force = false) => {
     if (loadConfig().quotaSource !== 'api') return null;
@@ -1040,6 +1044,23 @@ async function main(argv: string[]): Promise<void> {
       if (values.json) return json(r);
       console.log(detectText(r, { all: Boolean(values.all), projects: projectsDir().replace(homedir(), '~') }).join('\n'));
       return;
+    }
+    case 'hook': {
+      // Claude Code's UserPromptSubmit hook. Must never fail loudly or stop a prompt by accident.
+      if (args[0] !== 'prompt') return;
+      try {
+        const out = runHook(await readStdin());
+        if (out) console.log(out);
+      } catch {
+        /* let the prompt through */
+      }
+      return;
+    }
+    case 'nudge': {
+      const sub = args[0];
+      if (sub === 'on' || sub === 'off') return console.log(setNudge(sub === 'on', sub === 'on' ? hookCommand() : undefined));
+      if (values.json) return json({ on: nudgeInstalled(), outcomes: outcomes() });
+      return console.log(nudgeText(nudgeInstalled()));
     }
     case 'premise': {
       const ends = allWindowEnds(loadSamples(), now.getTime());
