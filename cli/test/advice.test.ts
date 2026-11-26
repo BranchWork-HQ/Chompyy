@@ -16,7 +16,7 @@ function settingsFile(json: object = { enabledPlugins: { [PLUGIN]: true, 'swift-
 }
 
 const result: DetectResult = {
-  scanned: { sessions: 27, days: 30, skills: 42, mcpServers: 0, startTokens: 46_000, coldWeek: { count: 16, tokens: 2_500_000 } },
+  scanned: { sessions: 27, days: 30, skills: 42, mcpServers: 0, startTokens: 46_000, coldWeek: { count: 16, tokens: 2_500_000 }, coldWeeks: [{ from: '2026-10-29T12:00:00Z', count: 14, tokens: 1_400_000 }, { from: '2026-11-05T12:00:00Z', count: 11, tokens: 800_000 }, { from: '2026-11-12T12:00:00Z', count: 15, tokens: 2_400_000 }, { from: '2026-11-19T12:00:00Z', count: 16, tokens: 2_500_000 }] },
   findings: [
     { rule: 'C1', title: 'Coming back after the cache expired', say: '31 times…', basis: 'measured', fix: 'Before a long break, /compact.', lane: 'habit', tokens: 4_900_000 },
     {
@@ -51,6 +51,12 @@ describe('advice cards from detect', () => {
     expect(plugin.plan).toContain('true → false');
     expect(plugin.plan).toContain('A session start costs about 46k now');
     expect(drafts[2]!.plan).toContain('docs, pdf, xlsx');
+    // The card's picture: three short steps and a chart of your own numbers.
+    expect(drafts[0]!.advice.chart!.bars.map((b) => b.value)).toEqual([1_400_000, 800_000, 2_400_000, 2_500_000]);
+    expect(drafts[0]!.advice.chart!.bars.at(-1)!.label).toBe('Last 7 days');
+    expect(plugin.advice.chart!.bars).toEqual([{ label: 'Now', value: 46_000 }, { label: 'After', value: 43_900, highlight: true }]);
+    expect(plugin.advice.saw).toContain('25 skills you never used');
+    expect(drafts[2]!.advice.doing).toContain('Only you can');
   });
 
   it('adds them to suggested once, refreshes them, and never brings back one you dropped', () => {

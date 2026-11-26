@@ -525,7 +525,7 @@ export function ruleC2(s: Scan): Finding[] {
 }
 
 export interface DetectResult {
-  scanned: { sessions: number; days: number; skills: number; mcpServers: number; startTokens?: number; coldWeek?: { count: number; tokens: number } };
+  scanned: { sessions: number; days: number; skills: number; mcpServers: number; startTokens?: number; coldWeek?: { count: number; tokens: number }; coldWeeks?: { from: string; count: number; tokens: number }[] };
   findings: Finding[];
 }
 
@@ -553,6 +553,11 @@ export function detect(opts: { days?: number; now?: Date; root?: string; claudeD
       mcpServers: servers.length,
       ...(starts.length ? { startTokens: median(starts) } : {}),
       coldWeek: { count: week.length, tokens: week.reduce((a, x) => a + x.tokens, 0) },
+      // The last 4 weeks, oldest first: the advice card's chart.
+      coldWeeks: [3, 2, 1, 0].map((w) => {
+        const xs = coldReturns(s, now - (w + 1) * 7 * DAY).filter((x) => x.at < now - w * 7 * DAY);
+        return { from: new Date(now - (w + 1) * 7 * DAY).toISOString(), count: xs.length, tokens: xs.reduce((a, x) => a + x.tokens, 0) };
+      }),
     },
     findings,
   };

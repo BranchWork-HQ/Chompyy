@@ -35,6 +35,12 @@ export interface Advice {
   tokens?: number;
   /** Before → after, registered before the fix. */
   check: string;
+  /** The card's picture, in three short steps: what Chompyy saw, what changes, how it's checked. */
+  saw?: string;
+  doing?: string;
+  checkShort?: string;
+  /** Your own numbers behind it, as bars (the app draws them). `highlight` marks the bar the fix aims for. */
+  chart?: { title: string; bars: { label: string; value: number; highlight?: boolean }[]; note?: string };
   changes?: SettingChange[];
   /** Skill folders copied into ~/.claude/skills before the change (the few skills you use from a plugin). */
   copies?: { from: string; to: string }[];
@@ -96,9 +102,20 @@ export function adviceFrom(r: DetectResult, opts: { nudgeOn?: boolean; settings?
           : 'Cold returns a week (`chompyy nudge`), against the week before you started.',
       };
       const fix = f.fix + (opts.nudgeOn ? '' : ' Live suggestions remind you at the moment it matters: `chompyy nudge on`.');
+      a.saw = `${k(f.tokens ?? 0)} tokens rebuilt in 14 days by coming back after the cache expired`;
+      a.doing = 'Nothing to install: before a long break, /compact or leave a note and start fresh. Chompyy warns you before it goes cold.';
+      a.checkShort = w ? `A week with a third fewer than ${w.count} cold returns` : 'Fewer cold returns a week';
+      const weeks = r.scanned.coldWeeks ?? [];
+      if (weeks.length) {
+        a.chart = {
+          title: 'Tokens rebuilt by cold returns, per week',
+          bars: weeks.map((x, i) => ({ label: i === weeks.length - 1 ? 'Last 7 days' : `Week of ${new Date(x.from).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`, value: x.tokens })),
+          note: `${weeks.map((x) => x.count).join(' · ')} cold returns a week. The goal: the next bars a third lower.`,
+        };
+      }
       out.push({ title: 'Stop paying for cold returns', idea: fix, cwd: home, plan: plan(f, a, `**What to do:** ${fix}`), advice: a });
     } else if (f.rule === 'C2') {
-      const a: Advice = { key: 'C2', rule: 'C2', lane: 'habit', basis: f.basis, ...(f.tokens ? { tokens: f.tokens } : {}), check: "Mid-session rebuilds (detect's C2) over the next two weeks. It worked if there are none." };
+      const a: Advice = { key: 'C2', rule: 'C2', lane: 'habit', basis: f.basis, ...(f.tokens ? { tokens: f.tokens } : {}), check: "Mid-session rebuilds (detect's C2) over the next two weeks. It worked if there are none.", saw: `${k(f.tokens ?? 0)} tokens re-cached mid-session`, doing: 'Nothing to install: load tools at the start of a session, or do that work in its own session.', checkShort: 'No mid-session rebuilds for two weeks' };
       out.push({ title: 'Keep the cache through a session', idea: f.fix, cwd: home, plan: plan(f, a, `**What to do:** ${f.fix}`), advice: a });
     } else if (f.rule === 'S3') {
       const start = r.scanned.startTokens;
@@ -115,6 +132,10 @@ export function adviceFrom(r: DetectResult, opts: { nudgeOn?: boolean; settings?
           tokens: p.tokens * r.scanned.sessions,
           changes,
           ...(copies.length ? { copies } : {}),
+          saw: `${p.skills} skills you never used load at every session start (~${k(p.tokens)} tokens)`,
+          doing: kept.length ? `Copy ${kept.join(' and ')} into your own skills, then turn ${name} off. Backed up; Undo puts it back.` : `Turn ${name} off in your settings. Backed up; Undo puts it back.`,
+          checkShort: `New sessions start ~${k(p.tokens)} tokens smaller`,
+          ...(start ? { chart: { title: 'What a session start costs, in tokens', bars: [{ label: 'Now', value: start }, { label: 'After', value: Math.max(0, start - p.tokens), highlight: true }], note: `A ${Math.round((p.tokens / start) * 100) || '<1'}% saving on every session start: small, but it adds up over ${r.scanned.sessions} sessions a month.` } } : {}),
           check: (start
             ? `A session start costs about ${k(start)} now (median first turn). It worked if new sessions start about ${k(p.tokens)} tokens smaller`
             : `New sessions start about ${k(p.tokens)} tokens smaller`) + (kept.length ? `, and ${kept.join(' and ')} still work${kept.length === 1 ? 's' : ''} (now as your own skill${kept.length === 1 ? '' : 's'}).` : ", and you don't miss the plugin."),
@@ -140,7 +161,7 @@ export function adviceFrom(r: DetectResult, opts: { nudgeOn?: boolean; settings?
       }
       const synced = f.targets?.synced ?? [];
       if (synced.length) {
-        const a: Advice = { key: 'S3:synced', rule: 'S3', lane: 'manual', basis: 'estimated', check: 'detect counts installed skills: it worked if these no longer appear, and you don\'t miss them.' };
+        const a: Advice = { key: 'S3:synced', rule: 'S3', lane: 'manual', basis: 'estimated', check: 'detect counts installed skills: it worked if these no longer appear, and you don\'t miss them.', saw: `${synced.length} skills synced from claude.ai, never used`, doing: 'Only you can: turn them off in claude.ai settings, then press "I\'ve done it".', checkShort: 'They no longer load' };
         const what = `**What to do (only you can):** these skills come from your claude.ai account, so Chompyy can't turn them off here. In claude.ai settings, turn off the ones you don't use: ${synced.join(', ')}. Then press "I've done it".`;
         out.push({ title: `Turn off ${synced.length} synced skills you never use`, idea: `On claude.ai: ${synced.slice(0, 6).join(', ')}${synced.length > 6 ? ', …' : ''}`, cwd: home, plan: plan({ ...f, say: `${synced.length} skills synced from your claude.ai account had no use in ${r.scanned.sessions} sessions.` }, a, what), advice: a });
       }
