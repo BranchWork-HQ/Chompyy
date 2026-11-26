@@ -3,16 +3,20 @@
 // first message once, at the moment it would happen, with the price and the cheaper ways on. Send it again and it
 // goes through. Runs as Claude Code's UserPromptSubmit hook (`chompyy nudge on` installs it); away runs turn
 // hooks off, so it never touches them.
-import { closeSync, existsSync, openSync, readFileSync, readSync, realpathSync, statSync, writeFileSync, mkdirSync } from 'node:fs';
+import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, realpathSync, statSync, writeFileSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { formatDuration } from './duration.js';
 import { appendJsonl, homePath } from './home.js';
+import { coldReturns, isAutomated, scan } from './detect.js';
+import { projectsDir } from './dream.js';
 
 /** The main conversation's cache lives an hour (5 minutes on API keys): past an hour it's cold either way. */
 export const COLD_AFTER_MS = 60 * 60_000;
 /** Below this the rebuild is cheap; not worth stopping you. */
 export const MIN_CONTEXT = 40_000;
+/** Warn this long into a pause: still time to /compact while the cache is warm (reads at a tenth of the price). */
+export const WARN_AFTER_MS = 45 * 60_000;
 const MARK = '# chompyy nudge';
 
 export interface Reply {
@@ -24,7 +28,10 @@ export interface Reply {
 
 export interface NudgeEvent {
   at: string;
-  kind: 'stopped' | 'sent';
+  kind: 'stopped' | 'sent' | 'warned';
+  /** warned: when the cache goes cold. */
+  coldAt?: string;
+  project?: string;
   session: string;
   transcript: string;
   idleMs: number;
@@ -154,6 +161,87 @@ export function runHook(stdin: string, now = Date.now()): string {
   return d.block ? JSON.stringify({ decision: 'block', reason: d.reason }) : '';
 }
 
+// ---------- before it goes cold: the menu bar app asks every minute ----------
+
+export interface GoingCold {
+  session: string;
+  transcript: string;
+  project: string;
+  context: number;
+  fresh?: number;
+  idleMs: number;
+  coldAt: string;
+}
+
+/**
+ * Conversations 45-60 minutes into a pause, big enough to matter: each break is reported once (logged as `warned`),
+ * so the app can notify without keeping its own list. Looks only at transcripts written in the last hour.
+ */
+export function goingCold(now = Date.now(), dir = projectsDir(), events = loadNudges()): GoingCold[] {
+  const out: GoingCold[] = [];
+  let folders: string[] = [];
+  try {
+    folders = readdirSync(dir).filter((f) => !isAutomated(f));
+  } catch {
+    return out;
+  }
+  for (const folder of folders) {
+    let files: string[] = [];
+    try {
+      files = readdirSync(join(dir, folder)).filter((f) => f.endsWith('.jsonl'));
+    } catch {
+      continue;
+    }
+    for (const f of files) {
+      const transcript = join(dir, folder, f);
+      try {
+        const mtime = statSync(transcript).mtimeMs;
+        if (now - mtime > COLD_AFTER_MS || now - mtime < WARN_AFTER_MS - 60_000) continue;
+        const { last, first } = replies(transcript);
+        if (!last || last.context < MIN_CONTEXT) continue;
+        const idleMs = now - last.at;
+        if (idleMs < WARN_AFTER_MS || idleMs >= COLD_AFTER_MS) continue;
+        const session = f.replace(/\.jsonl$/, '');
+        if (events.some((e) => e.kind === 'warned' && e.session === session && Date.parse(e.at) > last.at)) continue;
+        const cwd = cwdOf(transcript);
+        const fresh = first && first.context < last.context / 2 ? first.context : undefined;
+        out.push({ session, transcript, project: cwd ? basename(cwd) : folder, context: last.context, ...(fresh ? { fresh } : {}), idleMs, coldAt: new Date(last.at + COLD_AFTER_MS).toISOString() });
+      } catch {
+        /* one bad file never hides the others */
+      }
+    }
+  }
+  return out;
+}
+
+function cwdOf(transcript: string): string {
+  const m = slice(transcript, 64 << 10, true).match(/"cwd":"((?:[^"\\]|\\.)*)"/g);
+  const last = m?.[m.length - 1];
+  return last ? (JSON.parse(`{${last}}`) as { cwd: string }).cwd : '';
+}
+
+/** Report each conversation once: log it, return it. */
+export function takeGoingCold(now = Date.now()): GoingCold[] {
+  const due = goingCold(now);
+  for (const d of due) {
+    try {
+      appendJsonl(homePath('nudges.jsonl'), { at: new Date(now).toISOString(), kind: 'warned', session: d.session, transcript: d.transcript, idleMs: d.idleMs, context: d.context, coldAt: d.coldAt, project: d.project, ...(d.fresh ? { fresh: d.fresh } : {}) } satisfies NudgeEvent);
+    } catch {
+      /* still report it */
+    }
+  }
+  return due;
+}
+
+/** The notification: what's at stake and the one move that pays now. */
+export function coldWarningText(d: GoingCold): { title: string; body: string } {
+  const at = new Date(d.coldAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+  return {
+    title: `${d.project}: ${k(d.context)} conversation goes cold at ${at}`,
+    body: `Coming back after that writes all ${k(d.context)} again. If you'll return to it, /compact now while it's cheap; if you're done with it, do nothing.`,
+  };
+}
+
 // ---------- impact: what happened after each stop ----------
 
 export interface Outcome {
@@ -186,6 +274,65 @@ export function outcomes(events = loadNudges()): Outcome[] {
     if (after) return { event, did: after.cacheWrite < event.context / 2 ? 'compacted' : 'sent', saved: Math.max(0, event.context - after.cacheWrite) };
     return { event, did: 'left', saved: Math.max(0, event.context - (event.fresh ?? 0)) };
   });
+}
+
+/** After a warning: compacted while warm (the later return is small), carried on, came back cold, or left. */
+export interface WarnOutcome {
+  event: NudgeEvent;
+  did: 'compacted' | 'continued' | 'cold' | 'left';
+  saved: number;
+}
+
+export function warnOutcomes(events = loadNudges()): WarnOutcome[] {
+  return events.filter((e) => e.kind === 'warned').map((event) => {
+    const coldAt = Date.parse(event.coldAt ?? '') || Date.parse(event.at) + 15 * 60_000;
+    let next: Reply | null = null;
+    try {
+      for (const line of readFileSync(event.transcript, 'utf8').split('\n')) {
+        const r = replyOf(line);
+        if (r && r.at > Date.parse(event.at)) {
+          next = r;
+          break;
+        }
+      }
+    } catch {
+      /* transcript gone */
+    }
+    if (!next) return { event, did: 'left', saved: 0 };
+    if (next.at >= coldAt) return { event, did: 'cold', saved: 0 };
+    if (next.context < event.context / 2) return { event, did: 'compacted', saved: event.context - next.context };
+    return { event, did: 'continued', saved: 0 };
+  });
+}
+
+const WEEK = 7 * 86_400_000;
+
+/** What the app's "Saved" line shows: the measured trend in cold returns, and what the nudges led to. */
+export interface Impact {
+  on: boolean;
+  thisWeek: { count: number; tokens: number };
+  lastWeek: { count: number; tokens: number };
+  stops: Outcome[];
+  warnings: WarnOutcome[];
+  saved: number;
+  line: string;
+}
+
+export function impact(on = nudgeInstalled(), now = Date.now(), root?: string, events = loadNudges()): Impact {
+  const s = scan({ days: 14, now: new Date(now), ...(root ? { root } : {}) });
+  const all = coldReturns(s, now - 2 * WEEK);
+  const sum = (from: number, to: number) => {
+    const xs = all.filter((x) => x.at >= from && x.at < to);
+    return { count: xs.length, tokens: xs.reduce((a, x) => a + x.tokens, 0) };
+  };
+  const thisWeek = sum(now - WEEK, Infinity);
+  const lastWeek = sum(now - 2 * WEEK, now - WEEK);
+  const stops = outcomes(events);
+  const warnings = warnOutcomes(events);
+  const saved = [...stops, ...warnings].filter((o) => now - Date.parse(o.event.at) < WEEK).reduce((a, o) => a + o.saved, 0);
+  const trend = `Cold returns this week: ${thisWeek.count} (${k(thisWeek.tokens)} rebuilt), last week ${lastWeek.count} (${k(lastWeek.tokens)}).`;
+  const line = saved ? `Saved this week: ~${k(saved)} tokens not rebuilt. ${trend}` : trend;
+  return { on, thisWeek, lastWeek, stops, warnings, saved, line };
 }
 
 export function nudgeText(on: boolean, list = outcomes(), now = Date.now()): string {

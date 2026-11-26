@@ -401,6 +401,21 @@ export function ruleS5(root = projectsDir()): Finding[] {
   return out;
 }
 
+/** Each return after the cache expired: when, and what it wrote again (C1's test, shared with the nudge's trend). */
+export function coldReturns(s: Scan, since: number): { at: number; tokens: number }[] {
+  const out: { at: number; tokens: number }[] = [];
+  for (const ses of s.sessions) {
+    for (let i = 1; i < ses.turns.length; i++) {
+      const t = ses.turns[i]!;
+      const prev = ses.turns[i - 1]!;
+      if (t.at < since || t.miss !== 'previous_message_not_found') continue;
+      const ttl = prev.wrote1h ? 60 * 60_000 : 5 * 60_000;
+      if (t.at - prev.at > ttl) out.push({ at: t.at, tokens: t.cacheWrite });
+    }
+  }
+  return out;
+}
+
 /** C1: coming back after the cache expired, so the whole context is written again. */
 export function ruleC1(s: Scan, now: number): Finding[] {
   const since = now - 14 * DAY;

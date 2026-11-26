@@ -168,6 +168,7 @@ struct MenuPanel: View {
                 WeekPace(usedPct: used, elapsedPct: max(0, min(100, (1 - ms / (7 * 24 * 3600 * 1000)) * 100)))
             }
             Divider()
+            GoingColdRows()
             if let t = store.usage?.today { UsageToday(today: t) }
             UsageInsights(compact: true)
             HStack(spacing: 14) {

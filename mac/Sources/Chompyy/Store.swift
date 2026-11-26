@@ -15,6 +15,11 @@ final class Store: ObservableObject {
     private var usageLoadedAt: Date?
     /// Cards a Keep or Undo is finishing: shown in the column they're headed for until the CLI confirms.
     @Published var landing: [String: Column] = [:]
+    /// Conversations about to go cold (live suggestions, `chompyy nudge`), newest last.
+    @Published var goingCold: [GoingCold] = []
+    private var ticks = 0
+    /// What the live suggestions saved, and the cold-return trend (every 10 minutes; a 14-day scan takes ~1 s).
+    @Published var nudgeImpact: NudgeImpact?
 
     private var timer: Timer?
 
@@ -26,6 +31,10 @@ final class Store: ObservableObject {
         timer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 await self?.refresh()
+                // Live suggestions: every minute, ask which conversations are about to go cold (~0.1 s).
+                self?.ticks += 1
+                if (self?.ticks ?? 0) % 4 == 1 { await self?.checkGoingCold() }
+                if (self?.ticks ?? 0) % 40 == 1 { await self?.loadImpact() }
                 // Usage changes slowly and costs a file scan: every 2 minutes, once something has shown it.
                 if self?.usage != nil || UserDefaults.standard.string(forKey: "menuBarShows") ?? "left" != "left" { await self?.loadUsage() }
             }
@@ -59,6 +68,19 @@ final class Store: ObservableObject {
         guard let r = try? await Task.detached(operation: { try CLI.run(["usage", "--json", "--app", "--period", period]) }).value, r.ok,
               let data = try? JSONDecoder().decode(UsageData.self, from: Data(r.out.utf8)) else { return }
         usage = data
+    }
+
+    func loadImpact() async {
+        guard let r = try? await Task.detached(operation: { try CLI.run(["nudge", "--json"]) }).value, r.ok,
+              let i = try? JSONDecoder().decode(NudgeImpact.self, from: Data(r.out.utf8)) else { return }
+        nudgeImpact = i
+    }
+
+    func checkGoingCold() async {
+        guard let r = try? await Task.detached(operation: { try CLI.run(["nudge", "due", "--json"]) }).value, r.ok,
+              let due = try? JSONDecoder().decode([GoingCold].self, from: Data(r.out.utf8)) else { return }
+        goingCold = goingCold.filter { ($0.coldDate ?? .distantPast) > Date() } + due
+        due.forEach(Notifier.post)
     }
 
     func refresh(forceQuota: Bool = false) async {

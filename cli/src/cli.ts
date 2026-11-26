@@ -42,7 +42,7 @@ import { byKind, compare, formatExtras, formatUsage, loadLedger, periodDays, PER
 import { formatTrace, traceSession } from './trace.js';
 import { homedir } from 'node:os';
 import { clashOf, refreshCard, refreshGate, refreshClashing, withRefreshLock, type RefreshDeps } from './refresh.js';
-import { hookCommand, nudgeInstalled, nudgeText, outcomes, runHook, setNudge } from './nudge.js';
+import { coldWarningText, hookCommand, impact, nudgeInstalled, nudgeText, outcomes, runHook, setNudge, takeGoingCold } from './nudge.js';
 import { formatLive, keepAffectsLive, liveOff, liveSet, liveUpdateLocked, loadLive, startLiveUpdate } from './live.js';
 import { agentInstalled, awayRunning, bedtimeKey, decideTrigger, installAgent, loadTriggerState, markFired, noteTick, parseClock, takeAwayLock, uninstallAgent } from './triggers.js';
 
@@ -57,6 +57,7 @@ Quota
   chompyy nudge on|off          live suggestions while you work: stops the first message to a big conversation
                                 whose cache expired, with the price and the cheaper ways (Claude Code hook)
   chompyy nudge                 on or off, and what the stops saved
+  chompyy nudge due [--json]    conversations 45-60 min into a pause, about to go cold (each reported once; the app notifies; only while nudge is on)
   chompyy premise [--json]      how often a 5-hour window reset with capacity left while the week still had room
   chompyy eat-tokens            show leftover quota and cards you could choose to run (read-only)
 
@@ -1059,8 +1060,14 @@ async function main(argv: string[]): Promise<void> {
     case 'nudge': {
       const sub = args[0];
       if (sub === 'on' || sub === 'off') return console.log(setNudge(sub === 'on', sub === 'on' ? hookCommand() : undefined));
-      if (values.json) return json({ on: nudgeInstalled(), outcomes: outcomes() });
-      return console.log(nudgeText(nudgeInstalled()));
+      if (sub === 'due') {
+        // The app asks every minute; each conversation going cold is reported once.
+        const due = (nudgeInstalled() ? takeGoingCold(now.getTime()) : []).map((d) => ({ ...d, ...coldWarningText(d) }));
+        if (values.json) return json(due);
+        return console.log(due.length ? due.map((d) => `${d.title}\n  ${d.body}`).join('\n') : 'Nothing about to go cold.');
+      }
+      if (values.json) return json(impact());
+      return console.log([nudgeText(nudgeInstalled()), impact().line].join('\n'));
     }
     case 'premise': {
       const ends = allWindowEnds(loadSamples(), now.getTime());

@@ -1,8 +1,8 @@
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { decide, hookCommand, loadNudges, nudgeInstalled, nudgeText, outcomes, runHook, setNudge, type NudgeEvent } from '../src/nudge.js';
+import { coldWarningText, impact, warnOutcomes, decide, goingCold, takeGoingCold, hookCommand, loadNudges, nudgeInstalled, nudgeText, outcomes, runHook, setNudge, type NudgeEvent } from '../src/nudge.js';
 
 const MIN = 60_000;
 const T0 = Date.parse('2026-11-26T09:00:00Z');
@@ -102,5 +102,76 @@ describe('installing the hook', () => {
   it('refuses to point the hook at a one-off npx copy', () => {
     expect(() => hookCommand('/Users/x/.npm/_npx/abc/node_modules/chompyy/dist/cli.js')).toThrow(/npm install -g chompyy/);
     expect(hookCommand('/usr/local/lib/node_modules/chompyy/dist/cli.js', '/usr/local/bin/node')).toBe('"/usr/local/bin/node" "/usr/local/lib/node_modules/chompyy/dist/cli.js" hook prompt # chompyy nudge');
+  });
+});
+
+describe('before it goes cold', () => {
+  /** A projects folder with one conversation whose last reply was at T0 (file written then too). */
+  function projects(folder = '-Users-me-app', context = 180_000): string {
+    const root = dir();
+    mkdirSync(join(root, folder));
+    const p = join(root, folder, 'abc.jsonl');
+    writeFileSync(p, [reply(T0 - 90 * MIN, 0, 22_000), JSON.stringify({ type: 'user', cwd: '/Users/me/app', message: { content: 'x' } }), reply(T0, context - 10_000, 10_000)].join('\n') + '\n');
+    utimesSync(p, new Date(T0), new Date(T0));
+    return root;
+  }
+
+  it('reports a big conversation 45-60 minutes into a pause, with when it goes cold', () => {
+    const due = goingCold(T0 + 50 * MIN, projects(), []);
+    expect(due).toHaveLength(1);
+    expect(due[0]).toMatchObject({ session: 'abc', project: 'app', context: 180_003, fresh: 22_003, coldAt: new Date(T0 + 60 * MIN).toISOString() });
+    const text = coldWarningText(due[0]!);
+    expect(text.title).toMatch(/^app: 180k conversation goes cold at /);
+    expect(text.body).toContain('/compact now');
+  });
+
+  it('stays quiet too early, too late, for small conversations and for automated folders', () => {
+    expect(goingCold(T0 + 30 * MIN, projects(), [])).toEqual([]);
+    expect(goingCold(T0 + 61 * MIN, projects(), [])).toEqual([]);
+    expect(goingCold(T0 + 50 * MIN, projects('-Users-me-app', 20_000), [])).toEqual([]);
+    expect(goingCold(T0 + 50 * MIN, projects('-private-var-folders-x'), [])).toEqual([]);
+  });
+
+  it('reports each break once and logs it', () => {
+    process.env.CHOMPYY_CLAUDE_PROJECTS = projects();
+    try {
+      expect(takeGoingCold(T0 + 50 * MIN)).toHaveLength(1);
+      expect(takeGoingCold(T0 + 51 * MIN)).toEqual([]);
+      expect(loadNudges().map((e) => e.kind)).toEqual(['warned']);
+    } finally {
+      delete process.env.CHOMPYY_CLAUDE_PROJECTS;
+    }
+  });
+});
+
+describe('what the warnings did, and the trend', () => {
+  const warned = (t: string): NudgeEvent => ({ at: new Date(T0 + 50 * MIN).toISOString(), kind: 'warned', session: 's1', transcript: t, idleMs: 50 * MIN, context: 180_000, coldAt: new Date(T0 + 60 * MIN).toISOString() });
+
+  it('counts only a compact before the cache went cold as saved', () => {
+    const compacted = transcript([reply(T0, 170_000, 10_000), reply(T0 + 52 * MIN, 0, 12_000)]);
+    const continued = transcript([reply(T0, 170_000, 10_000), reply(T0 + 52 * MIN, 180_000, 500)]);
+    const cold = transcript([reply(T0, 170_000, 10_000), reply(T0 + 90 * MIN, 0, 180_000)]);
+    const left = transcript([reply(T0, 170_000, 10_000)]);
+    expect(warnOutcomes([compacted, continued, cold, left].map(warned)).map((o) => [o.did, o.saved])).toEqual([
+      ['compacted', 168_000 - 3],
+      ['continued', 0],
+      ['cold', 0],
+      ['left', 0],
+    ]);
+  });
+
+  it('measures cold returns this week against last week from the transcripts', () => {
+    const root = dir();
+    mkdirSync(join(root, '-Users-me-app'));
+    const NOW = Date.parse('2026-11-26T12:00:00Z');
+    const DAY = 86_400_000;
+    const back = (at: number, write: number) =>
+      JSON.stringify({ type: 'assistant', sessionId: 'a', timestamp: new Date(at).toISOString(), message: { id: `m${at}`, usage: { input_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: write, cache_creation: { ephemeral_1h_input_tokens: write } }, diagnostics: { cache_miss_reason: { type: 'previous_message_not_found' } } } });
+    const lines = [back(NOW - 10 * DAY, 50_000), back(NOW - 10 * DAY + 2 * 3600_000, 100_000), back(NOW - 2 * DAY, 50_000), back(NOW - 2 * DAY + 3 * 3600_000, 120_000), back(NOW - 2 * DAY + 5 * 3600_000, 130_000)];
+    writeFileSync(join(root, '-Users-me-app', 'a.jsonl'), lines.join('\n') + '\n');
+    const i = impact(true, NOW, root, []);
+    expect(i.thisWeek).toEqual({ count: 3, tokens: 300_000 });
+    expect(i.lastWeek).toEqual({ count: 1, tokens: 100_000 });
+    expect(i.line).toBe('Cold returns this week: 3 (300k rebuilt), last week 1 (100k).');
   });
 });
