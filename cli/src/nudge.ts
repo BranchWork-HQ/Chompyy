@@ -354,7 +354,8 @@ export function nudgeText(on: boolean, list = outcomes(), now = Date.now()): str
 
 // ---------- installing the hook in Claude Code's settings ----------
 
-const settingsPath = () => join(process.env.CHOMPYY_CLAUDE_SETTINGS || join(homedir(), '.claude', 'settings.json'));
+export const claudeSettingsPath = () => process.env.CHOMPYY_CLAUDE_SETTINGS || join(homedir(), '.claude', 'settings.json');
+const settingsPath = claudeSettingsPath;
 
 type HookGroup = { matcher?: string; hooks?: { type?: string; command?: string; timeout?: number }[] };
 

@@ -180,7 +180,7 @@ struct MenuPanel: View {
             Divider()
             let needs = store.needsYou
             if needs.isEmpty {
-                let approved = store.cards(in: .approved).count
+                let approved = store.cards(in: .approved).filter { !$0.isAdvice }.count
                 Label(approved > 0 ? "\(approved) card\(approved == 1 ? "" : "s") ready for your next away run" : "Nothing waiting for you",
                       systemImage: approved > 0 ? "checkmark.seal" : "cup.and.saucer")
                     .foregroundStyle(.secondary)

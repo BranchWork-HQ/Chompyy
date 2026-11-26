@@ -33,7 +33,13 @@ final class Store: ObservableObject {
                 await self?.refresh()
                 // Live suggestions: every minute, ask which conversations are about to go cold (~0.1 s).
                 self?.ticks += 1
-                if (self?.ticks ?? 0) % 4 == 1 { await self?.checkGoingCold() }
+                if (self?.ticks ?? 0) % 4 == 1 {
+                    await self?.checkGoingCold()
+                    // Approved settings advice goes in once no Claude Code session is active (the CLI checks).
+                    if self?.cards.contains(where: { $0.advice?.state == "waiting" }) == true {
+                        _ = try? await Task.detached(operation: { try CLI.run(["advise", "apply"]) }).value
+                    }
+                }
                 if (self?.ticks ?? 0) % 40 == 1 { await self?.loadImpact() }
                 // Usage changes slowly and costs a file scan: every 2 minutes, once something has shown it.
                 if self?.usage != nil || UserDefaults.standard.string(forKey: "menuBarShows") ?? "left" != "left" { await self?.loadUsage() }
