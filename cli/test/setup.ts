@@ -22,3 +22,6 @@ process.env.CHOMPYY_CLAUDE_PROJECTS ??= mkdtempSync(join(tmpdir(), 'chompyy-no-s
 // "Timeout calling onTaskUpdate" even though every test passed. Every away card's check then read "npm test
 // fails, same as main" (2026-11-18). Yielding after each test lets the replies through.
 afterEach(() => new Promise<void>((resolve) => setImmediate(resolve)));
+
+// Tests never edit the real ~/.claude/settings.json (`chompyy nudge on` adds a hook there).
+process.env.CHOMPYY_CLAUDE_SETTINGS ??= join(mkdtempSync(join(tmpdir(), 'chompyy-claude-settings-')), 'settings.json');
