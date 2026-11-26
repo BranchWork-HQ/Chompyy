@@ -162,6 +162,16 @@ struct Refresh: Decodable {
     let at: String
 }
 
+struct CardAdvice: Decodable {
+    let key: String
+    let rule: String
+    let lane: String      // settings | habit | manual | work
+    let check: String
+    let state: String?    // waiting | applied | trying | done | undone | failed
+    let note: String?
+    let since: String?
+}
+
 struct Checks: Decodable {
     let result: String   // passed | failed | not run
     let why: String
@@ -210,6 +220,10 @@ struct Card: Decodable, Identifiable, Hashable {
     let refresh: Refresh?
     /// You pressed Keep while it clashed: it keeps itself once it's up to date and its checks pass.
     let keepWhenRefreshed: Bool?
+    /// An Advice card from `chompyy advise` (detect's findings): its lane decides what approving does.
+    let advice: CardAdvice?
+    /// Advice that Chompyy applies or you do yourself, not an away run (work-lane advice is a normal card).
+    var isAdvice: Bool { advice.map { $0.lane != "work" } ?? false }
 
     static func == (a: Card, b: Card) -> Bool { a.id == b.id && a.updatedAt == b.updatedAt }
     func hash(into h: inout Hasher) { h.combine(id) }

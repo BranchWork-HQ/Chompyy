@@ -26,6 +26,13 @@ export interface Finding {
   tokens?: number;
   /** How `tokens` was reached, when it isn't a plain measured total, e.g. "~3.1k × 214 sessions". */
   tokensHow?: string;
+  /** What a fix would act on (S3): plugins none of whose skills you used, and unused synced or own skills. */
+  targets?: {
+    /** `keep`: the few skills you did use, to copy into ~/.claude/skills before the plugin goes off. */
+    plugins?: { id: string; skills: number; tokens: number; keep?: { name: string; dir: string }[] }[];
+    synced?: string[];
+    yours?: { name: string; file: string }[];
+  };
 }
 
 // ---------- reading the transcripts ----------
@@ -197,6 +204,10 @@ export interface InstalledSkill {
   descriptionTokens: number;
   source: 'yours' | 'plugin' | 'synced';
   installedAt: number;
+  /** For plugin skills: the plugin's id in enabledPlugins ("name@marketplace"). */
+  plugin?: string;
+  /** Where the SKILL.md is. */
+  file?: string;
 }
 
 /** Characters ÷ 4: every tool uses this; label it estimated. */
@@ -212,7 +223,7 @@ function skillAt(file: string, source: InstalledSkill['source'], plugin?: string
   const front = text.match(/^---\n([\s\S]*?)\n---/)?.[1] ?? '';
   const name = front.match(/^name:\s*(.+)$/m)?.[1]?.trim().replace(/^["']|["']$/g, '') || basename(dirname(file));
   const description = front.match(/^description:\s*([\s\S]*?)(?=\n[a-z_-]+:|$)/m)?.[1]?.trim() ?? '';
-  return { name, calledAs: plugin ? `${plugin}:${name}` : name, descriptionTokens: tokensOf(`${name}: ${description}`), source, installedAt: statSync(file).mtimeMs };
+  return { name, calledAs: plugin ? `${plugin}:${name}` : name, descriptionTokens: tokensOf(`${name}: ${description}`), source, installedAt: statSync(file).mtimeMs, file };
 }
 
 const skillFiles = (dir: string, depth = 3): string[] => {
@@ -261,7 +272,7 @@ export function installedSkills(claudeDir = join(homedir(), '.claude')): Install
       if (!inst.installPath) continue;
       for (const f of pluginSkillFiles(inst.installPath)) {
         const s = skillAt(f, 'plugin', plugin);
-        if (s) skills.push(s);
+        if (s) skills.push({ ...s, plugin: id });
       }
     }
   }
@@ -349,6 +360,24 @@ export function ruleS3(s: Scan, skills: InstalledSkill[], now: number): Finding[
       tokens: tokens * s.sessions.length,
       tokensHow: `~${fmt(tokens)} × ${s.sessions.length} sessions`,
       notProve: "Not seeing a skill used doesn't prove you'll never need it.",
+      targets: {
+        // A plugin you never use goes off whole; one you use a little (≤3 skills, 10+ unused) goes off after
+        // copying the ones you use into your own skills.
+        plugins: [...new Set(skills.filter((k) => k.plugin).map((k) => k.plugin!))].flatMap((id) => {
+          const of = skills.filter((k) => k.plugin === id);
+          const kept = of.filter(isUsed);
+          const idle = of.filter((k) => !isUsed(k));
+          if (kept.length > 3 || (kept.length && idle.length < 10)) return [];
+          return [{
+            id,
+            skills: idle.length,
+            tokens: idle.reduce((a, k) => a + k.descriptionTokens, 0),
+            ...(kept.length ? { keep: kept.map((k) => ({ name: k.name, dir: dirname(k.file ?? '') })) } : {}),
+          }];
+        }),
+        synced: bySource('synced').map((k) => k.name),
+        yours: bySource('yours').map((k) => ({ name: k.name, file: k.file ?? '' })),
+      },
       fix: [
         bySource('plugin').length ? 'Turn off plugins you don\'t use (`/plugin`, or enabledPlugins in ~/.claude/settings.json)' : '',
         bySource('synced').length ? 'turn off synced skills you don\'t use in claude.ai settings' : '',
@@ -496,7 +525,7 @@ export function ruleC2(s: Scan): Finding[] {
 }
 
 export interface DetectResult {
-  scanned: { sessions: number; days: number; skills: number; mcpServers: number };
+  scanned: { sessions: number; days: number; skills: number; mcpServers: number; startTokens?: number; coldWeek?: { count: number; tokens: number } };
   findings: Finding[];
 }
 
@@ -513,7 +542,20 @@ export function detect(opts: { days?: number; now?: Date; root?: string; claudeD
     ...ruleS4(s, servers),
     ...ruleS5(opts.root),
   ];
-  return { scanned: { sessions: s.sessions.length, days: opts.days ?? 30, skills: skills.length, mcpServers: servers.length }, findings };
+  // Baselines for the checks advice cards register before a fix: what a session start costs, and last week's cold returns.
+  const starts = s.sessions.map((x) => x.turns[0]!).map((t) => t.cacheRead + t.cacheWrite).filter((n) => n > 0);
+  const week = coldReturns(s, now - 7 * DAY);
+  return {
+    scanned: {
+      sessions: s.sessions.length,
+      days: opts.days ?? 30,
+      skills: skills.length,
+      mcpServers: servers.length,
+      ...(starts.length ? { startTokens: median(starts) } : {}),
+      coldWeek: { count: week.length, tokens: week.reduce((a, x) => a + x.tokens, 0) },
+    },
+    findings,
+  };
 }
 
 const short = (text: string) => text.split(/(?<=\.)\s/)[0]!;

@@ -33,6 +33,13 @@ struct BoardView: View {
                 ParkIdeaButton()
                 Button { openWindow(id: "usage") } label: { Label("Usage", systemImage: "chart.bar.xaxis").labelStyle(.titleAndIcon) }
                     .help("Tokens and API value of every Claude Code conversation on this Mac")
+                Button {
+                    Task { await store.act("advise", ["advise"]) }
+                } label: {
+                    if store.busy.contains("advise") { ProgressView().controlSize(.small) } else { Label("Find savings", systemImage: "magnifyingglass") }
+                }
+                .disabled(store.busy.contains("advise"))
+                .help("Read your Claude Code sessions and setup (chompyy detect) and turn what wastes tokens into cards to approve")
                 Button { showColdStart = true } label: { Label("Suggest from my history", systemImage: "clock.arrow.circlepath") }
                     .help("Read your Claude Code history and suggest tasks and taste lines")
                 Button { showFeedback = true } label: {
@@ -358,7 +365,17 @@ struct CardTile: View {
     }
 
     @ViewBuilder private var status: some View {
-        if card.needsYou && card.hasQuestions {
+        if card.isAdvice, let a = card.advice {
+            switch a.state ?? "" {
+            case "waiting": pill("Applies when you're idle", "hourglass", .secondary)
+            case "applied": pill("Applied", "checkmark.seal.fill", Brand.ok)
+            case "trying": pill("Trying it", "leaf", Brand.ok)
+            case "done": pill("Done by you", "checkmark", Brand.ok)
+            case "undone": pill("Undone", "arrow.uturn.backward", .secondary)
+            case "failed": pill("Not applied", "exclamationmark.triangle", Brand.warn)
+            default: pill(a.lane == "settings" ? "Advice · a settings change" : a.lane == "habit" ? "Advice · a habit" : "Advice · yours to do", "lightbulb", Brand.doughEdge)
+            }
+        } else if card.needsYou && card.hasQuestions {
             pill("Has a question", "questionmark.bubble.fill", Brand.warn)
         } else if card.needsYou && card.refreshing {
             // Main moved on since it ran; Chompyy is bringing it up to date (refresh.ts), nothing for you to do.
