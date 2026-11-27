@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import SwiftUI
 
@@ -140,6 +141,25 @@ final class Store: ObservableObject {
         let ok = await act(key, args)
         landing[id] = nil
         if !ok, selectedCardID == nil { selectedCardID = id }
+    }
+
+    /// Share results: `chompyy worked --share` on the clipboard, ready to paste on the tester issue (no names in it).
+    func copyShare() async {
+        busy.insert("share")
+        defer { busy.remove("share") }
+        guard let r = try? await Task.detached(operation: { try CLI.run(["worked", "--share"]) }).value, r.ok else {
+            show("Couldn't build the summary. Try again in a minute.")
+            return
+        }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(r.out.trimmingCharacters(in: .whitespacesAndNewlines), forType: .string)
+        show("Copied. Paste it on the tester issue (#24).")
+    }
+
+    /// Live suggestions on or off (`chompyy nudge on|off`: a Claude Code hook), then the panel's line again.
+    func setNudge(_ on: Bool) async {
+        _ = await act("nudge", ["nudge", on ? "on" : "off"])
+        await loadImpact()
     }
 
     func show(_ message: String) {

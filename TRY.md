@@ -9,11 +9,23 @@ Thanks for trying it. Chompyy is in its first test version: it has rough edges, 
                    approve it             you're gone          made it a 5?
 ```
 
-## What you need
+## Fastest: just the savings (no Terminal, no Node)
+
+For Macs with Claude Code only in the desktop app. About 5 minutes, then a week of normal work.
+
+1. **Download [Chompyy.dmg](https://github.com/BranchWork-HQ/Chompyy/releases/latest/download/Chompyy.dmg)** and drag Chompyy to Applications. It brings its own Node.
+2. **Open it.** It isn't notarized yet, so macOS blocks the first launch. Go to **System Settings → Privacy & Security** and press **Open Anyway**. You only do this once.
+3. **🍪 → Open board → Find savings.** Chompyy reads your Claude Code sessions on this Mac and adds cards for what wastes tokens.
+4. **Approve the top card**, and **Turn on live suggestions** in the sidebar.
+5. **In a week: Share results** (sidebar). It copies a summary with no project, skill or file names. Paste it on [#24](https://github.com/BranchWork-HQ/Chompyy/issues/24).
+
+If **Find savings** says it found no sessions, or live suggestions never fire in the desktop app, say so on #24. Both are checked only with Claude Code in Terminal so far.
+
+## Everything, including away runs: what you need
 
 - A Mac on **macOS 14** or later (Apple Silicon or Intel)
-- **[Claude Code](https://code.claude.com)**, logged in on a **Pro, Max or Ultra** plan, with `claude` working in Terminal
-- **Node.js 20+**
+- **[Claude Code](https://code.claude.com)**, logged in on a **Pro, Max or Ultra** plan, with `claude` working in Terminal (away runs use it)
+- **Node.js 20+** (for the `chompyy` command; the app brings its own)
 - A git repo you don't mind a robot working in (Chompyy works on a copy, but start with something low-stakes)
 
 Check the first two in Terminal before you start:

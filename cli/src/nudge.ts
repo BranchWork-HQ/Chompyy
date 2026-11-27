@@ -495,6 +495,6 @@ export function setNudge(on: boolean, command?: string, path = settingsPath()): 
     if (on && !nudgeInstalledBefore(raw)) savePrefs({ ...p, onAt: new Date().toISOString() });
   } catch {}
   return on
-    ? `On. Added a UserPromptSubmit hook to ${path.replace(homedir(), '~')} (the old file is saved next to it as .chompyy-backup). Conversations already open may need a restart to pick it up.`
-    : `Off. Removed Chompyy's hook from ${path.replace(homedir(), '~')}; your other hooks are untouched.`;
+    ? `Live suggestions on. Restart open conversations to pick it up. (Hook added to ${path.replace(homedir(), '~')}; old file saved as .chompyy-backup.)`
+    : `Live suggestions off. (Chompyy's hook removed from ${path.replace(homedir(), '~')}; your other hooks untouched.)`;
 }
