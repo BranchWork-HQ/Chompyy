@@ -29,6 +29,16 @@ describe('board', () => {
     expect(existsSync(join(home(), 'board.json'))).toBe(true);
   });
 
+  it('parking an idea into an empty later column (the app path) saves a later card that gets drafted', () => {
+    // The app's "Nothing here" click runs `chompyy later "<idea>"` in the picked project, which does this.
+    expect(loadBoard().cards.filter((c) => c.column === 'later')).toEqual([]);
+    const card = updateBoard((b) => addCard(b, '  add a CONTRIBUTING.md with 3 rules ', '/proj', NOW, 'later', 'main'));
+    const saved = loadBoard();
+    expect(saved.cards).toHaveLength(1);
+    expect(saved.cards[0]).toMatchObject({ id: card.id, column: 'later', cwd: '/proj', workspace: 'main', idea: 'add a CONTRIBUTING.md with 3 rules', blueprint: null });
+    expect(claimDrafts(saved, NOW, null)).toEqual([card.id]); // the background drafter picks it up
+  });
+
   it('allows only the defined transitions', () => {
     expect(canMove('later', 'approved')).toBe(true);
     expect(canMove('approved', 'running')).toBe(true);
