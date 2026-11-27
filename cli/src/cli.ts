@@ -11,7 +11,7 @@ import { formatPreflight, loadProfile, preflight, saveProfile } from './prefligh
 import { verifyCard } from './verifycard.js';
 import { parsePermission, recordNeeds } from './permissions.js';
 import { draftAllPlan, draftBlueprint, draftFiveStarOptions, draftTitle, GENERIC_FIVE_STAR, isUsageLimit, writeBlueprintFile } from './blueprint.js';
-import { addCard, awayQueue, claimDrafts, COLUMNS, dropCard, expireSuggested, formatBoard, formatCard, getCard, loadBoard, moveCard, noteDraftFailure, quotaWaitReason, recoverRunning, titleFrom, updateBoard, type Column } from './board.js';
+import { addCard, awayQueue, claimDrafts, COLUMNS, continueCard, cycleOf, dropCard, expireSuggested, formatBoard, formatCard, getCard, loadBoard, moveCard, noteDraftFailure, quotaWaitReason, recoverRunning, titleFrom, updateBoard, type Column } from './board.js';
 import { loadConfig, setConfig } from './config.js';
 import { formatDuration, parseDuration } from './duration.js';
 import { budgetGate } from './gate.js';
@@ -91,6 +91,8 @@ Back
   chompyy undo <id>             throw it away (removes its branch; yours are untouched)
   chompyy answer <id>           answer the run's questions (stdin); the card goes back to approved
   chompyy redo <id>             throw this attempt away and run it again from your latest code
+  chompyy continue <id> ["note"]   a done card did only part of the job: run another cycle that builds on it
+                                (the next run is told what was done and, from the note, what is still missing)
   chompyy rate <id> <1-5> ["why"] [--to-five "change" ...]   rate a result; --to-five = what would have made it a 5
   chompyy five-star <id>        options for "what would have made it a 5?" (JSON)
   chompyy signals [--json]      everything Chompyy has recorded from you: ratings, edits, answers
@@ -312,9 +314,11 @@ async function distillNow(now: Date, force = false): Promise<string> {
 /** Keep a card: merge it, record it, update the live app, and bring the other cards in review up to date. */
 function keepNow(id: string, now: Date): void {
   const kept = getCard(loadBoard(), id);
+  const files = changedFiles(kept); // read before Keep removes the branch
   console.log(keepCard(kept));
   updateBoard((b) => {
     const card = getCard(b, id);
+    if (card.run) card.run.files = files;
     card.outcome = 'kept';
     card.column = 'done';
     delete card.keepWhenRefreshed;
@@ -1156,11 +1160,13 @@ async function main(argv: string[]): Promise<void> {
     }
     case 'undo': {
       const id = need(args[0], 'chompyy undo <id>');
-      const adv = getCard(loadBoard(), id);
-      if (adv.advice && adv.advice.lane !== 'work') return console.log(updateBoard((b) => undoAdvice(getCard(b, id), now)));
-      console.log(undoCard(getCard(loadBoard(), id)));
+      const undone = getCard(loadBoard(), id);
+      if (undone.advice && undone.advice.lane !== 'work') return console.log(updateBoard((b) => undoAdvice(getCard(b, id), now)));
+      const files = changedFiles(undone); // read before Undo removes the branch
+      console.log(undoCard(undone));
       updateBoard((b) => {
         const card = getCard(b, id);
+        if (card.run) card.run.files = files;
         card.outcome = 'undone';
         card.column = 'done';
         card.updatedAt = now.toISOString();
@@ -1184,6 +1190,15 @@ async function main(argv: string[]): Promise<void> {
         return c;
       });
       console.log(`🔁 #${card.id} back in approved; it runs again from your latest code on the next away run.`);
+      return;
+    }
+    case 'continue': {
+      const id = need(args[0], 'chompyy continue <id> ["what is still missing"]');
+      const note = args.slice(1).join(' ').trim();
+      const before = getCard(loadBoard(), id);
+      const prior = { summary: fullOutput(before) ?? before.run?.summary, files: before.run?.files ?? changedFiles(before) };
+      const card = updateBoard((b) => continueCard(b, id, note, now, prior));
+      console.log(`🔁 #${card.id} back in approved as cycle ${cycleOf(card)}; the next away run gets what cycle ${cycleOf(card) - 1} did${note ? ' and your note' : ''}.`);
       return;
     }
     case 'rate': {
