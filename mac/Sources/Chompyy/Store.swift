@@ -40,7 +40,13 @@ final class Store: ObservableObject {
                         _ = try? await Task.detached(operation: { try CLI.run(["advise", "apply"]) }).value
                     }
                 }
-                if (self?.ticks ?? 0) % 40 == 1 { await self?.loadImpact() }
+                if (self?.ticks ?? 0) % 40 == 1 {
+                    await self?.loadImpact()
+                    // Did it work? Re-measure applied or tried advice every 10 minutes (a transcript scan).
+                    if self?.cards.contains(where: { ["applied", "trying", "done"].contains($0.advice?.state ?? "") }) == true {
+                        _ = try? await Task.detached(operation: { try CLI.run(["worked", "--json"]) }).value
+                    }
+                }
                 // Usage changes slowly and costs a file scan: every 2 minutes, once something has shown it.
                 if self?.usage != nil || UserDefaults.standard.string(forKey: "menuBarShows") ?? "left" != "left" { await self?.loadUsage() }
             }
