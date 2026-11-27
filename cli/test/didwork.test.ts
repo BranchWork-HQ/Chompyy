@@ -6,7 +6,7 @@ import type { Advice } from '../src/advice.js';
 import { undoAdvice } from '../src/advice.js';
 import type { BoardData, Card } from '../src/board.js';
 import type { Scan, Session, Turn } from '../src/detect.js';
-import { checkC1, checkC2, checkClaudeMd, checkPlugin, checkSkillsGone, checkWorked, measurable, nudgeProof, nudgeProofText, workedText } from '../src/didwork.js';
+import { checkC1, checkC2, checkClaudeMd, checkPlugin, checkSkillsGone, checkWorked, measurable, nudgeProof, nudgeProofText, shareText, workedText, type AdviceResult, type NudgeProof } from '../src/didwork.js';
 
 const DAY = 86_400_000;
 const HOUR = 3_600_000;
@@ -194,5 +194,50 @@ describe('live suggestions: did the nudge work?', () => {
     expect(p.result.verdict).toBe('too-early');
     const text = nudgeProofText(p).join('\n');
     expect(text).toContain('Counted per stop: ~160k not rewritten (compacted 1, left 0). Sent anyway 0.');
+  });
+});
+
+describe('worked --share', () => {
+  it('numbers and dates only: no plugin, skill, project or file names, even when the cards carry them', () => {
+    const named = (id: string, a: Partial<Advice>, result: AdviceResult): Card => ({ id, title: `Turn off secret-plugin (keep my-skill) in /Users/me/acme`, idea: '', cwd: '/Users/me/acme', column: 'done', createdAt: '', updatedAt: '', advice: { key: 'k', rule: 'S3', lane: 'settings', basis: 'estimated', check: '', ...a, result } } as Card);
+    const cards = [
+      named('1', {}, { at: '', verdict: 'worked', method: 'recount', line: 'It worked: secret-plugin', before: 965, after: 0, saved: 965, per: 'session start' }),
+      named('2', { key: 'S3:synced', lane: 'manual' }, { at: '', verdict: 'no-change', method: 'recount', line: 'my-skill still loads', before: 13, after: 13 }),
+      named('3', { key: 'C2', rule: 'C2', lane: 'habit' }, { at: '', verdict: 'cant-tell', method: 'before-after', line: '', before: 0, after: 0 }),
+    ];
+    const proof: NudgeProof = { since: new Date(SINCE).toISOString(), result: { at: '', verdict: 'too-early', method: 'before-after', line: '', before: 16, after: 0, dueAt: new Date(SINCE + 14 * DAY).toISOString() }, counted: { stops: 1, compacted: 0, left: 1, sent: 0, saved: 234_000, measured: 0, rewritten: 0 }, quiet: [{ project: 'acme', why: 'learned' }] };
+    const text = shareText(cards, proof, { version: '0.4.3', now: new Date(SINCE) });
+    expect(text).not.toMatch(/secret-plugin|my-skill|acme|\/Users/);
+    expect(text).toContain('- ✅ Unused plugin turned off: worked · ~965 → ~0 tokens per session start · re-counted');
+    expect(text).toContain('- ➖ Unused synced skills turned off: no change · 0 of 13 gone · re-counted');
+    expect(text).toContain('nothing to improve (none before)');
+    expect(text).toContain('0 since (was 16 a week) · verdict Dec 10');
+    expect(text).toContain('Heads-up instead of a stop in 1 project');
+  });
+});
+
+describe('a card marked done that is not done', () => {
+  const synced = (since: number): Card => ({ id: '35', title: 't', idea: '', cwd: '/', column: 'done', createdAt: '', updatedAt: '', advice: { key: 'S3:synced', rule: 'S3', lane: 'manual', basis: 'estimated', check: '', state: 'done', since: new Date(since).toISOString(), baseline: { names: ['pdf'] } } } as Card);
+  const withPdf = () => {
+    const dir = mkdtempSync(join(tmpdir(), 'chompyy-didwork-'));
+    mkdirSync(join(dir, 'skills', 'synced', 'pdf'), { recursive: true });
+    writeFileSync(join(dir, 'skills', 'synced', 'pdf', 'SKILL.md'), '---\nname: pdf\ndescription: read pdfs\n---\n');
+    return dir;
+  };
+  const root = () => mkdtempSync(join(tmpdir(), 'chompyy-didwork-projects-'));
+
+  it('comes back to suggested after a day, saying what is still there', () => {
+    const b: BoardData = { nextId: 36, cards: [synced(SINCE)] };
+    checkWorked(b, new Date(SINCE + 2 * DAY), { root: root(), claudeDir: withPdf() });
+    const c = b.cards[0]!;
+    expect(c.column).toBe('suggested');
+    expect(c.advice!.state).toBeUndefined();
+    expect(c.advice!.note).toMatch(/^Back from Done: 1 of 1 still load .*pdf\. Do it, then press "I've done it" again\.$/);
+  });
+
+  it('waits a day first (claude.ai settings take time to sync)', () => {
+    const b: BoardData = { nextId: 36, cards: [synced(SINCE)] };
+    checkWorked(b, new Date(SINCE + 2 * HOUR), { root: root(), claudeDir: withPdf() });
+    expect(b.cards[0]!.column).toBe('done');
   });
 });
