@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import type { Card } from './board.js';
 import { homePath } from './home.js';
 import type { Runner } from './runner.js';
+import { chosenType, suggestTypes, typeHint, type TypeSuggestion } from './picturetype.js';
 
 export interface PictureInfo {
   path: string;
@@ -18,6 +19,11 @@ export interface PictureInfo {
   blueprintHash: string;
   /** What the skill's own self-check said ("OK" or its complaints); null when python3 isn't available. */
   check: string | null;
+  /** The visual type the agent drew and its reason (from its leading comment); null if it didn't say. */
+  type?: string | null;
+  why?: string | null;
+  /** What the card's text suggested, strongest first, with the evidence. */
+  suggested?: TypeSuggestion[];
 }
 
 export function skillDir(): string {
@@ -26,7 +32,7 @@ export function skillDir(): string {
 
 export const blueprintHash = (text: string | null) => createHash('sha256').update(text ?? '').digest('hex').slice(0, 16);
 
-export function picturePrompt(card: Pick<Card, 'id' | 'title' | 'idea' | 'blueprint'>): string {
+export function picturePrompt(card: Pick<Card, 'id' | 'title' | 'idea' | 'blueprint'>, suggestions = suggestTypes(card)): string {
   return `You are drawing the picture for a task card in Chompyy, unattended. Nobody can answer questions,
 so don't ask any: decide and draw.
 
@@ -36,11 +42,12 @@ onboarding, and take every color from it (never the colors in the example files)
 type and read only that type's reference, plus references/primitives-core.md or
 references/layout-budget.md if you need exact markup. Start from assets/template.html.
 
+Which type: the card's text was checked for signals (below). They are hints, not orders.
+${typeHint(suggestions)}
+
 Who looks at it: the person deciding in ten seconds whether to approve this task. The picture must show
 what the task will DO and WHY it helps: the thing it produces or changes and how it fits, not the
-blueprint's headings. Don't draw four boxes called Goal / Changes / Won't touch / Done when. Good picks
-are usually Steps, Flowchart, Data flow, Architecture or Before/After (Architecture delta), but choose
-what fits. Put the accent on the 1 or 2 things this task actually creates or changes. Keep it small:
+blueprint's headings. Don't draw four boxes called Goal / Changes / Won't touch / Done when. Put the accent on the 1 or 2 things this task actually creates or changes. Keep it small:
 at most 7 nodes. Title (h1): the task in plain words. Eyebrow: "<Type> · Card #${card.id}".
 
 Rendering rules for Chompyy:
@@ -122,13 +129,18 @@ export async function drawPicture(
 ): Promise<PictureInfo> {
   if (!card.blueprint) throw new Error(`Card #${card.id} has no blueprint to draw yet.`);
   if (!existsSync(join(skillDir(), 'SKILL.md'))) throw new Error('The diagram-design skill is missing from this install.');
-  const result = await runner.run({ prompt: picturePrompt(card), cwd: skillDir(), model: opts.model, tools: 'Read,Glob,Grep', timeoutMs: opts.timeoutMs ?? 300_000 });
+  const suggested = suggestTypes(card);
+  const result = await runner.run({ prompt: picturePrompt(card, suggested), cwd: skillDir(), model: opts.model, tools: 'Read,Glob,Grep', timeoutMs: opts.timeoutMs ?? 300_000 });
   if (result.timedOut) throw new Error('Drawing the picture timed out.');
   if (result.exitCode !== 0) throw new Error(`claude exited with ${result.exitCode}: ${result.stderr.trim().slice(0, 300)}`);
   const html = cleanPicture(extractHtml(result.output));
+  const chose = chosenType(html);
   const path = homePath('pictures', `${card.id}.html`);
   const darkPath = homePath('pictures', `${card.id}-dark.html`);
   writeFileSync(path, html);
   writeFileSync(darkPath, darkPicture(html));
-  return { path, darkPath, at: opts.now.toISOString(), blueprintHash: blueprintHash(card.blueprint), check: selfCheck(path) };
+  return {
+    path, darkPath, at: opts.now.toISOString(), blueprintHash: blueprintHash(card.blueprint), check: selfCheck(path),
+    type: chose?.type ?? null, why: chose?.why ?? null, suggested,
+  };
 }

@@ -4,11 +4,35 @@ import AppKit
 /// The board window: what's left at the top, the cards as a kanban, the selected card on the right.
 struct BoardView: View {
     @EnvironmentObject var store: Store
+    @Environment(\.openWindow) private var openWindow
     @State private var showFeedback = false
-    @State private var showUsage = false
     @State private var showColdStart = false
 
     var body: some View {
+        HStack(spacing: 0) {
+            BoardSidebar(showFeedback: $showFeedback, showColdStart: $showColdStart)
+            Divider()
+            boardBody
+        }
+        .overlay { CardOverlay() }
+        .overlay(alignment: .bottom) { Toast() }
+        .dismissOnOutsideClick(isPresented: $showFeedback, width: 680, height: 680) { FeedbackView().environmentObject(store) }
+        .dismissOnOutsideClick(isPresented: $showColdStart, width: 720, height: 700) { ColdStartView().environmentObject(store) }
+        // The sidebar stays clickable over a pop-up, so opening one closes the others: one panel at a time.
+        // (Usage is its own window since #51, so it isn't one of them.)
+        .onChange(of: showFeedback) { _, on in if on { only(feedback: true) } }
+        .onChange(of: showColdStart) { _, on in if on { only(coldStart: true) } }
+        .onChange(of: store.selectedCardID) { _, id in if id != nil { only() } }
+        .onAppear {
+            // For testing: open a sheet straight away.
+            if ProcessInfo.processInfo.environment["CHOMPYY_OPEN_COLDSTART"] != nil { showColdStart = true }
+            if ProcessInfo.processInfo.environment["CHOMPYY_OPEN_FEEDBACK"] != nil { showFeedback = true }
+            if ProcessInfo.processInfo.environment["CHOMPYY_OPEN_USAGE"] != nil { openWindow(id: "usage") }
+        }
+        .frame(minWidth: 1240, minHeight: 560)
+    }
+
+    private var boardBody: some View {
         VStack(spacing: 0) {
             QuotaHeader()
             Divider()
@@ -26,52 +50,13 @@ struct BoardView: View {
                 .background(Brand.boardBackground)
             }
         }
-        .overlay { CardOverlay() }
-        .overlay(alignment: .bottom) { Toast() }
-        .toolbar {
-            ToolbarItemGroup {
-                ParkIdeaButton()
-                Button { showUsage = true } label: { Label("Usage", systemImage: "chart.bar.xaxis").labelStyle(.titleAndIcon) }
-                    .help("Tokens and API value of every Claude Code conversation on this Mac")
-                Button { showColdStart = true } label: { Label("Suggest from my history", systemImage: "clock.arrow.circlepath") }
-                    .help("Read your Claude Code history and suggest tasks and taste lines")
-                Button { showFeedback = true } label: {
-                    Label("What Chompyy heard from you", systemImage: "bubble.left.and.text.bubble.right")
-                        .overlay(alignment: .topTrailing) {
-                            // Rules waiting for your yes: a small badge, never a ping.
-                            if let n = store.state?.taste?.waiting.count, n > 0 {
-                                Text("\(n)").font(.system(size: 9, weight: .bold)).foregroundStyle(.white)
-                                    .padding(.horizontal, 4).padding(.vertical, 1)
-                                    .background(Brand.warn, in: Capsule())
-                                    .offset(x: 8, y: -6)
-                            }
-                        }
-                }
-                .help(store.state?.taste?.waiting.isEmpty == false ? "Chompyy noticed something about how you like work done" : "What Chompyy heard from you, and what it learned")
-                AwayMenu()
-                Button {
-                    Task { await store.refresh(forceQuota: true) }
-                } label: {
-                    if store.busy.contains("refresh") { ProgressView().controlSize(.small) } else { Label("Refresh", systemImage: "arrow.clockwise") }
-                }
-                .disabled(store.busy.contains("refresh"))
-                .help("Refresh the board and read live quota now")
-            }
-        }
-        .sheet(isPresented: $showFeedback) { FeedbackView().environmentObject(store) }
-        .sheet(isPresented: $showUsage) { UsageSheet().environmentObject(store) }
-        .onChange(of: store.openUsage) { _, tab in
-            if tab != nil { showUsage = true; store.openUsage = nil }
-        }
-        .sheet(isPresented: $showColdStart) { ColdStartView().environmentObject(store) }
-        .onAppear {
-            // For testing: open a sheet straight away.
-            if ProcessInfo.processInfo.environment["CHOMPYY_OPEN_COLDSTART"] != nil { showColdStart = true }
-            if ProcessInfo.processInfo.environment["CHOMPYY_OPEN_FEEDBACK"] != nil { showFeedback = true }
-            if ProcessInfo.processInfo.environment["CHOMPYY_OPEN_USAGE"] != nil { showUsage = true }
-            if store.openUsage != nil { showUsage = true; store.openUsage = nil }
-        }
-        .frame(minWidth: 1080, minHeight: 560)
+    }
+
+    /// Keep the named pop-up open and close the rest, the open card included.
+    private func only(feedback: Bool = false, coldStart: Bool = false) {
+        if !feedback { showFeedback = false }
+        if !coldStart { showColdStart = false }
+        if feedback || coldStart { store.selectedCardID = nil }
     }
 }
 
@@ -101,6 +86,7 @@ struct QuotaHeader: View {
                 } else {
                     Text("Window unknown").font(.title3.weight(.semibold))
                     Text(q?.note ?? "Refresh to read live quota from Anthropic.").foregroundStyle(.secondary)
+                    if q?.askKeychain == true { AllowKeychainButton() }
                 }
             }
             Spacer()
@@ -309,31 +295,15 @@ struct CardOverlay: View {
     @EnvironmentObject var store: Store
 
     var body: some View {
-        GeometryReader { geo in
-            if let card = store.selectedCard {
-                ZStack {
-                    Color.black.opacity(0.35)
-                        .contentShape(Rectangle())
-                        .onTapGesture { close() }
-                    CardDetail(card: card)
-                        .environmentObject(store)
-                        .frame(width: min(820, geo.size.width - 64), height: min(760, geo.size.height - 48))
-                        .background(Color(nsColor: .windowBackgroundColor))
-                        .clipShape(RoundedRectangle(cornerRadius: 14))
-                        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.primary.opacity(0.1)))
-                        .shadow(color: .black.opacity(0.35), radius: 24, y: 8)
-                    Button("Close card", action: close)
-                        .keyboardShortcut(.cancelAction)
-                        .opacity(0)
-                        .frame(width: 0, height: 0)
+        let open = Binding(get: { store.selectedCard != nil }, set: { if !$0 { store.selectedCardID = nil } })
+        Color.clear
+            .allowsHitTesting(false)
+            .dismissOnOutsideClick(isPresented: open, width: 820, height: 760) {
+                if let card = store.selectedCard {
+                    CardDetail(card: card).environmentObject(store)
                 }
-                .transition(.opacity)
             }
-        }
-        .animation(.easeOut(duration: 0.15), value: store.selectedCardID)
     }
-
-    private func close() { store.selectedCardID = nil }
 }
 
 struct CardTile: View {
@@ -366,7 +336,17 @@ struct CardTile: View {
     }
 
     @ViewBuilder private var status: some View {
-        if card.needsYou && card.hasQuestions {
+        if card.isAdvice, let a = card.advice {
+            switch a.state ?? "" {
+            case "waiting": pill("Applies when you're idle", "hourglass", .secondary)
+            case "applied": pill("Applied", "checkmark.seal.fill", Brand.ok)
+            case "trying": pill("Trying it", "leaf", Brand.ok)
+            case "done": pill("Done by you", "checkmark", Brand.ok)
+            case "undone": pill("Undone", "arrow.uturn.backward", .secondary)
+            case "failed": pill("Not applied", "exclamationmark.triangle", Brand.warn)
+            default: pill(a.lane == "settings" ? "Advice · a settings change" : a.lane == "habit" ? "Advice · a habit" : "Advice · yours to do", "lightbulb", Brand.doughEdge)
+            }
+        } else if card.needsYou && card.hasQuestions {
             pill("Has a question", "questionmark.bubble.fill", Brand.warn)
         } else if card.needsYou && card.refreshing {
             // Main moved on since it ran; Chompyy is bringing it up to date (refresh.ts), nothing for you to do.
@@ -419,24 +399,79 @@ struct CardTile: View {
 }
 
 /// Park an idea without leaving the app: the toolbar's way into `ParkIdeaPopover`.
-struct ParkIdeaButton: View {
+/// The board's sidebar: every action with its name, in groups, instead of a row of bare icons.
+struct BoardSidebar: View {
     @EnvironmentObject var store: Store
-    @State private var open = false
+    @Environment(\.openWindow) private var openWindow
+    @Binding var showFeedback: Bool
+    @Binding var showColdStart: Bool
+    @State private var parking = false
 
     var body: some View {
-        Button { open = true } label: { Label("Park an idea", systemImage: "plus") }
-            .popover(isPresented: $open, arrowEdge: .bottom) {
-                ParkIdeaPopover(open: $open).environmentObject(store)
+        VStack(alignment: .leading, spacing: 18) {
+            group("Do") {
+                item("New idea", "plus", help: "Park an idea for later; Chompyy drafts a blueprint") { parking = true }
+                    .popover(isPresented: $parking, arrowEdge: .trailing) { ParkIdeaPopover(open: $parking).environmentObject(store) }
+                item("Find savings", "magnifyingglass", busy: store.busy.contains("advise"),
+                     help: "Read your Claude Code sessions and setup (chompyy detect) and turn what wastes tokens into cards to approve") {
+                    Task { await store.act("advise", ["advise"]) }
+                }
+                item("Ideas from history", "clock.arrow.circlepath", help: "Read your Claude Code history and suggest tasks and taste lines") { showColdStart = true }
             }
+            group("See") {
+                item("Usage", "chart.bar.xaxis", help: "Tokens and API value of every Claude Code conversation on this Mac") { openWindow(id: "usage") }
+                item("Heard from you", "bubble.left.and.text.bubble.right", badge: store.state?.taste?.waiting.count ?? 0,
+                     help: "What Chompyy heard from you, and what it learned") { showFeedback = true }
+            }
+            group("Away") {
+                AwayMenu().menuStyle(.borderlessButton).fixedSize()
+            }
+            Spacer()
+            item("Refresh", "arrow.clockwise", busy: store.busy.contains("refresh"), help: "Refresh the board and read live quota now") {
+                Task { await store.refresh(forceQuota: true) }
+            }
+        }
+        .padding(.horizontal, 12).padding(.vertical, 16)
+        .frame(width: 200, alignment: .topLeading)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .background(Brand.columnBackground.opacity(0.6))
+    }
+
+    private func group<C: View>(_ title: String, @ViewBuilder _ content: () -> C) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title.uppercased()).font(.caption2.weight(.semibold)).foregroundStyle(.tertiary).padding(.leading, 8)
+            content()
+        }
+    }
+
+    private func item(_ title: String, _ symbol: String, busy: Bool = false, badge: Int = 0, help: String, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                if busy { ProgressView().controlSize(.small).frame(width: 18) } else { Image(systemName: symbol).frame(width: 18) }
+                Text(title).lineLimit(1)
+                Spacer(minLength: 0)
+                if badge > 0 {
+                    Text("\(badge)").font(.caption2.weight(.bold)).foregroundStyle(.white)
+                        .padding(.horizontal, 6).padding(.vertical, 1).background(Brand.warn, in: Capsule())
+                }
+            }
+            .padding(.horizontal, 8).padding(.vertical, 6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(busy)
+        .help(help)
     }
 }
 
 /// The "Park an idea for later" box, shared by the toolbar button and the Later column's "+".
-/// Starts empty each time it opens, with the cursor in the idea field. Asks which project folder it belongs to.
+/// Opens with the cursor in the idea field. Asks which project folder it belongs to.
 struct ParkIdeaPopover: View {
     @EnvironmentObject var store: Store
     @Binding var open: Bool
-    @State private var idea = ""
+    // The draft lives in UserDefaults, not @State, so a stray click that closes the popover
+    // doesn't throw away what you typed. It is cleared only after "Park it" succeeds.
+    @AppStorage("parkDraft") private var idea = ""
     @AppStorage("lastProject") private var project = ""
     @State private var projects: [Project] = []
     @FocusState private var ideaFocused: Bool
@@ -445,7 +480,7 @@ struct ParkIdeaPopover: View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Park an idea for later").font(.headline)
             TextField("e.g. add a CONTRIBUTING.md with 3 rules", text: $idea, axis: .vertical)
-                .lineLimit(2...5)
+                .lineLimit(3...14)
                 .textFieldStyle(.roundedBorder)
                 .focused($ideaFocused)
             HStack(spacing: 8) {
@@ -476,9 +511,11 @@ struct ParkIdeaPopover: View {
                 Spacer()
                 Button("Park it") {
                     let text = idea
-                    idea = ""
                     open = false
-                    Task { await store.act("later", ["later", text], cwd: project) }
+                    Task {
+                        // Keep the draft if parking failed, or if a new one was typed meanwhile.
+                        if await store.act("later", ["later", text], cwd: project), idea == text { idea = "" }
+                    }
                 }
                 .keyboardShortcut(.defaultAction)
                 .disabled(idea.trimmingCharacters(in: .whitespaces).isEmpty || project.isEmpty)
@@ -541,5 +578,16 @@ struct Toast: View {
                 .transition(.move(edge: .bottom).combined(with: .opacity))
                 .onTapGesture { store.toast = nil }
         }
+    }
+}
+
+/// Live quota reads Claude Code's saved login from the Keychain only after you press this (#24). macOS then asks
+/// once whether `security` may read the "Claude Code-credentials" item.
+struct AllowKeychainButton: View {
+    @EnvironmentObject var store: Store
+    var body: some View {
+        Button("Allow") { Task { await store.act("keychain", ["quota", "--allow-keychain"]) } }
+            .disabled(store.busy.contains("keychain"))
+            .help("Read Claude Code's saved login from your Keychain, only to ask Anthropic how much quota is left")
     }
 }

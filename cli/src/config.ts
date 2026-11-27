@@ -29,6 +29,11 @@ export interface Config {
   /** --permission-prompts for away runs; "none" denies anything that would prompt instead of hanging. */
   permissionPrompts: string | null;
   allowedTools: string[];
+  /**
+   * WebSearch and WebFetch in away runs. Off by default: they don't go through the sandbox's network block, so a run
+   * tricked by text in the repo could send what it read out in a URL (#24). Blueprints keep them.
+   */
+  awayWeb: boolean;
   disallowedTools: string[];
   /** Run away cards in Claude Code's OS sandbox: shell writes only in the card's folder, network off. */
   sandbox: boolean;
@@ -52,6 +57,12 @@ export interface Config {
   sandboxAllowedDomains: string[];
   /** Where quota comes from: Anthropic's usage endpoint with Claude Code's saved login ("api"), or only the status line. */
   quotaSource: 'api' | 'statusline';
+  /**
+   * May the quota check read Claude Code's saved login from the macOS Keychain? null = not asked yet: no Keychain
+   * read until you allow it (`chompyy quota --allow-keychain`, or Allow in the app). #24: a tester wanted an opt-in
+   * rather than "choose Always Allow".
+   */
+  allowKeychain: boolean | null;
   /** Appended verbatim to every away-run `claude -p` call. */
   extraArgs: string[];
   /** Model that distils taste from your signals (a stronger model: it runs rarely and decides what gets asked). */
@@ -60,6 +71,8 @@ export interface Config {
   distillAfterAway: boolean;
   /** The nightly read: learn from your everyday coding sessions in the workspaces you ticked (dream.ts). */
   dream: boolean;
+  /** Your plan's monthly price in USD, for "your plan did N× its price"; null = list price for the plan Chompyy sees. */
+  planPriceUsd: number | null;
   /** Model for the nightly read. Opus found the most specific rules for the same tokens (research/nightly-read/). */
   dreamModel: string;
   /** Trigger: run approved cards in the last hour before a 5-hour reset (needs `chompyy triggers on`). */
@@ -89,17 +102,10 @@ export const DEFAULT_CONFIG: Config = {
   permissionMode: 'acceptEdits',
   permissionPrompts: 'none',
   allowedTools: [
-    'Read',
-    'Glob',
-    'Grep',
-    'WebSearch',
-    'WebFetch',
     'Bash(ls *)',
     'Bash(git status *)',
     'Bash(git diff *)',
     'Bash(git log *)',
-    'Bash(git add *)',
-    'Bash(git commit *)',
     'Bash(npm test *)',
     'Bash(npm run *)',
     'Bash(npx vitest *)',
@@ -118,6 +124,7 @@ export const DEFAULT_CONFIG: Config = {
     'Bash(curl *)',
     'Bash(rm -rf *)',
   ],
+  awayWeb: false,
   sandbox: true,
   sandboxAllowedDomains: [],
   denyReadPaths: [
@@ -144,11 +151,13 @@ export const DEFAULT_CONFIG: Config = {
   maxDenied: 300,
   suggestedExpiryDays: 14,
   quotaSource: 'api',
+  allowKeychain: null,
   extraArgs: [],
   distillModel: 'sonnet',
   distillAfterAway: true,
   dream: true,
   dreamModel: 'opus',
+  planPriceUsd: null,
   lastHourTrigger: true,
   lastHourMinLeftPct: 25,
   bedtime: null,

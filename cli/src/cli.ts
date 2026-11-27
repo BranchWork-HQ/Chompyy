@@ -23,7 +23,9 @@ import { changedFiles, diffCard, keepCard, overlaps, questionsOf, undoCard } fro
 import { CappedText, ClaudeRunner, claudeAvailable } from './runner.js';
 import { branchOf, commitLeftovers, gitRoot, planWorkspace, prepareWorkspace } from './workspace.js';
 import { answerCard, appState, cardView, currentBranch, editBlueprint, editIdea, recordCliLocation } from './appstate.js';
-import { refreshLiveQuota } from './livequota.js';
+import { detect, detectText } from './detect.js';
+import { allWindowEnds, archiveWindowEnds, premise, premiseText } from './premise.js';
+import { keychainAllowed, loadLiveState, refreshLiveQuota } from './livequota.js';
 import { recentProjects } from './projects.js';
 import { cliVersion, installApp } from './macapp.js';
 import { buildDigest, historyRetention, scanHistory } from './history.js';
@@ -35,11 +37,13 @@ import {
   answerPreference, distill, distillDue, formatPrefs, formatQuestion, formatWhy, getPref, loadStore, nextQuestion,
   readSignals, recordOutcome, retirePreference, syncTasteFile, tasteChangesSince, type Answer,
 } from './taste.js';
-import { cachedWorkspaces, dream, dreamDue, formatDream, formatWorkspaces, readLogPath, setTicked } from './dream.js';
-import { formatUsage, loadLedger, usageView } from './usage.js';
+import { cachedWorkspaces, dream, dreamDue, formatDream, formatWorkspaces, projectsDir, readLogPath, setTicked } from './dream.js';
+import { byKind, compare, formatExtras, formatUsage, loadLedger, periodDays, PERIODS, prCosts, usageView, type Period } from './usage.js';
 import { formatTrace, traceSession } from './trace.js';
 import { homedir } from 'node:os';
 import { clashOf, refreshCard, refreshGate, refreshClashing, withRefreshLock, type RefreshDeps } from './refresh.js';
+import { adviseText, applyDue, approveAdvice, runAdvise, undoAdvice } from './advice.js';
+import { coldWarningText, hookCommand, impact, nudgeInstalled, nudgeText, outcomes, runHook, setNudge, takeGoingCold } from './nudge.js';
 import { formatLive, keepAffectsLive, liveOff, liveSet, liveUpdateLocked, loadLive, startLiveUpdate } from './live.js';
 import { agentInstalled, awayRunning, bedtimeKey, decideTrigger, installAgent, loadTriggerState, markFired, noteTick, parseClock, takeAwayLock, uninstallAgent } from './triggers.js';
 
@@ -49,6 +53,16 @@ Quota
   chompyy statusline            Claude Code statusLine command: reads JSON on stdin, saves a snapshot
   chompyy status                % left, time to reset, pace, weekly used, staleness
   chompyy quota [--refresh]     read live quota from Anthropic now (uses Claude Code's saved login; sends no message)
+  chompyy quota --allow-keychain | --no-keychain   allow (or stop) reading that login from the macOS Keychain
+  chompyy detect [--days 30] [--all] [--json]   what wastes tokens in your setup and habits, ranked, on one screen (--all: evidence and every fix)
+  chompyy advise [--json]       turn detect's findings into suggested cards to approve or drop: settings changes are
+                                applied (backed up, undoable) once no Claude Code session is active; habits are tracked
+  chompyy advise apply          apply approved settings advice now, if no session has been active for 10 minutes
+  chompyy nudge on|off          live suggestions while you work: stops the first message to a big conversation
+                                whose cache expired, with the price and the cheaper ways (Claude Code hook)
+  chompyy nudge                 on or off, and what the stops saved
+  chompyy nudge due [--json]    conversations 45-60 min into a pause, about to go cold (each reported once; the app notifies; only while nudge is on)
+  chompyy premise [--json]      how often a 5-hour window reset with capacity left while the week still had room
   chompyy eat-tokens            show leftover quota and cards you could choose to run (read-only)
 
 Board
@@ -87,7 +101,8 @@ Back
 
 Taste (learned from what you keep, undo, edit and rate)
   chompyy trace <id>            one conversation turn by turn: cost per turn, context size, what ate the tokens
-  chompyy usage [--days 7]      tokens and API-value cost of every Claude Code conversation on this Mac
+  chompyy plan-price <usd|auto> what your plan costs a month, for "your plan did N× its price"
+  chompyy usage [--period today|7d|30d|month]   tokens and API-value cost of every Claude Code conversation on this Mac
   chompyy dream                 the nightly read: learn how you like to work from your coding sessions
                                 (--dry-run shows exactly what it would read; --since 3d to re-read)
   chompyy dream workspaces      the folders and apps it can read, ticked or not
@@ -243,7 +258,7 @@ function draftPending(now: Date): void {
     const due = b.cards.filter(
       (c) =>
         ['suggested', 'later', 'approved'].includes(c.column) &&
-        c.blueprint && !c.draftingAt && !c.pictureError &&
+        c.blueprint && !c.draftingAt && !c.pictureError && (!c.advice || c.advice.lane === 'work') &&
         (!c.picture || c.picture.blueprintHash !== blueprintHash(c.blueprint)) &&
         (!c.drawingAt || Date.parse(c.drawingAt) < now.getTime() - 6 * 60_000),
     );
@@ -461,6 +476,8 @@ async function main(argv: string[]): Promise<void> {
       help: { type: 'boolean', short: 'h' },
       json: { type: 'boolean' },
       refresh: { type: 'boolean' },
+      'allow-keychain': { type: 'boolean' },
+      'no-keychain': { type: 'boolean' },
       'to-five': { type: 'string', multiple: true },
       digest: { type: 'boolean' },
       taste: { type: 'string' },
@@ -472,17 +489,20 @@ async function main(argv: string[]): Promise<void> {
       since: { type: 'string' },
       days: { type: 'string' },
       app: { type: 'boolean' },
+      period: { type: 'string' },
     },
   });
   const [command, ...args] = values.help ? ["help"] : positionals;
   const now = new Date();
   const json = (data: unknown) => console.log(JSON.stringify(data, null, 2));
-  if (command !== 'statusline') recordCliLocation();
+  // detect and premise only read: run once through npx, they must not point the app at npx's temporary copy.
+  if (command !== 'statusline' && command !== 'detect' && command !== 'premise' && command !== 'hook') recordCliLocation();
   /** Fresh quota before anything that reads it (at most every 5 minutes unless forced). */
   const freshQuota = async (force = false) => {
     if (loadConfig().quotaSource !== 'api') return null;
     try {
-      return await refreshLiveQuota({ force });
+      const config = loadConfig();
+      return await refreshLiveQuota({ force, allowKeychain: keychainAllowed(config), keychainOff: config.allowKeychain === false });
     } catch {
       return null;
     }
@@ -509,7 +529,9 @@ async function main(argv: string[]): Promise<void> {
       return;
     }
     case 'quota': {
-      const r = await freshQuota(Boolean(values.refresh));
+      if (values['allow-keychain']) setConfig('allowKeychain', true);
+      if (values['no-keychain']) setConfig('allowKeychain', false);
+      const r = await freshQuota(Boolean(values.refresh || values['allow-keychain']));
       if (r) console.log(r.message);
       else if (loadConfig().quotaSource !== 'api') console.log('quotaSource is "statusline" in config.json; live reading is off.');
       console.log(statusText(loadSnapshot(), now));
@@ -842,6 +864,14 @@ async function main(argv: string[]): Promise<void> {
       const allow = values.allow ?? [];
       const bad = allow.filter((a) => !parsePermission(a));
       if (bad.length) throw new Error(`Not a permission: ${bad.join(', ')}. Use network:<domain> or "command:<program> *".`);
+      // Advice cards (chompyy advise): what approving does depends on the lane, not an away run.
+      const adv = getCard(loadBoard(), id);
+      if (adv.advice && adv.advice.lane !== 'work') {
+        if (adv.column !== 'suggested' && adv.column !== 'later') throw new Error(`Card #${adv.id} is in ${adv.column}; only a suggested card can be approved.`);
+        console.log(updateBoard((b) => approveAdvice(getCard(b, id), now)));
+        for (const line of updateBoard((b) => applyDue(b, now))) console.log(`   ${line}`);
+        return;
+      }
       const card = updateBoard((b) => {
         const c = moveCard(b, id, 'approved', now);
         if (allow.length) c.permissions = [...new Set(allow)];
@@ -893,6 +923,10 @@ async function main(argv: string[]): Promise<void> {
       // Run by the LaunchAgent every 5 minutes. Prints one line per tick to tick.log.
       await freshQuota();
       const config = loadConfig();
+      // Approved settings advice goes in once no Claude Code session is active.
+      try {
+        updateBoard((b) => applyDue(b, now));
+      } catch {}
       const board = loadBoard();
       // Refreshes that waited for quota (refresh.ts) go as soon as there is some again.
       if (board.cards.some((c) => c.column === 'review' && c.refresh?.state === 'waiting') && !refreshGate(loadSnapshot(), now)) {
@@ -947,6 +981,14 @@ async function main(argv: string[]): Promise<void> {
       console.log(`Bedtime set to ${v}: approved cards run then, with the window that is left.${agentInstalled() ? '' : ' Turn triggers on with `chompyy triggers on`.'}`);
       return;
     }
+    case 'plan-price': {
+      const v = need(args[0], 'chompyy plan-price <dollars per month | auto>');
+      const n = Number(v);
+      if (v !== 'auto' && !(Number.isFinite(n) && n > 0)) throw new Error('Usage: chompyy plan-price <dollars per month | auto>');
+      setConfig('planPriceUsd', v === 'auto' ? null : n);
+      console.log(v === 'auto' ? 'Plan price: the list price for the plan Chompyy sees.' : `Plan price: $${n} a month.`);
+      return;
+    }
     case 'last-hour': {
       const v = need(args[0], 'chompyy last-hour <on|off>');
       if (v !== 'on' && v !== 'off') throw new Error('Usage: chompyy last-hour <on|off>');
@@ -971,19 +1013,29 @@ async function main(argv: string[]): Promise<void> {
       return;
     }
     case 'usage': {
-      const days = values.days ? Number(values.days) : 7;
-      if (!Number.isInteger(days) || days < 1 || days > 400) throw new Error('Usage: chompyy usage [--days 7] [--json]');
+      const period = (values.period ?? '') as Period;
+      if (values.period && !PERIODS.includes(period)) throw new Error(`Usage: chompyy usage [--period ${PERIODS.join('|')}] [--days 7] [--json]`);
+      const days = period ? periodDays(period, now) : values.days ? Number(values.days) : 7;
+      if (!Number.isInteger(days) || days < 1 || days > 400) throw new Error('Usage: chompyy usage [--period today|7d|30d|month] [--days 7] [--json]');
       // Titles only for workspaces the nightly read may see (your ticks); numbers count everywhere.
       const ticked = new Set(cachedWorkspaces(now).filter((w) => w.ticked).map((w) => w.path));
+      const canShow = (ws: string) => ticked.has(ws);
       const ledger = loadLedger();
-      const view = usageView(ledger, now, days, 10, (ws) => ticked.has(ws));
-      // For the app: 12 weeks of days (the calendar) plus this week's detail, in one call.
+      const view = usageView(ledger, now, days, 25, canShow);
+      const to = now.toISOString();
+      const cmp = compare(ledger, now, { label: loadLiveState().plan ?? null, priceUsd: loadConfig().planPriceUsd });
+      const kinds = byKind(ledger, view.from, to);
+      const prs = prCosts(ledger, view.from, to, canShow);
+      // For the app: 12 weeks of days (the calendar), this week (the menu bar), the chosen period with kinds of
+      // work and pull requests, and the comparisons, in one call.
       if (values.json && values.app) {
-        const long = usageView(ledger, now, 84, 0, (ws) => ticked.has(ws));
-        return json({ generatedAt: now.toISOString(), days: long.days, today: long.today, week: view, unpriced: long.unpriced });
+        const long = usageView(ledger, now, 84, 0, canShow);
+        const week = usageView(ledger, now, 7, 10, canShow);
+        return json({ generatedAt: to, period: period || `${days}d`, days: long.days, today: long.today, week, view: { ...view, byKind: kinds, prs }, compare: cmp, unpriced: long.unpriced });
       }
-      if (values.json) return json(view);
+      if (values.json) return json({ ...view, byKind: kinds, prs, compare: cmp });
       console.log(formatUsage(view, homedir()));
+      console.log(formatExtras(kinds, prs, cmp));
       return;
     }
     case 'dream': {
@@ -1006,6 +1058,55 @@ async function main(argv: string[]): Promise<void> {
     }
     case 'distill': {
       console.log(await distillNow(now, Boolean(values.force)));
+      return;
+    }
+    case 'detect': {
+      const r = detect({ days: values.days ? Number(values.days) : 30, now });
+      if (values.json) return json(r);
+      console.log(detectText(r, { all: Boolean(values.all), projects: projectsDir().replace(homedir(), '~') }).join('\n'));
+      return;
+    }
+    case 'advise': {
+      // The detective, step 3: findings become suggested cards. `advise apply`: apply approved settings advice
+      // once no Claude Code session is active (the app asks every minute).
+      if (args[0] === 'apply') {
+        const lines = updateBoard((b) => applyDue(b, now));
+        if (values.json) return json(lines);
+        return console.log(lines.length ? lines.join('\n') : 'Nothing waiting to be applied.');
+      }
+      const res = updateBoard((b) => runAdvise(b, now));
+      if (values.json) return json({ added: res.added.map((c) => c.id), updated: res.updated.map((c) => c.id), skipped: res.skipped });
+      return console.log(adviseText(res));
+    }
+    case 'hook': {
+      // Claude Code's UserPromptSubmit hook. Must never fail loudly or stop a prompt by accident.
+      if (args[0] !== 'prompt') return;
+      try {
+        const out = runHook(await readStdin());
+        if (out) console.log(out);
+      } catch {
+        /* let the prompt through */
+      }
+      return;
+    }
+    case 'nudge': {
+      const sub = args[0];
+      if (sub === 'on' || sub === 'off') return console.log(setNudge(sub === 'on', sub === 'on' ? hookCommand() : undefined));
+      if (sub === 'due') {
+        // The app asks every minute; each conversation going cold is reported once.
+        const due = (nudgeInstalled() ? takeGoingCold(now.getTime()) : []).map((d) => ({ ...d, ...coldWarningText(d) }));
+        if (values.json) return json(due);
+        return console.log(due.length ? due.map((d) => `${d.title}\n  ${d.body}`).join('\n') : 'Nothing about to go cold.');
+      }
+      if (values.json) return json(impact());
+      return console.log([nudgeText(nudgeInstalled()), impact().line].join('\n'));
+    }
+    case 'premise': {
+      const ends = allWindowEnds(loadSamples(), now.getTime());
+      archiveWindowEnds(loadSamples(), now.getTime());
+      const p = premise(ends);
+      if (values.json) return json({ ...p, windows: ends });
+      console.log(premiseText(p).join('\n'));
       return;
     }
     case 'trends': {
@@ -1060,6 +1161,7 @@ async function main(argv: string[]): Promise<void> {
     case 'undo': {
       const id = need(args[0], 'chompyy undo <id>');
       const undone = getCard(loadBoard(), id);
+      if (undone.advice && undone.advice.lane !== 'work') return console.log(updateBoard((b) => undoAdvice(getCard(b, id), now)));
       const files = changedFiles(undone); // read before Undo removes the branch
       console.log(undoCard(undone));
       updateBoard((b) => {

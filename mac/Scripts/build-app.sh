@@ -2,7 +2,10 @@
 # Build Chompyy.app from the Swift package: mac/build/Chompyy.app
 # Usage: mac/Scripts/build-app.sh [--open] [--release]
 #   --release  universal binary (Apple Silicon + Intel) with Node and the CLI bundled inside (works without
-#              npm), plus build/Chompyy-<version>.zip (for `chompyy app`) and build/Chompyy.dmg (the website download)
+#              npm), plus build/Chompyy-<version>.zip (for `chompyy app`), its .sha256 and build/Chompyy.dmg (the
+#              website download). Publish all three:
+#              gh release create v<version> mac/build/Chompyy-<version>.zip mac/build/Chompyy-<version>.zip.sha256 mac/build/Chompyy.dmg
+#              `chompyy app` won't install a release without the .sha256.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -82,6 +85,9 @@ if [[ $RELEASE == 1 ]]; then
   rm -f "$ZIP"
   ditto -c -k --keepParent "$APP" "$ZIP"
   echo "Release zip: $(pwd)/$ZIP ($(lipo -archs "$APP/Contents/MacOS/Chompyy"))"
+  # `chompyy app` refuses a download that doesn't match this (#24). Upload it next to the zip.
+  (cd build && shasum -a 256 "Chompyy-$VERSION.zip" > "Chompyy-$VERSION.zip.sha256")
+  echo "Checksum: $(pwd)/$ZIP.sha256"
   # The website download: a disk image with the app and a link to Applications to drag it onto.
   DMG="build/Chompyy.dmg"
   STAGE="build/dmg-stage"

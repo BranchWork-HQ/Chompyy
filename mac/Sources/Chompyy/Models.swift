@@ -71,6 +71,8 @@ struct Quota: Decodable {
     let capturedAt: String?
     let plan: String?
     let note: String?
+    /// Live quota waits for your OK to read Claude Code's login from the Keychain (#24).
+    let askKeychain: Bool?
     let fiveHour: WindowView
     let sevenDay: WindowView
 
@@ -160,6 +162,31 @@ struct Refresh: Decodable {
     let at: String
 }
 
+struct CardAdvice: Decodable {
+    let key: String
+    let rule: String
+    let lane: String      // settings | habit | manual | work
+    let check: String
+    let state: String?    // waiting | applied | trying | done | undone | failed
+    let note: String?
+    let since: String?
+    let saw: String?
+    let doing: String?
+    let checkShort: String?
+    let chart: Chart?
+
+    struct Chart: Decodable {
+        let title: String
+        let bars: [Bar]
+        let note: String?
+    }
+    struct Bar: Decodable {
+        let label: String
+        let value: Int
+        let highlight: Bool?
+    }
+}
+
 struct Checks: Decodable {
     let result: String   // passed | failed | not run
     let why: String
@@ -208,6 +235,10 @@ struct Card: Decodable, Identifiable, Hashable {
     let refresh: Refresh?
     /// You pressed Keep while it clashed: it keeps itself once it's up to date and its checks pass.
     let keepWhenRefreshed: Bool?
+    /// An Advice card from `chompyy advise` (detect's findings): its lane decides what approving does.
+    let advice: CardAdvice?
+    /// Advice that Chompyy applies or you do yourself, not an away run (work-lane advice is a normal card).
+    var isAdvice: Bool { advice.map { $0.lane != "work" } ?? false }
 
     static func == (a: Card, b: Card) -> Bool { a.id == b.id && a.updatedAt == b.updatedAt }
     func hash(into h: inout Hasher) { h.combine(id) }
@@ -299,6 +330,47 @@ struct UsageData: Decodable {
     let today: Tally
     let week: Week
     let unpriced: Int
+    /// The chosen period (Today / 7D / 30D / Month), with kinds of work and pull requests.
+    let period: String?
+    let view: PeriodView?
+    let compare: Compare?
+
+    struct KindTotal: Decodable, Identifiable { let kind: String; let total: Tally; var id: String { kind } }
+    struct PrCost: Decodable, Identifiable {
+        let repo: String
+        let number: Int
+        let url: String
+        let session: String
+        let title: String?
+        let at: String
+        let total: Tally
+        var id: String { "\(session)\(url)" }
+    }
+    struct PeriodView: Decodable {
+        let from: String
+        let days: [Day]
+        let total: Tally
+        let byWorkspace: [Project]
+        let byModel: [Model]
+        let conversations: [Conversation]
+        let byKind: [KindTotal]
+        let prs: [PrCost]
+        var asWeek: Week { Week(days: days, total: total, byWorkspace: byWorkspace, byModel: byModel, conversations: conversations) }
+    }
+    struct Compare: Decodable {
+        let yesterday: Tally
+        let avg7: Tally
+        let vsYesterdayPct: Int?
+        let month: Month
+        struct Month: Decodable {
+            let toDate: Tally
+            let lastMonthSameDays: Tally
+            let vsLastMonthPct: Int?
+            let projectedUsd: Double
+            let plan: Plan?
+        }
+        struct Plan: Decodable { let label: String; let priceUsd: Double; let multiple: Double; let projectedMultiple: Double }
+    }
 
     struct Tally: Decodable {
         let requests: Int

@@ -1,4 +1,5 @@
 // The board (spec §5.3): cards in columns, stored in ~/.chompyy/board.json.
+import type { Advice } from './advice.js';
 import { mkdirSync } from 'node:fs';
 import { formatTokens, type RunTokens } from './tokens.js';
 import { join } from 'node:path';
@@ -146,8 +147,10 @@ export interface Card {
   answers?: { at: string; text: string }[];
   /** Options offered for "what would have made it a 5?", written for this card. */
   fiveStarOptions?: string[];
-  /** Where a suggested card came from ("history" = the cold start). */
-  source?: 'history';
+  /** Where a suggested card came from ("history" = the cold start, "detect" = an Advice card). */
+  source?: 'history' | 'detect';
+  /** An Advice card: the finding's lane, the change it makes and how it's checked (advice.ts). */
+  advice?: Advice;
   /** Why it was suggested, in one sentence. */
   why?: string;
   /** The card's picture (diagram-design HTML), drawn from its blueprint. */
@@ -425,7 +428,8 @@ export function recoverRunning(
 }
 
 export function awayQueue(board: BoardData): Card[] {
-  return cardsIn(board, 'approved').sort((a, b) => (a.approvedAt ?? '').localeCompare(b.approvedAt ?? ''));
+  // Advice cards wait for their own lane (settings are applied by Chompyy, habits by you); only work-lane advice runs.
+  return cardsIn(board, 'approved').filter((c) => !c.advice || c.advice.lane === 'work').sort((a, b) => (a.approvedAt ?? '').localeCompare(b.approvedAt ?? ''));
 }
 
 function shortPath(p: string): string {

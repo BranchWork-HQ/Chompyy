@@ -12,11 +12,14 @@ final class Store: ObservableObject {
     @Published var selectedCardID: String?
     /// Tokens and API value from the usage ledger; loaded when a usage view shows (and kept fresh for the menu bar).
     @Published var usage: UsageData?
-    /// Set from the menu bar: the board opens its Usage sheet on this tab.
-    @Published var openUsage: String?
     private var usageLoadedAt: Date?
     /// Cards a Keep or Undo is finishing: shown in the column they're headed for until the CLI confirms.
     @Published var landing: [String: Column] = [:]
+    /// Conversations about to go cold (live suggestions, `chompyy nudge`), newest last.
+    @Published var goingCold: [GoingCold] = []
+    private var ticks = 0
+    /// What the live suggestions saved, and the cold-return trend (every 10 minutes; a 14-day scan takes ~1 s).
+    @Published var nudgeImpact: NudgeImpact?
 
     private var timer: Timer?
 
@@ -28,6 +31,16 @@ final class Store: ObservableObject {
         timer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 await self?.refresh()
+                // Live suggestions: every minute, ask which conversations are about to go cold (~0.1 s).
+                self?.ticks += 1
+                if (self?.ticks ?? 0) % 4 == 1 {
+                    await self?.checkGoingCold()
+                    // Approved settings advice goes in once no Claude Code session is active (the CLI checks).
+                    if self?.cards.contains(where: { $0.advice?.state == "waiting" }) == true {
+                        _ = try? await Task.detached(operation: { try CLI.run(["advise", "apply"]) }).value
+                    }
+                }
+                if (self?.ticks ?? 0) % 40 == 1 { await self?.loadImpact() }
                 // Usage changes slowly and costs a file scan: every 2 minutes, once something has shown it.
                 if self?.usage != nil || UserDefaults.standard.string(forKey: "menuBarShows") ?? "left" != "left" { await self?.loadUsage() }
             }
@@ -57,9 +70,23 @@ final class Store: ObservableObject {
     func loadUsage(force: Bool = false) async {
         if !force, let at = usageLoadedAt, Date().timeIntervalSince(at) < 120 { return }
         usageLoadedAt = Date()
-        guard let r = try? await Task.detached(operation: { try CLI.run(["usage", "--json", "--app"]) }).value, r.ok,
+        let period = UserDefaults.standard.string(forKey: "usagePeriod") ?? "7d"
+        guard let r = try? await Task.detached(operation: { try CLI.run(["usage", "--json", "--app", "--period", period]) }).value, r.ok,
               let data = try? JSONDecoder().decode(UsageData.self, from: Data(r.out.utf8)) else { return }
         usage = data
+    }
+
+    func loadImpact() async {
+        guard let r = try? await Task.detached(operation: { try CLI.run(["nudge", "--json"]) }).value, r.ok,
+              let i = try? JSONDecoder().decode(NudgeImpact.self, from: Data(r.out.utf8)) else { return }
+        nudgeImpact = i
+    }
+
+    func checkGoingCold() async {
+        guard let r = try? await Task.detached(operation: { try CLI.run(["nudge", "due", "--json"]) }).value, r.ok,
+              let due = try? JSONDecoder().decode([GoingCold].self, from: Data(r.out.utf8)) else { return }
+        goingCold = goingCold.filter { ($0.coldDate ?? .distantPast) > Date() } + due
+        due.forEach(Notifier.post)
     }
 
     func refresh(forceQuota: Bool = false) async {

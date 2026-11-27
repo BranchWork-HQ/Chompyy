@@ -20,19 +20,24 @@ struct CardDetail: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     header
-                    // Picture first: what this card will do, before any text.
-                    if card.blueprint != nil && !editing { picture }
-                    if card.needsYou { reviewSection }
-                    blueprintSection(proxy)
-                    WhereItWorks(card: card)
+                    if card.isAdvice {
+                        // Advice isn't an away run: its own picture, no blueprint map or sandbox.
+                        AdviceView(card: card)
+                    } else {
+                        // Picture first: what this card will do, before any text.
+                        if card.blueprint != nil && !editing { picture }
+                        if card.needsYou { reviewSection }
+                        blueprintSection(proxy)
+                        WhereItWorks(card: card)
+                    }
                     if card.run != nil && !card.needsYou { runFacts }
                     if card.column == "review" || card.column == "done" { ratingSection }
                 }
                 .padding(20)
             }
         }
-        .sheet(item: Binding(get: { diff.map { DiffText(text: $0) } }, set: { diff = $0?.text })) { d in
-            DiffSheet(text: d.text)
+        .dismissOnOutsideClick(item: $diff, width: 760, height: 620) { text in
+            DiffSheet(text: text)
         }
         .id(card.id)
     }
@@ -92,7 +97,44 @@ struct CardDetail: View {
         .background(RoundedRectangle(cornerRadius: 10).fill(Brand.columnBackground))
     }
 
+    /// An Advice card: approving applies a settings change (when no session is active), or tracks a habit.
+    @ViewBuilder private var adviceActions: some View {
+        let a = card.advice!
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                switch (column, a.state ?? "") {
+                case (.suggested, _), (.later, _):
+                    Button {
+                        Task { await store.act("approve\(card.id)", ["approve", card.id]) }
+                    } label: {
+                        Label(a.lane == "settings" ? "Approve: apply it" : a.lane == "habit" ? "I'll try it" : "I've done it", systemImage: "checkmark")
+                    }
+                    .buttonStyle(.borderedProminent).tint(Brand.ok)
+                    .help(a.lane == "settings" ? "Chompyy makes exactly the change shown below, once no Claude Code session has been active for 10 minutes. Backed up; Undo puts it back." : "Nothing is changed. Chompyy checks it against the baseline below.")
+                    dropButton
+                case (.approved, _):
+                    Button { Task { await store.act("undo\(card.id)", ["undo", card.id]) } } label: { Label("Cancel", systemImage: "xmark") }
+                case (_, "applied"):
+                    Button { Task { await store.act("undo\(card.id)", ["undo", card.id]) } } label: { Label("Undo", systemImage: "arrow.uturn.backward") }
+                        .help("Put the old settings back (only if nothing changed them since)")
+                case (_, "trying"), (_, "done"):
+                    Button { Task { await store.act("undo\(card.id)", ["undo", card.id]) } } label: { Label("Stop", systemImage: "stop") }
+                default:
+                    EmptyView()
+                }
+                if busy { ProgressView().controlSize(.small) }
+            }
+            if let note = a.note { Text(note).font(.callout).foregroundStyle(a.state == "failed" ? Brand.warn : .secondary) }
+            Label("Checked by: \(a.check)", systemImage: "ruler").font(.caption).foregroundStyle(.secondary)
+        }
+        .padding(.top, 4)
+    }
+
     @ViewBuilder private var actions: some View {
+        if card.isAdvice { adviceActions } else { normalActions }
+    }
+
+    @ViewBuilder private var normalActions: some View {
         HStack(spacing: 8) {
             switch column {
             case .later, .suggested:
@@ -265,6 +307,12 @@ struct CardDetail: View {
         let drawing = card.drawingAt != nil || store.busy.contains("picture\(card.id)")
         if let pic = card.picture {
             PictureView(picture: pic)
+            if let line = pic.typeLine {
+                Label(line, systemImage: "square.on.circle")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .help(pic.suggested.map { s in s.map { "\($0.type): \($0.evidence.joined(separator: ", "))" }.joined(separator: "\n") } ?? "")
+            }
         }
         HStack(spacing: 10) {
             if drawing {
@@ -295,14 +343,14 @@ struct CardDetail: View {
     @ViewBuilder private func blueprintSection(_ proxy: ScrollViewProxy) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("Blueprint").font(.headline)
+                Text(card.isAdvice ? "The advice" : "Blueprint").font(.headline)
                 Spacer()
-                if card.column != "running" && card.blueprint != nil && !editing {
+                if card.column != "running" && card.blueprint != nil && !editing && !card.isAdvice {
                     Button { draft = card.blueprint ?? ""; editing = true } label: { Label("Edit", systemImage: "pencil") }
                         .buttonStyle(.borderless)
                         .help("Your edits are the strongest signal of your taste")
                 }
-                if card.column == "later" || card.column == "suggested" {
+                if (card.column == "later" || card.column == "suggested") && !card.isAdvice {
                     Button {
                         Task { await store.act("blueprint\(card.id)", ["blueprint", card.id, "--quiet"]) }
                     } label: { Label(card.blueprint == nil ? "Draft it" : "Redraw", systemImage: "wand.and.stars") }
@@ -500,11 +548,9 @@ struct FlowLayout: Layout {
     }
 }
 
-struct DiffText: Identifiable { let text: String; var id: Int { text.hashValue } }
-
 struct DiffSheet: View {
     let text: String
-    @Environment(\.dismiss) private var dismiss
+    @Environment(\.closePopup) private var dismiss
 
     var body: some View {
         VStack(spacing: 0) {
@@ -529,7 +575,7 @@ struct DiffSheet: View {
                 .padding(12)
             }
         }
-        .frame(minWidth: 720, minHeight: 480)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func color(_ l: String) -> Color {

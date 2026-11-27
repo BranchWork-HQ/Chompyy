@@ -1,10 +1,10 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { recordCliLocation } from '../src/appstate.js';
-import { appBundle, keepAffectsLive, liveOff, liveSet, liveUpdate, liveUpdateLocked, loadLive, planUpdate, type LiveDeps } from '../src/live.js';
+import { appBundle, installedApp, keepAffectsLive, liveOff, liveSet, liveUpdate, liveUpdateLocked, loadLive, planUpdate, type LiveDeps } from '../src/live.js';
 import { useTempHome } from './helpers.js';
 
 // The live copy (2026-11-19): kept cards #10, #12, #19, #22 never reached the running app, because the app ran
@@ -45,6 +45,7 @@ function fakeDeps(running = true, opts: { quitAfter?: number; openFails?: number
       if (cmd === 'pkill') quitIn = opts.quitAfter ?? 0; // pkill only asks: it quits after a few checks
       if (cmd === 'open' && openFails-- > 0) throw new Error('LSOpenURLsWithRole() failed with error -600');
       if (cmd.endsWith('build-app.sh')) mkdirSync(join(cwd, 'build', 'Chompyy.app'), { recursive: true });
+      if (cmd === 'ditto') mkdirSync(args[1]!, { recursive: true });
       if (cmd === 'npm' && args[1] === 'build') {
         mkdirSync(join(cwd, 'dist'), { recursive: true });
         writeFileSync(join(cwd, 'dist', 'cli.js'), '');
@@ -71,7 +72,7 @@ describe('the live copy', () => {
     liveSet(r.root);
     const d = fakeDeps(true);
     const live = liveUpdate(d);
-    expect(d.ran).toEqual(['npm ci --no-audit --no-fund', 'npm run build', 'build-app.sh', 'pkill -x Chompyy', `open ${appBundle(live.dir)}`]);
+    expect(d.ran).toEqual(['npm ci --no-audit --no-fund', 'npm run build', 'build-app.sh', 'pkill -x Chompyy', `ditto ${appBundle(live.dir)} ${installedApp()}`, `open -g ${installedApp()} --args --updated`]);
     expect(live.builtCommit).toBe(r.g('rev-parse', 'main'));
     expect(live.error).toBeUndefined();
     const cli = JSON.parse(readFileSync(join(home(), 'cli.json'), 'utf8'));
@@ -179,9 +180,9 @@ describe('the live copy', () => {
     liveSet(r.root);
     const d = fakeDeps(true, { quitAfter: 5 });
     liveUpdate(d);
-    expect(d.ran.indexOf('open ' + join(home(), 'live', 'mac', 'build', 'Chompyy.app'))).toBeGreaterThan(d.ran.indexOf('pkill -x Chompyy'));
+    expect(d.ran.indexOf(`open -g ${installedApp()} --args --updated`)).toBeGreaterThan(d.ran.indexOf('pkill -x Chompyy'));
     expect(d.slept).toBeGreaterThanOrEqual(5 * 200);
-    expect(d.lines.at(-1)).toBe('restarted the app with the new build.');
+    expect(d.lines.at(-1)).toMatch(/^restarted the app with the new build \(installed in /);
   });
 
   it('tries opening again when macOS refuses once', () => {
@@ -202,6 +203,30 @@ describe('the live copy', () => {
     expect(d.lines.at(-1)).toMatch(/^update failed and the app is closed/);
   });
 
+
+  // 2026-11-22: the app could only be opened from a terminal; an old 0.1.0 download sat in ~/Applications.
+  it('installs the app in Applications and opens it from there, so it opens like any Mac app', () => {
+    const r = repo();
+    liveSet(r.root);
+    const d = fakeDeps(false);
+    const live = liveUpdate(d);
+    expect(existsSync(installedApp())).toBe(true);
+    expect(installedApp()).toContain(process.env.CHOMPYY_APPLICATIONS!); // never the real ~/Applications in tests
+    expect(d.ran.at(-1)).toBe(`open -g ${installedApp()} --args --updated`);
+    expect(live.installedCommit).toBe(live.appCommit);
+  });
+
+  it('replaces a missing or older installed copy even when the app needs no rebuild', () => {
+    const r = repo();
+    liveSet(r.root);
+    liveUpdate(fakeDeps(false));
+    rmSync(installedApp(), { recursive: true, force: true }); // someone deleted it (or an old download)
+    const d = fakeDeps(false);
+    liveUpdate(d);
+    expect(d.ran).not.toContain('build-app.sh');
+    expect(d.ran).toContain(`ditto ${appBundle(join(home(), 'live'))} ${installedApp()}`);
+    expect(existsSync(installedApp())).toBe(true);
+  });
 });
 
 describe('planning an update', () => {

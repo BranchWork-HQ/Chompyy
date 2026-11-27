@@ -10,6 +10,9 @@ beforeEach(() => {
   process.env.CHOMPYY_HOME = mkdtempSync(join(tmpdir(), 'chompyy-default-home-'));
 });
 
+// Tests never replace the real ~/Applications/Chompyy.app (the live update installs the app there).
+process.env.CHOMPYY_APPLICATIONS ??= mkdtempSync(join(tmpdir(), 'chompyy-applications-'));
+
 // Tests never read the real Claude Code sessions on this Mac (the nightly read, dream.ts).
 process.env.CHOMPYY_CLAUDE_PROJECTS ??= mkdtempSync(join(tmpdir(), 'chompyy-no-sessions-'));
 
@@ -19,3 +22,6 @@ process.env.CHOMPYY_CLAUDE_PROJECTS ??= mkdtempSync(join(tmpdir(), 'chompyy-no-s
 // "Timeout calling onTaskUpdate" even though every test passed. Every away card's check then read "npm test
 // fails, same as main" (2026-11-18). Yielding after each test lets the replies through.
 afterEach(() => new Promise<void>((resolve) => setImmediate(resolve)));
+
+// Tests never edit the real ~/.claude/settings.json (`chompyy nudge on` adds a hook there).
+process.env.CHOMPYY_CLAUDE_SETTINGS ??= join(mkdtempSync(join(tmpdir(), 'chompyy-claude-settings-')), 'settings.json');
