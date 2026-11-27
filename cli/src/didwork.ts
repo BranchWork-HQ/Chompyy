@@ -88,7 +88,7 @@ export function checkC1(since: number, now: number, s: Scan): AdviceResult {
       verdict: 'too-early',
       before: before.length,
       after: so.length,
-      line: `${plural(so.length, 'cold return')} so far (was ${before.length} a week). Verdict ${day(due)}.`,
+      line: `${plural(so.length, 'cold return')} since ${day(since)} (was ${before.length} a week). Verdict ${day(due)}.`,
     };
   }
   const week = coldReturns(s, since + 7 * DAY).filter((x) => x.at < due);

@@ -43,6 +43,13 @@ struct NudgeImpact: Decodable {
     let on: Bool
     let saved: Int
     let line: String
+    /// Did the nudge work? (`chompyy worked`): cold returns a week since it was turned on.
+    let verdict: Verdict?
+
+    struct Verdict: Decodable {
+        let verdict: String   // too-early | worked | short | no-change | worse | cant-tell
+        let line: String
+    }
 }
 
 /// The menu panel's line for each conversation going cold, until it does.
@@ -69,6 +76,17 @@ struct GoingColdRows: View {
             Label(i.line, systemImage: i.saved > 0 ? "leaf.fill" : "snowflake")
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 .help("Live suggestions (chompyy nudge). Cold return: coming back to a conversation after its cache expired, so all of it was written again.")
+            if let v = i.verdict {
+                let look: (String, Color) = switch v.verdict {
+                case "worked": ("checkmark.seal.fill", Brand.ok)
+                case "short", "worse": ("exclamationmark.triangle", Brand.warn)
+                case "too-early": ("hourglass", .secondary)
+                default: ("questionmark.circle", .secondary)
+                }
+                Label("Did the nudge work? \(v.line)", systemImage: look.0)
+                    .font(.caption).foregroundStyle(look.1).fixedSize(horizontal: false, vertical: true)
+                    .help("Cold returns a week since you turned live suggestions on, against the week before. It worked if week two has a third fewer. Details: chompyy worked")
+            }
         }
     }
 }

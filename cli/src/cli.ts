@@ -1118,7 +1118,12 @@ async function main(argv: string[]): Promise<void> {
         if (values.json) return json(due);
         return console.log(due.length ? due.map((d) => `${d.title}\n  ${d.body}`).join('\n') : 'Nothing about to go cold.');
       }
-      if (values.json) return json(impact());
+      if (values.json) {
+        // The menu panel: the trend line, plus did the nudge work (its verdict, from the day it was turned on).
+        const i = impact();
+        const p = i.on ? nudgeProof(now) : null;
+        return json({ ...i, ...(p ? { verdict: { verdict: p.result.verdict, line: p.result.line, dueAt: p.result.dueAt } } : {}) });
+      }
       return console.log([nudgeText(nudgeInstalled()), impact().line].join('\n'));
     }
     case 'premise': {

@@ -25,7 +25,7 @@ describe('C1: cold returns, the week before vs the second week after', () => {
   it('is too early before two weeks, with the reading so far and the day the verdict comes', () => {
     const r = checkC1(SINCE, SINCE + 4 * DAY, scanOf([...before, cold(SINCE + DAY)]));
     expect(r.verdict).toBe('too-early');
-    expect(r.line).toBe('1 cold return so far (was 6 a week). Verdict Dec 10.');
+    expect(r.line).toBe('1 cold return since Nov 26 (was 6 a week). Verdict Dec 10.');
   });
 
   it('worked at a third fewer in week two, with the saving in tokens and the session counts beside it', () => {
