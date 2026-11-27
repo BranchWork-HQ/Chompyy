@@ -46,17 +46,17 @@ describe('advice cards from detect', () => {
     expect(drafts[0]!.advice.check).toContain('16 before you start. It worked if week two has 10 or fewer.');
     expect(drafts[0]!.idea).toContain('chompyy nudge on');
     const plugin = drafts[1]!;
-    expect(plugin.title).toBe('Turn off the mattpocock-skills plugin (25 skills, never used)');
+    expect(plugin.title).toBe('Turn off mattpocock-skills (25 unused skills)');
     expect(plugin.advice.changes).toEqual([{ file: settings, key: ['enabledPlugins', PLUGIN], from: true, to: false }]);
     expect(plugin.plan).toContain('true → false');
-    expect(plugin.plan).toContain('A session start costs about 46k now');
+    expect(plugin.plan).toContain('sessions start ~2k tokens smaller (now ~46k)');
     expect(drafts[2]!.plan).toContain('docs, pdf, xlsx');
     // The card's picture: three short steps and a chart of your own numbers.
     expect(drafts[0]!.advice.chart!.bars.map((b) => b.value)).toEqual([1_400_000, 800_000, 2_400_000, 2_500_000]);
     expect(drafts[0]!.advice.chart!.bars.at(-1)!.label).toBe('Last 7 days');
     expect(plugin.advice.chart!.bars).toEqual([{ label: 'Now', value: 46_000 }, { label: 'After', value: 43_900, highlight: true }]);
-    expect(plugin.advice.saw).toContain('25 skills you never used');
-    expect(drafts[2]!.advice.doing).toContain('Only you can');
+    expect(plugin.advice.saw).toContain('25 unused skills');
+    expect(drafts[2]!.advice.doing).toContain('claude.ai settings');
   });
 
   it('adds them to suggested once, refreshes them, and never brings back one you dropped', () => {
@@ -93,7 +93,7 @@ describe('approving', () => {
     approveAdvice(plugin, NOW);
 
     expect(applyDue(b, NOW, NOW.getTime() - 2 * 60_000)[0]).toContain('waits');
-    expect(plugin.advice!.note).toContain('active 2 min ago');
+    expect(plugin.advice!.note).toContain('a session ran 2 min ago');
     expect(JSON.parse(readFileSync(settings, 'utf8')).enabledPlugins[PLUGIN]).toBe(true);
 
     expect(applyDue(b, NOW, NOW.getTime() - IDLE_BEFORE_APPLY_MS - 1)[0]).toContain('applied');
@@ -141,7 +141,7 @@ describe('a plugin you use a little', () => {
     const b = board();
     upsertAdvice(b, adviceFrom(r, { settings, skillsDir }), NOW);
     const c = b.cards[0]!;
-    expect(c.title).toBe('Turn off 25 mattpocock-skills skills you never use (keep grilling)');
+    expect(c.title).toBe('Turn off mattpocock-skills, keep grilling');
     expect(c.blueprint).toContain('copy');
     approveAdvice(c, NOW);
     applyDue(b, NOW, 0);

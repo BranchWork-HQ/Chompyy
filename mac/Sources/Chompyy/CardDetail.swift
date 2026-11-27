@@ -110,13 +110,13 @@ struct CardDetail: View {
                         Label(a.lane == "settings" ? "Approve: apply it" : a.lane == "habit" ? "I'll try it" : "I've done it", systemImage: "checkmark")
                     }
                     .buttonStyle(.borderedProminent).tint(Brand.ok)
-                    .help(a.lane == "settings" ? "Chompyy makes exactly the change shown below, once no Claude Code session has been active for 10 minutes. Backed up; Undo puts it back." : "Nothing is changed. Chompyy checks it against the baseline below.")
+                    .help(a.lane == "settings" ? "Makes exactly the change below once no session has run for 10 minutes. Backed up; Undo restores it." : "Nothing changes. Chompyy checks it against the numbers below.")
                     dropButton
                 case (.approved, _):
                     Button { Task { await store.act("undo\(card.id)", ["undo", card.id]) } } label: { Label("Cancel", systemImage: "xmark") }
                 case (_, "applied"):
                     Button { Task { await store.act("undo\(card.id)", ["undo", card.id]) } } label: { Label("Undo", systemImage: "arrow.uturn.backward") }
-                        .help("Put the old settings back (only if nothing changed them since)")
+                        .help("Restore the old settings (only if nothing changed them since)")
                 case (_, "trying"), (_, "done"):
                     Button { Task { await store.act("undo\(card.id)", ["undo", card.id]) } } label: { Label("Stop", systemImage: "stop") }
                 default:
@@ -125,7 +125,7 @@ struct CardDetail: View {
                 if busy { ProgressView().controlSize(.small) }
             }
             if let note = a.note { Text(note).font(.callout).foregroundStyle(a.state == "failed" ? Brand.warn : .secondary) }
-            Label("Checked by: \(a.check)", systemImage: "ruler").font(.caption).foregroundStyle(.secondary)
+            Label("Check: \(a.check)", systemImage: "ruler").font(.caption).foregroundStyle(.secondary)
         }
         .padding(.top, 4)
     }
