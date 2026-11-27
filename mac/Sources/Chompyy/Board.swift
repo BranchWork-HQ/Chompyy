@@ -446,12 +446,21 @@ struct BoardSidebar: View {
                      help: "Read your Claude Code sessions and setup (chompyy detect) and turn what wastes tokens into cards to approve") {
                     Task { await store.act("advise", ["advise"]) }
                 }
+                let liveOn = store.nudgeImpact?.on == true
+                item(liveOn ? "Live suggestions: on" : "Turn on live suggestions", liveOn ? "bolt.fill" : "bolt", busy: store.busy.contains("nudge"),
+                     help: liveOn ? "Chompyy stops the first message to a big conversation whose cache expired, once. Click to turn off." : "When you come back to a big conversation after its cache expired, Chompyy stops the first message once and shows the cheaper ways. Adds a Claude Code hook; click again to remove it.") {
+                    Task { await store.setNudge(!liveOn) }
+                }
                 item("Ideas from history", "clock.arrow.circlepath", help: "Read your Claude Code history and suggest tasks and taste lines") { showColdStart = true }
             }
             group("See") {
                 item("Usage", "chart.bar.xaxis", help: "Tokens and API value of every Claude Code conversation on this Mac") { openWindow(id: "usage") }
                 item("Heard from you", "bubble.left.and.text.bubble.right", badge: store.state?.taste?.waiting.count ?? 0,
                      help: "What Chompyy heard from you, and what it learned") { showFeedback = true }
+                item("Share results", "square.and.arrow.up", busy: store.busy.contains("share"),
+                     help: "Copy what worked to paste on the tester issue (#24). No project, skill or file names in it.") {
+                    Task { await store.copyShare() }
+                }
             }
             group("Away") {
                 AwayMenu().menuStyle(.borderlessButton).fixedSize()
