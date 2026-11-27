@@ -14,6 +14,7 @@ import type { Advice, SettingChange } from './advice.js';
 import type { BoardData, Card } from './board.js';
 import { coldReturns, configuredMcp, installedSkills, ruleS4, ruleS5, scan, tokensOf, type Scan } from './detect.js';
 import { projectsDir } from './dream.js';
+import { learnedQuiet, loadNudges, loadPrefs, nudgeOnSince, outcomes, QUIET_AFTER, warnOutcomes, type NudgeEvent } from './nudge.js';
 
 export type Verdict = 'too-early' | 'worked' | 'short' | 'no-change' | 'worse' | 'cant-tell';
 
@@ -187,7 +188,10 @@ export function checkPlugin(a: Advice, since: number, now: number, s: Scan | nul
   const id = changes[0]?.key.at(-1) ?? '';
   // Cards made before `baseline` existed: the promise is on the card's chart (Now − After).
   const bars = a.chart?.bars;
-  const promised = a.baseline?.perStart ?? (bars?.length === 2 ? bars[0]!.value - bars[1]!.value : 0);
+  // Older still: the promise is in the check text ("start about 965 tokens smaller", "~2.1k tokens smaller").
+  const said = a.check.match(/~?([\d.]+)(k?) tokens smaller/);
+  const fromText = said ? Math.round(Number(said[1]) * (said[2] ? 1000 : 1)) : 0;
+  const promised = a.baseline?.perStart ?? (bars?.length === 2 ? bars[0]!.value - bars[1]!.value : fromText);
   const p = provenance(changes);
   if (p.state !== 'intact') {
     return { at, verdict: 'cant-tell', method: 'recount', provenance: p.state, line: `Not claimed: ${p.what}, so the plugin loads again.` };
@@ -319,6 +323,55 @@ export function checkWorked(board: BoardData, now: Date, opts: { root?: string; 
     else if (a.rule === 'S4' || a.rule === 'S5') a.result = checkRuleAgain(a, t, s ?? scan({ now, root }), root);
   }
   return cards;
+}
+
+// ---------- live suggestions: did the nudge itself work? ----------
+
+export interface NudgeProof {
+  since: string;
+  /** Before vs after: cold returns a week, same rule as the cold-return card (a third fewer in week two). */
+  result: AdviceResult;
+  /** Counted from each stopped or warned conversation: what you did, and the tokens it saved or cost. */
+  counted: { stops: number; compacted: number; left: number; sent: number; saved: number; measured: number; rewritten: number };
+  /** Projects where Chompyy learned to stop stopping you (or you told it to). */
+  quiet: { project: string; why: 'you' | 'learned' }[];
+}
+
+export function nudgeProof(now: Date, opts: { root?: string; events?: NudgeEvent[]; s?: Scan } = {}): NudgeProof | null {
+  const events = opts.events ?? loadNudges();
+  const since = nudgeOnSince(events);
+  if (!since) return null;
+  const t = now.getTime();
+  const s = opts.s ?? scan({ days: Math.max(30, Math.ceil((t - since) / DAY) + 8), now, root: opts.root ?? projectsDir() });
+  const after = (e: NudgeEvent) => Date.parse(e.at) >= since;
+  const stops = outcomes(events).filter((o) => after(o.event));
+  const warns = warnOutcomes(events).filter((o) => after(o.event) && o.did === 'compacted');
+  const n = (d: string) => stops.filter((o) => o.did === d).length;
+  // Compacting is measured (the next request was small); leaving assumes a fresh start costs what this one's first turn did.
+  const measured = [...stops.filter((o) => o.did === 'compacted'), ...warns].reduce((a, o) => a + o.saved, 0);
+  const saved = measured + stops.filter((o) => o.did === 'left').reduce((a, o) => a + o.saved, 0);
+  const rewritten = stops.filter((o) => o.did === 'sent').reduce((a, o) => a + o.event.context, 0);
+  const prefs = loadPrefs();
+  const quiet = [...new Set(events.map((e) => e.cwd).filter((c): c is string => Boolean(c)))]
+    .map((cwd) => ({ cwd, q: learnedQuiet(cwd, events, prefs) }))
+    .filter((x) => x.q.quiet)
+    .map((x) => ({ project: x.cwd.split('/').pop()!, why: x.q.why! }));
+  return {
+    since: new Date(since).toISOString(),
+    result: checkC1(since, t, s),
+    counted: { stops: stops.length, compacted: n('compacted') + warns.length, left: n('left'), sent: n('sent'), saved, measured, rewritten },
+    quiet,
+  };
+}
+
+export function nudgeProofText(p: NudgeProof): string[] {
+  const c = p.counted;
+  const lines = [`Live suggestions (on since ${day(Date.parse(p.since))})`, `${ICON[p.result.verdict]} ${p.result.line}`];
+  if (c.stops || c.compacted) {
+    lines.push(`   Counted per stop: ~${k(c.saved)} not rewritten (compacted ${c.compacted}, left ${c.left}${c.saved > c.measured ? `; ~${k(c.saved - c.measured)} of it estimated` : ''}). Sent anyway ${c.sent}${c.rewritten ? `: ${k(c.rewritten)} rewritten` : ''}.`);
+  }
+  for (const q of p.quiet) lines.push(`   Not stopping you in ${q.project}: ${q.why === 'you' ? 'you asked' : `you sent anyway ${QUIET_AFTER} times in a row`}.`);
+  return lines;
 }
 
 const ICON: Record<Verdict, string> = { 'too-early': '⏳', worked: '✅', short: '🟡', 'no-change': '➖', worse: '🔻', 'cant-tell': '❔' };
