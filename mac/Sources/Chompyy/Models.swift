@@ -174,6 +174,16 @@ struct CardAdvice: Decodable {
     let doing: String?
     let checkShort: String?
     let chart: Chart?
+    /// Did it work? (`chompyy worked`): the latest measurement against `check`.
+    let result: Result?
+
+    struct Result: Decodable {
+        let verdict: String   // too-early | worked | short | no-change | worse | cant-tell
+        let method: String    // recount | before-after
+        let line: String
+        let also: String?
+        let dueAt: String?
+    }
 
     struct Chart: Decodable {
         let title: String

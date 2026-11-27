@@ -15,6 +15,7 @@ import { projectsDir } from './dream.js';
 import { homePath } from './home.js';
 import { claudeSettingsPath, nudgeInstalled } from './nudge.js';
 import { gitRoot } from './workspace.js';
+import type { AdviceResult } from './didwork.js';
 
 export type AdviceLane = 'settings' | 'habit' | 'manual' | 'work';
 
@@ -49,6 +50,18 @@ export interface Advice {
   note?: string;
   since?: string;
   backups?: string[];
+  /** What the check compares against, registered with the card before it's applied (rule 7). */
+  baseline?: {
+    /** S3 plugin: tokens its unused skills add to every session start. */
+    perStart?: number;
+    /** S3 manual: the skills to turn off. */
+    names?: string[];
+    /** S2: the file's size when the card was made. */
+    lines?: number;
+    tokens?: number;
+  };
+  /** Did it work? (didwork.ts): the latest measurement against `check`. */
+  result?: AdviceResult;
 }
 
 export interface AdviceDraft {
@@ -131,6 +144,7 @@ export function adviceFrom(r: DetectResult, opts: { nudgeOn?: boolean; settings?
           basis: 'estimated',
           tokens: p.tokens * r.scanned.sessions,
           changes,
+          baseline: { perStart: p.tokens },
           ...(copies.length ? { copies } : {}),
           saw: `${p.skills} skills you never used load at every session start (~${k(p.tokens)} tokens)`,
           doing: kept.length ? `Copy ${kept.join(' and ')} into your own skills, then turn ${name} off. Backed up; Undo puts it back.` : `Turn ${name} off in your settings. Backed up; Undo puts it back.`,
@@ -161,20 +175,25 @@ export function adviceFrom(r: DetectResult, opts: { nudgeOn?: boolean; settings?
       }
       const synced = f.targets?.synced ?? [];
       if (synced.length) {
-        const a: Advice = { key: 'S3:synced', rule: 'S3', lane: 'manual', basis: 'estimated', check: 'detect counts installed skills: it worked if these no longer appear, and you don\'t miss them.', saw: `${synced.length} skills synced from claude.ai, never used`, doing: 'Only you can: turn them off in claude.ai settings, then press "I\'ve done it".', checkShort: 'They no longer load' };
+        const a: Advice = { key: 'S3:synced', rule: 'S3', lane: 'manual', basis: 'estimated', baseline: { names: synced }, check: 'detect counts installed skills: it worked if these no longer appear, and you don\'t miss them.', saw: `${synced.length} skills synced from claude.ai, never used`, doing: 'Only you can: turn them off in claude.ai settings, then press "I\'ve done it".', checkShort: 'They no longer load' };
         const what = `**What to do (only you can):** these skills come from your claude.ai account, so Chompyy can't turn them off here. In claude.ai settings, turn off the ones you don't use: ${synced.join(', ')}. Then press "I've done it".`;
         out.push({ title: `Turn off ${synced.length} synced skills you never use`, idea: `On claude.ai: ${synced.slice(0, 6).join(', ')}${synced.length > 6 ? ', …' : ''}`, cwd: home, plan: plan({ ...f, say: `${synced.length} skills synced from your claude.ai account had no use in ${r.scanned.sessions} sessions.` }, a, what), advice: a });
       }
       const yours = f.targets?.yours ?? [];
       if (yours.length) {
-        const a: Advice = { key: 'S3:yours', rule: 'S3', lane: 'manual', basis: 'estimated', check: "detect counts installed skills: it worked if these no longer appear, and you don't miss them." };
+        const a: Advice = { key: 'S3:yours', rule: 'S3', lane: 'manual', basis: 'estimated', baseline: { names: yours.map((y) => y.name) }, check: "detect counts installed skills: it worked if these no longer appear, and you don't miss them." };
         const what = `**What to do:** move these out of \`~/.claude/skills\` (a folder outside it, not \`_archived\` inside, which still loads): ${yours.map((y) => y.name).join(', ')}.`;
         out.push({ title: `Archive ${yours.length} of your own skills you never use`, idea: yours.map((y) => y.name).join(', '), cwd: home, plan: plan(f, a, what), advice: a });
       }
     } else if (f.rule === 'S2') {
       const file = f.say.match(/^(\S+CLAUDE\.md)/)?.[1]?.replace(/^~/, home) ?? '';
       const repo = file && basename(file) === 'CLAUDE.md' ? gitRoot(join(file, '..')) : null;
-      const a: Advice = { key: `S2:${file}`, rule: 'S2', lane: repo ? 'work' : 'manual', basis: f.basis, ...(f.tokens ? { tokens: f.tokens } : {}), check: 'detect re-measures the file: it worked if it is under 200 lines and ~2k tokens, with no rule lost (each moved one says where it went).' };
+      let size: Advice['baseline'];
+      try {
+        const text = readFileSync(file, 'utf8');
+        size = { lines: text.split('\n').length, tokens: Math.ceil(text.length / 4) };
+      } catch {}
+      const a: Advice = { key: `S2:${file}`, rule: 'S2', lane: repo ? 'work' : 'manual', basis: f.basis, ...(f.tokens ? { tokens: f.tokens } : {}), ...(size ? { baseline: size } : {}), check: 'detect re-measures the file: it worked if it is under 200 lines and ~2k tokens, with no rule lost (each moved one says where it went).' };
       if (repo) out.push({ title: `Tier ${tilde(file)}`, idea: `${f.fix} File: ${file}.`, cwd: repo, plan: null, advice: a });
       else out.push({ title: `Tier ${tilde(file)}`, idea: f.fix, cwd: home, plan: plan(f, a, `**What to do:** ${f.fix}`), advice: a });
     } else if (f.rule === 'S4' || f.rule === 'S5') {
@@ -369,6 +388,8 @@ export function applyDue(board: BoardData, now: Date, lastActivity = lastSession
 export function undoAdvice(c: Card, now: Date): string {
   const a = c.advice!;
   c.updatedAt = now.toISOString();
+  // Undone: there is nothing left to measure.
+  delete a.result;
   if (a.lane === 'settings' && a.state === 'applied') {
     a.backups = [...(a.backups ?? []), ...writeChanges(a.changes ?? [], true, `card-${c.id}-undo-${now.getTime()}`)];
     // The plugin is back on, so the copies would load twice: move them into Chompyy's backups (in case you edited them).

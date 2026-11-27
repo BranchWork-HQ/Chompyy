@@ -43,6 +43,7 @@ import { formatTrace, traceSession } from './trace.js';
 import { homedir } from 'node:os';
 import { clashOf, refreshCard, refreshGate, refreshClashing, withRefreshLock, type RefreshDeps } from './refresh.js';
 import { adviseText, applyDue, approveAdvice, runAdvise, undoAdvice } from './advice.js';
+import { checkWorked, workedText } from './didwork.js';
 import { coldWarningText, hookCommand, impact, nudgeInstalled, nudgeText, outcomes, runHook, setNudge, takeGoingCold } from './nudge.js';
 import { formatLive, keepAffectsLive, liveOff, liveSet, liveUpdateLocked, loadLive, startLiveUpdate } from './live.js';
 import { agentInstalled, awayRunning, bedtimeKey, decideTrigger, installAgent, loadTriggerState, markFired, noteTick, parseClock, takeAwayLock, uninstallAgent } from './triggers.js';
@@ -58,6 +59,7 @@ Quota
   chompyy advise [--json]       turn detect's findings into suggested cards to approve or drop: settings changes are
                                 applied (backed up, undoable) once no Claude Code session is active; habits are tracked
   chompyy advise apply          apply approved settings advice now, if no session has been active for 10 minutes
+  chompyy worked [--json]       did it work? measure each approved advice card against the check on its card
   chompyy nudge on|off          live suggestions while you work: stops the first message to a big conversation
                                 whose cache expired, with the price and the cheaper ways (Claude Code hook)
   chompyy nudge                 on or off, and what the stops saved
@@ -923,6 +925,12 @@ async function main(argv: string[]): Promise<void> {
       try {
         updateBoard((b) => applyDue(b, now));
       } catch {}
+      // Did it work? Re-measure applied advice once an hour (a transcript scan, so not every tick).
+      if (now.getMinutes() < 5) {
+        try {
+          updateBoard((b) => checkWorked(b, now));
+        } catch {}
+      }
       const board = loadBoard();
       // Refreshes that waited for quota (refresh.ts) go as soon as there is some again.
       if (board.cards.some((c) => c.column === 'review' && c.refresh?.state === 'waiting') && !refreshGate(loadSnapshot(), now)) {
@@ -1073,6 +1081,12 @@ async function main(argv: string[]): Promise<void> {
       const res = updateBoard((b) => runAdvise(b, now));
       if (values.json) return json({ added: res.added.map((c) => c.id), updated: res.updated.map((c) => c.id), skipped: res.skipped });
       return console.log(adviseText(res));
+    }
+    case 'worked': {
+      // The detective, step 5: each applied/tried advice card against the check it registered (didwork.ts).
+      const cards = updateBoard((b) => checkWorked(b, now));
+      if (values.json) return json(cards.map((c) => ({ id: c.id, title: c.title, rule: c.advice!.rule, lane: c.advice!.lane, ...c.advice!.result })));
+      return console.log(workedText(cards));
     }
     case 'hook': {
       // Claude Code's UserPromptSubmit hook. Must never fail loudly or stop a prompt by accident.

@@ -18,6 +18,7 @@ struct AdviceView: View {
                 arrow
                 step("ruler", "How it's checked", a.checkShort ?? a.check, Brand.ok)
             }
+            if let r = a.result { AdviceResultView(result: r) }
             if let chart = a.chart { AdviceChart(chart: chart) }
             if let plan = card.blueprint {
                 DisclosureGroup("Details: the evidence, what it doesn't prove, the exact change") {
@@ -45,6 +46,40 @@ struct AdviceView: View {
         }
         .padding(10)
         .frame(maxWidth: .infinity, minHeight: 76, alignment: .topLeading)
+        .background(tint.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(tint.opacity(0.25)))
+    }
+}
+
+/// Did it work? The verdict, the method behind it (re-count is the strongest), and the weaker reading beside it.
+struct AdviceResultView: View {
+    let result: CardAdvice.Result
+
+    private var look: (String, String, Color) {
+        switch result.verdict {
+        case "worked": return ("It worked", "checkmark.seal.fill", Brand.ok)
+        case "too-early": return ("Too early to tell", "hourglass", .secondary)
+        case "short": return ("Fell short", "circle.lefthalf.filled", Brand.warn)
+        case "no-change": return ("No change", "minus.circle", .secondary)
+        case "worse": return ("Went the wrong way", "arrow.down.right.circle.fill", Brand.warn)
+        default: return ("Can't tell", "questionmark.circle", .secondary)
+        }
+    }
+
+    var body: some View {
+        let (label, symbol, tint) = look
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Label("Did it work? \(label)", systemImage: symbol).font(.callout.weight(.semibold)).foregroundStyle(tint)
+                Spacer()
+                Text(result.method == "recount" ? "Re-counted" : "Before vs after").font(.caption).foregroundStyle(.secondary)
+                    .help(result.method == "recount" ? "The thing that changed, counted again: the strongest check." : "Weeks compared: can't separate the fix from anything else that changed.")
+            }
+            Text(md(result.line)).font(.callout).fixedSize(horizontal: false, vertical: true)
+            if let also = result.also { Text(also).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(tint.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
         .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(tint.opacity(0.25)))
     }
