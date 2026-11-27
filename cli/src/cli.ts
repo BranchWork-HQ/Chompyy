@@ -43,7 +43,7 @@ import { formatTrace, traceSession } from './trace.js';
 import { homedir } from 'node:os';
 import { clashOf, refreshCard, refreshGate, refreshClashing, withRefreshLock, type RefreshDeps } from './refresh.js';
 import { adviseText, applyDue, approveAdvice, runAdvise, undoAdvice } from './advice.js';
-import { checkWorked, nudgeProof, nudgeProofText, workedText } from './didwork.js';
+import { checkWorked, nudgeProof, nudgeProofText, shareText, workedText } from './didwork.js';
 import { coldWarningText, hookCommand, impact, loadNudges, nudgeInstalled, nudgeText, outcomes, runHook, setNudge, setProjectMode, takeGoingCold } from './nudge.js';
 import { formatLive, keepAffectsLive, liveOff, liveSet, liveUpdateLocked, loadLive, startLiveUpdate } from './live.js';
 import { agentInstalled, awayRunning, bedtimeKey, decideTrigger, installAgent, loadTriggerState, markFired, noteTick, parseClock, takeAwayLock, uninstallAgent } from './triggers.js';
@@ -60,6 +60,7 @@ Quota
                                 applied (backed up, undoable) once no Claude Code session is active; habits are tracked
   chompyy advise apply          apply approved settings advice now, if no session has been active for 10 minutes
   chompyy worked [--json]       did it work? measure each approved advice card against the check on its card
+  chompyy worked --share        the same as a summary to paste (no project, skill or file names)
   chompyy nudge on|off          live suggestions while you work: stops the first message to a big conversation
                                 whose cache expired, with the price and the cheaper ways (Claude Code hook)
   chompyy nudge strict|quiet|learn [dir]   in this project: always stop me, only a heads-up, or learn (default:
@@ -474,6 +475,7 @@ async function main(argv: string[]): Promise<void> {
       'dry-run': { type: 'boolean' },
       force: { type: 'boolean' },
       all: { type: 'boolean' },
+      share: { type: 'boolean' },
       quiet: { type: 'boolean' },
       model: { type: 'string' },
       column: { type: 'string', multiple: true },
@@ -1092,6 +1094,12 @@ async function main(argv: string[]): Promise<void> {
       // The detective, step 5: each applied/tried advice card against the check it registered (didwork.ts).
       const cards = updateBoard((b) => checkWorked(b, now));
       const proof = nudgeInstalled() || loadNudges().length ? nudgeProof(now) : null;
+      if (values.share) {
+        // A summary to paste on the tester issue: counts, tokens and dates; no project, skill or file names.
+        const text = shareText(cards, proof, { version: cliVersion(), now });
+        if (!process.stdout.isTTY) return console.log(text);
+        return console.log(`${text}\n\nNo project, skill or file names in it. Copy it: chompyy worked --share | pbcopy`);
+      }
       if (values.json) return json({ cards: cards.map((c) => ({ id: c.id, title: c.title, rule: c.advice!.rule, lane: c.advice!.lane, ...c.advice!.result })), nudge: proof });
       if (!cards.length && proof) return console.log(nudgeProofText(proof).join('\n'));
       return console.log([workedText(cards), ...(proof ? ['', ...nudgeProofText(proof)] : [])].join('\n'));

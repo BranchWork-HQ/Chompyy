@@ -322,7 +322,30 @@ export function checkWorked(board: BoardData, now: Date, opts: { root?: string; 
     else if (a.rule === 'S2') a.result = checkClaudeMd(a, t);
     else if (a.rule === 'S4' || a.rule === 'S5') a.result = checkRuleAgain(a, t, s ?? scan({ now, root }), root);
   }
+  reopenUndone(cards, now);
   return cards;
+}
+
+/** Give claude.ai settings a day to sync before calling a "done" card not done. */
+export const REOPEN_AFTER_MS = DAY;
+
+/**
+ * A card you marked done whose re-count shows nothing changed comes back to suggested, with what's still there,
+ * instead of sitting in Done as if it worked. Only "yours to do" cards: settings changes are Chompyy's own.
+ */
+export function reopenUndone(cards: Card[], now: Date): Card[] {
+  const back: Card[] = [];
+  for (const c of cards) {
+    const a = c.advice!;
+    if (a.lane !== 'manual' || a.state !== 'done' || a.result?.verdict !== 'no-change') continue;
+    if (now.getTime() - startOf(c) < REOPEN_AFTER_MS) continue;
+    c.column = 'suggested';
+    delete a.state;
+    a.note = `Back from Done: ${a.result.line.replace(/^Not yet: /, '')} Do it, then press "I've done it" again.`;
+    c.updatedAt = now.toISOString();
+    back.push(c);
+  }
+  return back;
 }
 
 // ---------- live suggestions: did the nudge itself work? ----------
@@ -401,3 +424,55 @@ export function workedText(cards: Card[]): string {
   return lines.join('\n');
 }
 
+
+// ---------- worked --share: a summary to paste, with no names in it ----------
+
+/** What each fix was, in words that name no project, skill, plugin or file. */
+function shareLabel(a: Advice): string {
+  if (a.rule === 'C1') return 'Cold returns (a habit)';
+  if (a.rule === 'C2') return 'Mid-session rebuilds (a habit)';
+  if (a.rule === 'S3' && a.lane === 'settings') return 'Unused plugin turned off';
+  if (a.key === 'S3:synced') return 'Unused synced skills turned off';
+  if (a.rule === 'S3') return 'Unused own skills archived';
+  if (a.rule === 'S2') return 'Long CLAUDE.md shortened';
+  if (a.rule === 'S4') return 'Unused MCP servers removed';
+  if (a.rule === 'S5') return 'MEMORY.md compressed';
+  return 'Other fix';
+}
+
+const VERDICT_WORD: Record<Verdict, string> = { 'too-early': 'too early', worked: 'worked', short: 'fell short', 'no-change': 'no change', worse: 'went the wrong way', 'cant-tell': "can't tell" };
+
+/** The numbers only: before → after, the method, the verdict or the day it comes. */
+function shareNumbers(a: Advice, r: AdviceResult): string {
+  const due = r.dueAt && r.verdict === 'too-early' ? ` · verdict ${day(Date.parse(r.dueAt))}` : '';
+  const how = r.method === 'recount' ? 're-counted' : 'before vs after';
+  if (r.before === undefined || r.after === undefined) return `${how}${due}`;
+  if (r.verdict === 'cant-tell' && r.before === 0) return 'nothing to improve (none before)';
+  if (a.rule === 'C1') return r.verdict === 'too-early' ? `${r.after} since start (was ${r.before} a week)${due}` : `${r.before} → ${r.after} a week (${r.saved! >= 0 ? `${k(r.saved!)} fewer` : `${k(-r.saved!)} more`} tokens rewritten) · ${how}`;
+  if (a.rule === 'C2') return `${r.before} → ${r.after} in two weeks · ${how}${due}`;
+  if (a.rule === 'S3' && a.lane !== 'settings') return `${r.before - r.after} of ${r.before} gone · ${how}`;
+  return `~${k(r.before)} → ~${k(r.after)} tokens per ${r.per ?? 'session start'} · ${how}`;
+}
+
+/** Markdown for an issue comment. Counts, tokens and dates only. */
+export function shareText(cards: Card[], proof: NudgeProof | null, meta: { version: string; now: Date }): string {
+  const lines = [`**chompyy worked --share** · ${meta.version} · ${meta.now.toISOString().slice(0, 10)}`, ''];
+  const measured = cards.filter((c) => c.advice?.result);
+  if (measured.length) {
+    lines.push('Fixes:');
+    for (const c of measured) {
+      const a = c.advice!;
+      const r = a.result!;
+      lines.push(`- ${ICON[r.verdict]} ${shareLabel(a)}: ${VERDICT_WORD[r.verdict]} · ${shareNumbers(a, r)}`);
+    }
+  } else lines.push('Fixes: none approved yet.');
+  if (proof) {
+    const r = proof.result;
+    const c = proof.counted;
+    lines.push('', `Live suggestions (on since ${day(Date.parse(proof.since))}):`);
+    lines.push(`- ${ICON[r.verdict]} Cold returns: ${VERDICT_WORD[r.verdict]} · ${r.before === undefined ? 'no week before to compare' : r.verdict === 'too-early' ? `${r.after} since (was ${r.before} a week) · verdict ${day(Date.parse(r.dueAt!))}` : `${r.before} → ${r.after} a week`}`);
+    if (c.stops || c.compacted) lines.push(`- Stops: ${c.stops} (compacted ${c.compacted}, left ${c.left}, sent anyway ${c.sent}) · ~${k(c.saved)} not rewritten${c.saved > c.measured ? ` (~${k(c.saved - c.measured)} estimated)` : ''}${c.rewritten ? ` · ${k(c.rewritten)} rewritten when sent anyway` : ''}`);
+    if (proof.quiet.length) lines.push(`- Heads-up instead of a stop in ${proof.quiet.length} project${proof.quiet.length === 1 ? '' : 's'}`);
+  }
+  return lines.join('\n');
+}
