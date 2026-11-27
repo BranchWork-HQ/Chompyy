@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, utimesSync, writeFile
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { coldWarningText, impact, warnOutcomes, decide, goingCold, takeGoingCold, hookCommand, loadNudges, nudgeInstalled, nudgeText, outcomes, runHook, setNudge, type NudgeEvent } from '../src/nudge.js';
+import { coldWarningText, impact, learnedQuiet, quietText, warnOutcomes, decide, goingCold, takeGoingCold, hookCommand, loadNudges, nudgeInstalled, nudgeText, outcomes, runHook, setNudge, type NudgeEvent } from '../src/nudge.js';
 
 const MIN = 60_000;
 const T0 = Date.parse('2026-11-26T09:00:00Z');
@@ -173,5 +173,42 @@ describe('what the warnings did, and the trend', () => {
     expect(i.thisWeek).toEqual({ count: 3, tokens: 300_000 });
     expect(i.lastWeek).toEqual({ count: 1, tokens: 100_000 });
     expect(i.line).toBe('Cold returns: 3 this week (300k), 1 last week (100k).');
+  });
+});
+
+describe('learning per project', () => {
+  /** A transcript in `cwd`, left at T0 at 180k; `resent` = you sent anyway after the stop (a big write follows). */
+  const inProject = (cwd: string, resent: boolean, at: number) => {
+    const lines = [JSON.stringify({ type: 'user', cwd, message: { content: 'hi' } }), reply(at - 90 * MIN, 0, 22_000), reply(at, 170_000, 10_000)];
+    if (resent) lines.push(reply(at + 76 * MIN, 0, 180_000));
+    return transcript(lines);
+  };
+  const stopped = (cwd: string, t: string, at: number): NudgeEvent => ({ at: new Date(at + 75 * MIN).toISOString(), kind: 'stopped', session: t, transcript: t, idleMs: 75 * MIN, context: 180_000, cwd });
+
+  it('after 3 stops in a row you sent anyway in one project, a one-line heads-up there instead of a stop', () => {
+    const events = [0, 1, 2].map((i) => {
+      const at = T0 - (5 - i) * 86_400_000;
+      return stopped('/work/app', inProject('/work/app', true, at), at);
+    });
+    expect(outcomes(events).map((o) => o.did)).toEqual(['sent', 'sent', 'sent']);
+    expect(learnedQuiet('/work/app', events, {})).toMatchObject({ quiet: true, why: 'learned', sentInARow: 3 });
+    const now = inProject('/work/app', false, T0);
+    const d = decide({ session_id: 'new', transcript_path: now, prompt: 'carry on' }, T0 + 75 * MIN, events, {});
+    expect(d.block).toBe(false);
+    expect('notice' in d && d.notice).toContain("won't stop you here any more");
+    // Elsewhere it still stops you.
+    expect(decide({ session_id: 'x', transcript_path: inProject('/work/other', false, T0), prompt: 'go' }, T0 + 75 * MIN, events, {}).block).toBe(true);
+    // And once you say so, it stops you here again.
+    expect(decide({ session_id: 'new', transcript_path: now, prompt: 'carry on' }, T0 + 75 * MIN, events, { strict: ['/work/app'] }).block).toBe(true);
+  });
+
+  it('one stop that helped breaks the streak', () => {
+    const at = (i: number) => T0 - (5 - i) * 86_400_000;
+    const events = [stopped('/w', inProject('/w', true, at(0)), at(0)), stopped('/w', inProject('/w', false, at(1)), at(1)), stopped('/w', inProject('/w', true, at(2)), at(2)), stopped('/w', inProject('/w', true, at(3)), at(3))];
+    expect(learnedQuiet('/w', events, {})).toMatchObject({ quiet: false, sentInARow: 2 });
+  });
+
+  it('the hook prints the heads-up as a message, never a block', () => {
+    expect(quietText({ context: 180_000, cwd: '/work/app' }, false)).toBe('🍪 Cold cache: this message rewrites 180k tokens.');
   });
 });
