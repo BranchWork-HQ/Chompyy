@@ -358,7 +358,15 @@ struct CardTile: View {
     }
 
     @ViewBuilder private var status: some View {
-        if card.isAdvice, let a = card.advice {
+        if card.isAdvice, let a = card.advice, let r = a.result, r.verdict != "too-early" {
+            switch r.verdict {
+            case "worked": pill("It worked", "checkmark.seal.fill", Brand.ok)
+            case "short": pill("Fell short", "circle.lefthalf.filled", Brand.warn)
+            case "worse": pill("Went the wrong way", "arrow.down.right.circle.fill", Brand.warn)
+            case "no-change": pill("No change", "minus.circle", .secondary)
+            default: pill("Can't tell", "questionmark.circle", .secondary)
+            }
+        } else if card.isAdvice, let a = card.advice {
             switch a.state ?? "" {
             case "waiting": pill("Applies when you're idle", "hourglass", .secondary)
             case "applied": pill("Applied", "checkmark.seal.fill", Brand.ok)

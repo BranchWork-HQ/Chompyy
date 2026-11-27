@@ -86,8 +86,8 @@ describe('C1: coming back after the cache expired', () => {
   it('fires on 3 returns past the 1-hour lifetime, with measured sizes and share', () => {
     const [f] = ruleC1(scanOf([sessionWith([90, 120, 61])]), NOW);
     expect(f).toMatchObject({ rule: 'C1', basis: 'measured', lane: 'habit' });
-    expect(f!.say).toMatch(/^3 times .* median 100k tokens each, 300k in all, 94% of your cache writes/);
-    expect(f!.fix).toMatch(/Never automated keep-warm/);
+    expect(f!.say).toMatch(/^3 returns .* median 100k tokens rewritten each, 300k in all, 94% of your cache writes/);
+    expect(f!.fix).not.toMatch(/ping/);
   });
 
   it("doesn't count a miss within the lifetime (not a cold return), and stays quiet under the threshold", () => {
@@ -134,7 +134,7 @@ describe('S3: skills you never use', () => {
 
   it('fires at 5+ unused with enough history, and knows a plugin skill by its short name too', () => {
     const skills = installedSkills(claudeDir());
-    expect(ruleS3(busy([]), skills, NOW)[0]!.say).toMatch(/^6 of 6 installed skills had no use in 20 sessions over 20 days \(2 from plugins, 1 synced .*, 3 in ~\/.claude\/skills\)/);
+    expect(ruleS3(busy([]), skills, NOW)[0]!.say).toMatch(/^6 of 6 skills unused in 20 sessions over 20 days \(2 from plugins, 1 synced .*, 3 in ~\/.claude\/skills\)/);
     expect(ruleS3(busy(['shown']), skills, NOW)[0]!.say).toMatch(/^5 of 6/);
     expect(ruleS3(busy(['shown', 'a']), skills, NOW)).toEqual([]);
   });
@@ -165,7 +165,7 @@ describe('S2 and S5: what loads before you type', () => {
     writeFileSync(join(repo, 'CLAUDE.md'), Array.from({ length: 250 }, (_, i) => `rule ${i}`).join('\n'));
     const s: Scan = { sessions: [{ id: 'a', cwd: repo, turns: [] }, { id: 'b', cwd: repo, turns: [] }, { id: 'c', cwd: '/elsewhere', turns: [] }], skills: new Map(), commands: new Map(), mcp: new Map(), firstAt: 0, lastAt: 0 };
     const [f] = ruleS2(s, temp());
-    expect(f!.say).toMatch(/is 250 lines .* 2 sessions in this scan/);
+    expect(f!.say).toMatch(/is 250 lines .* loaded in 2 sessions/);
     writeFileSync(join(repo, 'CLAUDE.md'), 'short');
     expect(ruleS2(s, temp())).toEqual([]);
   });
@@ -197,7 +197,7 @@ describe('C2: cache thrown away mid-session, with its cause', () => {
     expect(s.sessions[0]!.turns.map((t) => t.loaded ?? null)).toEqual([null, ['claude-in-chrome'], null]);
     const [f] = detect({ root, now: new Date(NOW), claudeDir: temp(), home: temp() }).findings;
     expect(f!.rule).toBe('C2');
-    expect(f!.say).toMatch(/Tool Search loaded claude-in-chrome's tools mid-session \(166k re-cached\)/);
+    expect(f!.say).toMatch(/after claude-in-chrome's tools loaded mid-session \(166k\)/);
     expect(f!.fix).toMatch(/^Load claude-in-chrome at the start of a session/);
     expect(f!.tokens).toBe(166_000);
   });
@@ -212,7 +212,7 @@ describe('C2: cache thrown away mid-session, with its cause', () => {
       ],
     });
     const [f] = detect({ root, now: new Date(NOW), claudeDir: temp(), home: temp() }).findings;
-    expect(f!.say).toMatch(/once right after you ran \/mcp \(80k re-cached\)/);
+    expect(f!.say).toMatch(/once after \/mcp \(80k\)/);
     expect(f!.say).not.toMatch(/WebSearch/);
   });
 });
@@ -222,12 +222,13 @@ describe('the one-screen summary', () => {
   const f = (rule: string, title: string, tokens?: number, basis = 'measured') => ({ rule, title, say: 's', basis, fix: `Fix ${rule} first. Then more.`, lane: 'habit', ...(tokens === undefined ? {} : { tokens }) });
   it('ranks findings by tokens, starts with the biggest one, and keeps the evidence for --all', () => {
     const text = detectText(r([f('S4', 'Idle servers'), f('S3', 'Unused skills', 104_000, 'estimated'), f('C1', 'Cold returns', 5_100_000)])).join('\n');
-    expect(text.split('\n').filter((l) => l.startsWith('  ')).map((l) => l.trim().split(/\s+/).pop())).toEqual(['C1', 'S3', 'S4']);
-    expect(text).toMatch(/5\.1M tokens/);
-    expect(text).toMatch(/~104k tokens/);
-    expect(text).toMatch(/Start here: Fix C1 first\.$/m);
-    expect(text).not.toMatch(/What this doesn't prove/);
-    expect(detectText(r([f('C1', 'Cold returns', 5)]), { all: true }).join('\n')).toMatch(/Fix \(habit\): Fix C1 first\. Then more\./);
+    // Action first, then the ranked list; no rule IDs on screen.
+    expect(text.split('\n')[0]).toBe('Start here: Fix C1 first.');
+    expect(['Cold returns', 'Unused skills', 'Idle servers'].map((t) => text.indexOf(t))).toEqual([...['Cold returns', 'Unused skills', 'Idle servers'].map((t) => text.indexOf(t))].sort((x, y) => x - y));
+    expect(text).toMatch(/5\.1M {2}Cold returns/);
+    expect(text).toMatch(/~104k {2}Unused skills/);
+    expect(text).not.toMatch(/Not proven|measured +C1/);
+    expect(detectText(r([f('C1', 'Cold returns', 5)]), { all: true }).join('\n')).toMatch(/Fix: Fix C1 first\. Then more\./);
   });
   it('says where it looked when there are no sessions, instead of "nothing to fix"', () => {
     const text = detectText(r([], 0), { projects: '~/.claude/projects' }).join('\n');
