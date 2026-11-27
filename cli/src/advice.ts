@@ -81,19 +81,19 @@ const describeKey = (c: SettingChange) => `\`${tilde(c.file)}\`: \`${c.key.map((
 
 function plan(f: Finding, a: Advice, what: string): string {
   return [
-    `**What Chompyy saw** (${f.basis}): ${f.say}`,
-    f.notProve ? `**What this doesn't prove:** ${f.notProve}` : '',
+    `**Evidence** (${f.basis}): ${f.say}`,
+    f.notProve ? `**Not proven:** ${f.notProve}` : '',
     what,
-    `**How Chompyy checks it worked:** ${a.check}`,
+    `**Check:** ${a.check}`,
   ].filter(Boolean).join('\n\n');
 }
 
 const settingsWhat = (changes: SettingChange[]) =>
   [
-    '**What changes when you approve:**',
+    '**The change:**',
     ...changes.map((c) => `- ${describeKey(c)}`),
     '',
-    "Chompyy applies it when no Claude Code session has been active for 10 minutes, so no open conversation's cache is thrown away. The file is backed up first, and Undo puts the old value back.",
+    'Applied once no Claude Code session has run for 10 minutes, so no open cache is lost. Backed up; Undo restores it.',
   ].join('\n');
 
 /** The cards detect's findings turn into. */
@@ -111,25 +111,25 @@ export function adviceFrom(r: DetectResult, opts: { nudgeOn?: boolean; settings?
         basis: f.basis,
         ...(f.tokens ? { tokens: f.tokens } : {}),
         check: w
-          ? `Cold returns a week (\`chompyy nudge\`): ${w.count} (${k(w.tokens)} rebuilt) in the week before. It worked if, two weeks on, a week has a third fewer.`
-          : 'Cold returns a week (`chompyy nudge`), against the week before you started.',
+          ? `Cold returns a week: ${w.count} before you start. It worked if week two has ${Math.floor((w.count * 2) / 3)} or fewer.`
+          : 'Cold returns a week, against the week before you start.',
       };
-      const fix = f.fix + (opts.nudgeOn ? '' : ' Live suggestions remind you at the moment it matters: `chompyy nudge on`.');
-      a.saw = `${k(f.tokens ?? 0)} tokens rebuilt in 14 days by coming back after the cache expired`;
-      a.doing = 'Nothing to install: before a long break, /compact or leave a note and start fresh. Chompyy warns you before it goes cold.';
-      a.checkShort = w ? `A week with a third fewer than ${w.count} cold returns` : 'Fewer cold returns a week';
+      const fix = 'Before a long break: /compact, or leave a note and start fresh.' + (opts.nudgeOn ? '' : ' `chompyy nudge on` reminds you in time.');
+      a.saw = `${k(f.tokens ?? 0)} tokens rewritten in 14 days: you came back after the cache expired`;
+      a.doing = 'Before a break: /compact, or leave a note and start fresh';
+      a.checkShort = w ? `Week two: ${Math.floor((w.count * 2) / 3)} or fewer cold returns (was ${w.count})` : 'Fewer cold returns a week';
       const weeks = r.scanned.coldWeeks ?? [];
       if (weeks.length) {
         a.chart = {
           title: 'Tokens rebuilt by cold returns, per week',
           bars: weeks.map((x, i) => ({ label: i === weeks.length - 1 ? 'Last 7 days' : `Week of ${new Date(x.from).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`, value: x.tokens })),
-          note: `${weeks.map((x) => x.count).join(' · ')} cold returns a week. The goal: the next bars a third lower.`,
+          note: `Cold returns a week: ${weeks.map((x) => x.count).join(' · ')}. Goal: a third lower.`,
         };
       }
-      out.push({ title: 'Stop paying for cold returns', idea: fix, cwd: home, plan: plan(f, a, `**What to do:** ${fix}`), advice: a });
+      out.push({ title: 'Stop paying for cold returns', idea: fix, cwd: home, plan: plan(f, a, `**Do:** ${fix}`), advice: a });
     } else if (f.rule === 'C2') {
-      const a: Advice = { key: 'C2', rule: 'C2', lane: 'habit', basis: f.basis, ...(f.tokens ? { tokens: f.tokens } : {}), check: "Mid-session rebuilds (detect's C2) over the next two weeks. It worked if there are none.", saw: `${k(f.tokens ?? 0)} tokens re-cached mid-session`, doing: 'Nothing to install: load tools at the start of a session, or do that work in its own session.', checkShort: 'No mid-session rebuilds for two weeks' };
-      out.push({ title: 'Keep the cache through a session', idea: f.fix, cwd: home, plan: plan(f, a, `**What to do:** ${f.fix}`), advice: a });
+      const a: Advice = { key: 'C2', rule: 'C2', lane: 'habit', basis: f.basis, ...(f.tokens ? { tokens: f.tokens } : {}), check: 'Mid-session rebuilds for two weeks after you start. It worked if there are none.', saw: `${k(f.tokens ?? 0)} tokens rewritten mid-session`, doing: 'Load tools at the start, or give that work its own session', checkShort: 'No mid-session rebuilds for two weeks' };
+      out.push({ title: 'Keep the cache through a session', idea: f.fix, cwd: home, plan: plan(f, a, `**Do:** ${f.fix}`), advice: a });
     } else if (f.rule === 'S3') {
       const start = r.scanned.startTokens;
       for (const p of f.targets?.plugins ?? []) {
@@ -146,28 +146,26 @@ export function adviceFrom(r: DetectResult, opts: { nudgeOn?: boolean; settings?
           changes,
           baseline: { perStart: p.tokens },
           ...(copies.length ? { copies } : {}),
-          saw: `${p.skills} skills you never used load at every session start (~${k(p.tokens)} tokens)`,
-          doing: kept.length ? `Copy ${kept.join(' and ')} into your own skills, then turn ${name} off. Backed up; Undo puts it back.` : `Turn ${name} off in your settings. Backed up; Undo puts it back.`,
+          saw: `${p.skills} unused skills load every session (~${k(p.tokens)} tokens)`,
+          doing: kept.length ? `Copy ${kept.join(' and ')} to your skills, turn ${name} off. Undo restores it` : `Turn ${name} off. Undo restores it`,
           checkShort: `New sessions start ~${k(p.tokens)} tokens smaller`,
-          ...(start ? { chart: { title: 'What a session start costs, in tokens', bars: [{ label: 'Now', value: start }, { label: 'After', value: Math.max(0, start - p.tokens), highlight: true }], note: `A ${Math.round((p.tokens / start) * 100) || '<1'}% saving on every session start: small, but it adds up over ${r.scanned.sessions} sessions a month.` } } : {}),
-          check: (start
-            ? `A session start costs about ${k(start)} now (median first turn). It worked if new sessions start about ${k(p.tokens)} tokens smaller`
-            : `New sessions start about ${k(p.tokens)} tokens smaller`) + (kept.length ? `, and ${kept.join(' and ')} still work${kept.length === 1 ? 's' : ''} (now as your own skill${kept.length === 1 ? '' : 's'}).` : ", and you don't miss the plugin."),
+          ...(start ? { chart: { title: 'What a session start costs, in tokens', bars: [{ label: 'Now', value: start }, { label: 'After', value: Math.max(0, start - p.tokens), highlight: true }], note: `${Math.round((p.tokens / start) * 100) || '<1'}% off every session start, ${r.scanned.sessions} sessions a month.` } } : {}),
+          check: `It worked if sessions start ~${k(p.tokens)} tokens smaller${start ? ` (now ~${k(start)})` : ''}${kept.length ? ` and ${kept.join(' and ')} still work${kept.length === 1 ? 's' : ''}` : ''}.`,
         };
         const say: Finding = {
           ...f,
           say: kept.length
-            ? `You used ${kept.length} of the ${name} plugin's ${p.skills + kept.length} skills (${kept.join(', ')}) in ${r.scanned.sessions} sessions. The other ${p.skills} add ~${k(p.tokens)} tokens to every session start.`
-            : `None of the ${p.skills} skills in the ${name} plugin was used in ${r.scanned.sessions} sessions. Their names and descriptions add ~${k(p.tokens)} tokens to every session start.`,
-          notProve: kept.length ? `${f.notProve} Your copies of ${kept.join(' and ')} won't get the plugin's updates; turn the plugin back on (Undo) to get them.` : f.notProve,
+            ? `You used ${kept.length} of ${p.skills + kept.length} ${name} skills (${kept.join(', ')}) in ${r.scanned.sessions} sessions. The other ${p.skills} add ~${k(p.tokens)} tokens every session start.`
+            : `None of the ${p.skills} ${name} skills used in ${r.scanned.sessions} sessions: ~${k(p.tokens)} tokens every session start.`,
+          notProve: kept.length ? `${f.notProve} Your copies won't get the plugin's updates (Undo brings them back).` : f.notProve,
         };
         const what = [
-          copies.length ? `**First, keep the ones you use:** ${copies.map((c) => `copy \`${tilde(c.from)}\` to \`${tilde(c.to)}\``).join('; ')}. Nothing is overwritten: if a folder is already there, nothing is applied.` : '',
+          copies.length ? `**First, keep the ones you use:** ${copies.map((c) => `copy \`${tilde(c.from)}\` to \`${tilde(c.to)}\``).join('; ')}. If a folder is already there, nothing is applied.` : '',
           settingsWhat(changes),
         ].filter(Boolean).join('\n\n');
         out.push({
-          title: kept.length ? `Turn off ${p.skills} ${name} skills you never use (keep ${kept.join(' and ')})` : `Turn off the ${name} plugin (${p.skills} skills, never used)`,
-          idea: `Turn off ${name}${kept.length ? `, keeping ${kept.join(' and ')} as your own skills` : ''}: ~${k(p.tokens)} tokens off every session start.`,
+          title: kept.length ? `Turn off ${name}, keep ${kept.join(' and ')}` : `Turn off ${name} (${p.skills} unused skills)`,
+          idea: `~${k(p.tokens)} tokens off every session start.`,
           cwd: home,
           plan: plan(say, a, what),
           advice: a,
@@ -175,15 +173,15 @@ export function adviceFrom(r: DetectResult, opts: { nudgeOn?: boolean; settings?
       }
       const synced = f.targets?.synced ?? [];
       if (synced.length) {
-        const a: Advice = { key: 'S3:synced', rule: 'S3', lane: 'manual', basis: 'estimated', baseline: { names: synced }, check: 'detect counts installed skills: it worked if these no longer appear, and you don\'t miss them.', saw: `${synced.length} skills synced from claude.ai, never used`, doing: 'Only you can: turn them off in claude.ai settings, then press "I\'ve done it".', checkShort: 'They no longer load' };
-        const what = `**What to do (only you can):** these skills come from your claude.ai account, so Chompyy can't turn them off here. In claude.ai settings, turn off the ones you don't use: ${synced.join(', ')}. Then press "I've done it".`;
-        out.push({ title: `Turn off ${synced.length} synced skills you never use`, idea: `On claude.ai: ${synced.slice(0, 6).join(', ')}${synced.length > 6 ? ', …' : ''}`, cwd: home, plan: plan({ ...f, say: `${synced.length} skills synced from your claude.ai account had no use in ${r.scanned.sessions} sessions.` }, a, what), advice: a });
+        const a: Advice = { key: 'S3:synced', rule: 'S3', lane: 'manual', basis: 'estimated', baseline: { names: synced }, check: 'It worked if these no longer load.', saw: `${synced.length} skills synced from claude.ai, never used`, doing: 'Turn them off in claude.ai settings, then press "I\'ve done it"', checkShort: 'They no longer load' };
+        const what = `**Do (only you can, in claude.ai settings):** turn off the ones you don't use: ${synced.join(', ')}. Then press "I've done it".`;
+        out.push({ title: `Turn off ${synced.length} unused synced skills`, idea: `In claude.ai settings: ${synced.slice(0, 5).join(', ')}${synced.length > 5 ? ', …' : ''}`, cwd: home, plan: plan({ ...f, say: `${synced.length} skills synced from claude.ai, unused in ${r.scanned.sessions} sessions.` }, a, what), advice: a });
       }
       const yours = f.targets?.yours ?? [];
       if (yours.length) {
-        const a: Advice = { key: 'S3:yours', rule: 'S3', lane: 'manual', basis: 'estimated', baseline: { names: yours.map((y) => y.name) }, check: "detect counts installed skills: it worked if these no longer appear, and you don't miss them." };
-        const what = `**What to do:** move these out of \`~/.claude/skills\` (a folder outside it, not \`_archived\` inside, which still loads): ${yours.map((y) => y.name).join(', ')}.`;
-        out.push({ title: `Archive ${yours.length} of your own skills you never use`, idea: yours.map((y) => y.name).join(', '), cwd: home, plan: plan(f, a, what), advice: a });
+        const a: Advice = { key: 'S3:yours', rule: 'S3', lane: 'manual', basis: 'estimated', baseline: { names: yours.map((y) => y.name) }, check: 'It worked if these no longer load.', saw: `${yours.length} of your own skills, never used`, doing: 'Move them out of ~/.claude/skills', checkShort: 'They no longer load' };
+        const what = `**Do:** move these out of \`~/.claude/skills\` (\`_archived\` inside still loads): ${yours.map((y) => y.name).join(', ')}.`;
+        out.push({ title: `Archive ${yours.length} unused skills of yours`, idea: yours.slice(0, 5).map((y) => y.name).join(', ') + (yours.length > 5 ? ', …' : ''), cwd: home, plan: plan(f, a, what), advice: a });
       }
     } else if (f.rule === 'S2') {
       const file = f.say.match(/^(\S+CLAUDE\.md)/)?.[1]?.replace(/^~/, home) ?? '';
@@ -193,12 +191,12 @@ export function adviceFrom(r: DetectResult, opts: { nudgeOn?: boolean; settings?
         const text = readFileSync(file, 'utf8');
         size = { lines: text.split('\n').length, tokens: Math.ceil(text.length / 4) };
       } catch {}
-      const a: Advice = { key: `S2:${file}`, rule: 'S2', lane: repo ? 'work' : 'manual', basis: f.basis, ...(f.tokens ? { tokens: f.tokens } : {}), ...(size ? { baseline: size } : {}), check: 'detect re-measures the file: it worked if it is under 200 lines and ~2k tokens, with no rule lost (each moved one says where it went).' };
-      if (repo) out.push({ title: `Tier ${tilde(file)}`, idea: `${f.fix} File: ${file}.`, cwd: repo, plan: null, advice: a });
-      else out.push({ title: `Tier ${tilde(file)}`, idea: f.fix, cwd: home, plan: plan(f, a, `**What to do:** ${f.fix}`), advice: a });
+      const a: Advice = { key: `S2:${file}`, rule: 'S2', lane: repo ? 'work' : 'manual', basis: f.basis, ...(f.tokens ? { tokens: f.tokens } : {}), ...(size ? { baseline: size } : {}), check: 'It worked if it is under 200 lines and ~2k tokens, with no rule lost.', saw: `${size ? `${size.lines} lines (~${k(size.tokens!)} tokens)` : 'A long file'}, loaded every session there`, doing: 'Keep rules and key paths; move workflows into skills', checkShort: 'Under 200 lines and ~2k tokens' };
+      if (repo) out.push({ title: `Shorten ${tilde(file)}`, idea: `${f.fix} File: ${file}.`, cwd: repo, plan: null, advice: a });
+      else out.push({ title: `Shorten ${tilde(file)}`, idea: f.fix, cwd: home, plan: plan(f, a, `**Do:** ${f.fix}`), advice: a });
     } else if (f.rule === 'S4' || f.rule === 'S5') {
-      const a: Advice = { key: `${f.rule}:${f.say.slice(0, 80)}`, rule: f.rule, lane: 'manual', basis: f.basis, check: 'detect runs the same rule again: it worked if the finding is gone.' };
-      out.push({ title: f.title, idea: f.fix, cwd: home, plan: plan(f, a, `**What to do:** ${f.fix}`), advice: a });
+      const a: Advice = { key: `${f.rule}:${f.say.slice(0, 80)}`, rule: f.rule, lane: 'manual', basis: f.basis, check: 'It worked if detect no longer finds it.', saw: f.say.split(':')[0]!, doing: f.fix.replace(/\.$/, ''), checkShort: 'detect no longer finds it' };
+      out.push({ title: f.title, idea: f.fix, cwd: home, plan: plan(f, a, `**Do:** ${f.fix}`), advice: a });
     }
   }
   return out;
@@ -267,13 +265,13 @@ export function approveAdvice(c: Card, now: Date): string {
   if (a.lane === 'settings') {
     c.column = 'approved';
     a.state = 'waiting';
-    a.note = 'Waiting until no Claude Code session has been active for 10 minutes.';
-    return `✅ #${c.id} approved: Chompyy applies it once no Claude Code session has been active for 10 minutes.`;
+    a.note = 'Applies once no Claude Code session has run for 10 minutes.';
+    return `✅ #${c.id} approved. Applies once no Claude Code session has run for 10 minutes.`;
   }
   c.column = 'done';
   a.since = at;
   a.state = a.lane === 'habit' ? 'trying' : 'done';
-  return a.lane === 'habit' ? `✅ #${c.id}: trying it from today. ${a.check}` : `✅ #${c.id}: marked as done by you. ${a.check}`;
+  return a.lane === 'habit' ? `✅ #${c.id}: trying it from today. ${a.check}` : `✅ #${c.id} done. ${a.check}`;
 }
 
 /** When a Claude Code session last wrote its transcript (ms), so settings never change under an open conversation. */
@@ -352,7 +350,7 @@ export function applyDue(board: BoardData, now: Date, lastActivity = lastSession
   const idle = now.getTime() - lastActivity;
   if (idle < IDLE_BEFORE_APPLY_MS) {
     const mins = Math.ceil((IDLE_BEFORE_APPLY_MS - idle) / 60_000);
-    for (const c of due) c.advice!.note = `Waiting: a Claude Code session was active ${Math.floor(idle / 60_000)} min ago. Tries again in about ${mins} min.`;
+    for (const c of due) c.advice!.note = `Waiting: a session ran ${Math.floor(idle / 60_000)} min ago. Retries in ~${mins} min.`;
     return due.map((c) => `#${c.id} waits: a Claude Code session is active.`);
   }
   return due.map((c) => {
@@ -372,7 +370,7 @@ export function applyDue(board: BoardData, now: Date, lastActivity = lastSession
       }
       a.state = 'applied';
       a.since = now.toISOString();
-      a.note = 'Applied. New Claude Code sessions pick it up.';
+      a.note = 'Applied. New sessions pick it up.';
       c.column = 'done';
       return `#${c.id} applied: ${c.title}`;
     } catch (e) {
@@ -400,14 +398,14 @@ export function undoAdvice(c: Card, now: Date): string {
       a.backups.push(kept);
     }
     a.state = 'undone';
-    a.note = 'Put back. New Claude Code sessions pick it up.';
-    return `↩️  #${c.id} undone: the old settings are back.`;
+    a.note = 'Put back. New sessions pick it up.';
+    return `↩️  #${c.id} undone: old settings back.`;
   }
   if (a.lane === 'settings' && a.state === 'waiting') {
     a.state = 'undone';
     a.note = 'Cancelled before it was applied.';
     c.column = 'done';
-    return `↩️  #${c.id} cancelled: nothing was changed.`;
+    return `↩️  #${c.id} cancelled: nothing changed.`;
   }
   a.state = 'undone';
   a.note = 'You stopped this one.';
@@ -416,10 +414,9 @@ export function undoAdvice(c: Card, now: Date): string {
 
 export function adviseText(res: { added: Card[]; updated: Card[]; skipped: number }): string {
   const lines: string[] = [];
-  if (res.added.length) lines.push(`Added ${res.added.length} advice card${res.added.length === 1 ? '' : 's'} to suggested:`, ...res.added.map((c) => `  #${c.id} ${c.title}  [${c.advice!.lane}]`));
-  if (res.updated.length) lines.push(`Updated the evidence on ${res.updated.length} still in suggested.`);
-  if (res.skipped) lines.push(`${res.skipped} finding${res.skipped === 1 ? '' : 's'} you already dealt with (approved, done or dropped) left alone.`);
-  if (!lines.length) lines.push('Nothing new: detect found nothing worth a card.');
-  lines.push('Approve or drop them on the board, or with `chompyy approve <id>` / `chompyy drop <id>`.');
+  if (!res.added.length && !res.updated.length) return `Nothing new to suggest${res.skipped ? ` (${res.skipped} you already dealt with)` : ''}.`;
+  lines.push('Approve or drop on the board, or: chompyy approve <id> / chompyy drop <id>', '');
+  if (res.added.length) lines.push(`${res.added.length} new:`, ...res.added.slice(0, 5).map((c) => `  #${c.id} ${c.title}`), ...(res.added.length > 5 ? [`  …and ${res.added.length - 5} more on the board`] : []));
+  if (res.updated.length) lines.push(`${res.updated.length} updated with fresh numbers.`);
   return lines.join('\n');
 }

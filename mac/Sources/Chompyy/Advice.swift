@@ -70,7 +70,7 @@ struct AdviceResultView: View {
         let (label, symbol, tint) = look
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Label("Did it work? \(label)", systemImage: symbol).font(.callout.weight(.semibold)).foregroundStyle(tint)
+                Label(label, systemImage: symbol).font(.callout.weight(.semibold)).foregroundStyle(tint)
                 Spacer()
                 Text(result.method == "recount" ? "Re-counted" : "Before vs after").font(.caption).foregroundStyle(.secondary)
                     .help(result.method == "recount" ? "The thing that changed, counted again: the strongest check." : "Weeks compared: can't separate the fix from anything else that changed.")
