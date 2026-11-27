@@ -148,7 +148,7 @@ export interface Card {
   /** Options offered for "what would have made it a 5?", written for this card. */
   fiveStarOptions?: string[];
   /** Where a suggested card came from ("history" = the cold start, "detect" = an Advice card). */
-  source?: 'history' | 'detect';
+  source?: 'history' | 'detect' | 'suggest';
   /** An Advice card: the finding's lane, the change it makes and how it's checked (advice.ts). */
   advice?: Advice;
   /** Why it was suggested, in one sentence. */

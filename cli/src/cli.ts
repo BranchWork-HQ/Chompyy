@@ -44,6 +44,7 @@ import { homedir } from 'node:os';
 import { clashOf, refreshCard, refreshGate, refreshClashing, withRefreshLock, type RefreshDeps } from './refresh.js';
 import { adviseText, applyDue, approveAdvice, runAdvise, undoAdvice } from './advice.js';
 import { checkWorked, nudgeProof, nudgeProofText, shareText, workedText } from './didwork.js';
+import { addSuggested, suggestTasks, suggestText } from './suggest.js';
 import { coldWarningText, hookCommand, impact, loadNudges, nudgeInstalled, nudgeText, outcomes, runHook, setNudge, setProjectMode, takeGoingCold } from './nudge.js';
 import { formatLive, keepAffectsLive, liveOff, liveSet, liveUpdateLocked, loadLive, startLiveUpdate } from './live.js';
 import { agentInstalled, awayRunning, bedtimeKey, decideTrigger, installAgent, loadTriggerState, markFired, noteTick, parseClock, takeAwayLock, uninstallAgent } from './triggers.js';
@@ -61,6 +62,8 @@ Quota
   chompyy advise apply          apply approved settings advice now, if no session has been active for 10 minutes
   chompyy worked [--json]       did it work? measure each approved advice card against the check on its card
   chompyy worked --share        the same as a summary to paste (no project, skill or file names)
+  chompyy suggest [repo] [--force]   a few tasks for a repo from its docs, issues and TODOs, as suggested cards
+                                (one model call; waits for an active 5-hour window unless --force)
   chompyy nudge on|off          live suggestions while you work: stops the first message to a big conversation
                                 whose cache expired, with the price and the cheaper ways (Claude Code hook)
   chompyy nudge strict|quiet|learn [dir]   in this project: always stop me, only a heads-up, or learn (default:
@@ -1103,6 +1106,19 @@ async function main(argv: string[]): Promise<void> {
       if (values.json) return json({ cards: cards.map((c) => ({ id: c.id, title: c.title, rule: c.advice!.rule, lane: c.advice!.lane, ...c.advice!.result })), nudge: proof });
       if (!cards.length && proof) return console.log(nudgeProofText(proof).join('\n'));
       return console.log([workedText(cards), ...(proof ? ['', ...nudgeProofText(proof)] : [])].join('\n'));
+    }
+    case 'suggest': {
+      // A few tasks for a repo, from what it wants to become and what its code shows: suggested cards to approve.
+      const repo = gitRoot(resolve(args[0] ?? process.cwd()));
+      if (!repo) throw new Error(`${args[0] ?? 'This folder'} isn't in a git repo. chompyy suggest <repo folder>`);
+      const config = loadConfig();
+      if (!claudeAvailable(config.claudeBin)) throw new Error('Suggesting tasks needs the claude command (Claude Code in Terminal). See TRY.md.');
+      if (!values.force && !windowActive(now)) throw new Error('No active 5-hour window: suggesting now would start one. Try again while you use Claude Code, or add --force.');
+      const existing = loadBoard().cards.map((c) => c.title);
+      const { tasks, dropped } = await suggestTasks(repo, new ClaudeRunner(config.claudeBin), { model: config.suggestModel, cwd: chompyyHome(), existing });
+      const cards = updateBoard((b) => addSuggested(b, repo, tasks, now));
+      if (values.json) return json({ repo, added: cards.map((c) => ({ id: c.id, title: c.title, why: c.why })), dropped });
+      return console.log(suggestText(repo, cards, dropped));
     }
     case 'hook': {
       // Claude Code's UserPromptSubmit hook. Must never fail loudly or stop a prompt by accident.

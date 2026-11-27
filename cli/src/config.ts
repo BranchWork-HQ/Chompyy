@@ -8,6 +8,8 @@ export interface Config {
   blueprintModel: string;
   /** Model that reads your history once for the cold start. */
   coldStartModel: string;
+  /** `chompyy suggest`: tasks from a repo's docs, issues and code. */
+  suggestModel: string;
   /** Draw a picture (diagram) for every card after its blueprint. */
   pictures: boolean;
   /** Model that draws card pictures with the diagram-design skill. */
@@ -91,6 +93,7 @@ export const DEFAULT_CONFIG: Config = {
   claudeBin: 'claude',
   blueprintModel: 'haiku',
   coldStartModel: 'sonnet',
+  suggestModel: 'sonnet',
   pictures: true,
   pictureModel: 'sonnet',
   runModel: null,

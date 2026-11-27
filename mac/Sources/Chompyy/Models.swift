@@ -75,6 +75,19 @@ struct Quota: Decodable {
     let askKeychain: Bool?
     let fiveHour: WindowView
     let sevenDay: WindowView
+    let pacing: PacingView?
+
+    struct PacingView: Decodable {
+        /// Will the week reset unused? (`weekForecast` in pacing.ts)
+        let week: WeekForecast?
+    }
+    struct WeekForecast: Decodable {
+        let unusedPct: Double
+        let spareWindows: Double?
+        let resetsAt: Double
+        let line: String
+        let short: String
+    }
 
     var capturedDate: Date? {
         guard let capturedAt else { return nil }
@@ -273,6 +286,7 @@ struct Project: Decodable, Hashable {
     let path: String
     let name: String
     let lastUsed: String
+    let isGit: Bool?
 }
 
 enum Column: String, CaseIterable, Identifiable {

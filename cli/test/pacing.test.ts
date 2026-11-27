@@ -3,6 +3,8 @@ import { DEFAULT_CONFIG } from '../src/config.js';
 import { budgetGate } from '../src/gate.js';
 import { snapshotFromProvider } from '../src/livequota.js';
 import {
+  weekForecast,
+  windowShareOfWeek,
   dailyAllowance, dayBounds, forecastWindow, formatAllowance, formatDelta, formatForecast, formatForecastShort, loadSamples, paceDelta, pacing, recordSample,
   FIVE_HOURS, WEEK, type Sample,
 } from '../src/pacing.js';
@@ -149,5 +151,40 @@ describe('per-model weekly limits', () => {
       details: [{ label: '5-hour', percent: 0.2, resetsAt }, { label: 'Weekly', percent: 0.3, resetsAt }, { label: 'Weekly · Opus', percent: 0.455, resetsAt }],
     } as never, NOW)!;
     expect(snapshot.models).toEqual({ Opus: { usedPct: 45.5, resetsAt: Math.floor(Date.parse(resetsAt) / 1000) } });
+  });
+});
+
+describe('the week: will it reset unused?', () => {
+  const H = 3600_000;
+  const at = Date.parse('2026-11-27T12:00:00Z');
+  const resets = (at + 42 * H) / 1000; // 1d18h left
+  const snap = (week: number) => ({ capturedAt: new Date(at).toISOString(), fiveHour: { usedPct: 30, resetsAt: (at + 3 * H) / 1000 }, sevenDay: { usedPct: week, resetsAt: resets } }) as never;
+  // Readings in one 5-hour window: the 5h bar moved 60 points while the week moved 7 → one window ≈ 11.7% of the week.
+  const samples = [0, 20, 40, 60].map((f, i) => ({ at: at - (3 - i) * H, five: { usedPct: f, resetsAt: (at + 3 * H) / 1000 }, week: { usedPct: 19 + (7 * f) / 60, resetsAt: resets } }));
+
+  it('learns what a full 5-hour window is worth on your plan, and says how many windows will go unused', () => {
+    expect(windowShareOfWeek(samples)).toBeCloseTo(11.67, 1);
+    const f = weekForecast(snap(26), samples, new Date(at))!;
+    expect(Math.round(f.unusedPct)).toBe(65);
+    expect(Math.floor(f.spareWindows!)).toBe(5);
+    const when = `${new Date(resets * 1000).toLocaleDateString('en-US', { weekday: 'short' })} ${new Date(resets * 1000).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`;
+    expect(f.line).toBe(`Week 26% used. At your pace ~65% resets unused on ${when}: about 5 full 5-hour windows.`);
+    expect(f.short).toBe(`At your pace ~65% resets unused on ${when}: about 5 full 5-hour windows.`);
+  });
+
+  it("says when even running every window flat out can't use the week", () => {
+    const late = { ...(snap(10) as object), sevenDay: { usedPct: 10, resetsAt: (at + 10 * H) / 1000 } } as never;
+    const f = weekForecast(late, samples.map((s) => ({ ...s, week: { ...s.week, resetsAt: (at + 10 * H) / 1000 } })), new Date(at))!;
+    expect(Math.round(f.maxReachablePct!)).toBe(33);
+    expect(f.line).toContain("Even running every window flat out, you'd reach ~33%.");
+  });
+
+  it('says when the week runs out first, and stays quiet early in the week or without readings', () => {
+    const hot = weekForecast(snap(90), samples, new Date(at))!;
+    expect(hot.runsOutAt).toBeDefined();
+    expect(hot.line).toContain('At your pace it runs out');
+    const early = { ...(snap(2) as object), sevenDay: { usedPct: 2, resetsAt: (at + 160 * H) / 1000 } } as never;
+    expect(weekForecast(early, [], new Date(at))).toBeNull();
+    expect(windowShareOfWeek([])).toBeNull();
   });
 });

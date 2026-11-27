@@ -146,6 +146,78 @@ export function formatForecast(f: Forecast): string {
   }
 }
 
+// ---------- the week: will it reset unused? ----------
+//
+// The 5-hour forecast says whether this window runs out. The question it can't answer: even running every
+// window, does the week get used? One full 5-hour window is a share of the week that depends on your plan; it's
+// read from your own readings (how far the week moved while a window moved), never assumed.
+
+/** One full 5-hour window as % of the week, from readings in the same windows. Null until half a window of data. */
+export function windowShareOfWeek(samples: Sample[]): number | null {
+  let five = 0;
+  let week = 0;
+  for (let i = 1; i < samples.length; i++) {
+    const a = samples[i - 1]!;
+    const b = samples[i]!;
+    if (!a.five || !b.five || !a.week || !b.week) continue;
+    if (a.five.resetsAt !== b.five.resetsAt || a.week.resetsAt !== b.week.resetsAt) continue;
+    const df = b.five.usedPct - a.five.usedPct;
+    const dw = b.week.usedPct - a.week.usedPct;
+    if (df <= 0 || dw < 0) continue;
+    five += df;
+    week += dw;
+  }
+  return five >= 50 ? (100 * week) / five : null;
+}
+
+export interface WeekForecast {
+  usedPct: number;
+  resetsAt: number;
+  /** At your average pace this week: the % that resets unused (0 when it runs out first). */
+  unusedPct: number;
+  /** When it runs out, if your pace gets there before the reset. */
+  runsOutAt?: number;
+  /** One full 5-hour window, as % of the week (your plan, from your readings). */
+  windowPct: number | null;
+  /** The spare, in full 5-hour windows. */
+  spareWindows: number | null;
+  /** Running every window left flat out: the most of the week you could still use. Under 100 = some is lost anyway. */
+  maxReachablePct: number | null;
+  line: string;
+  /** The line without "Week N% used, resets …": for places that already show those. */
+  short: string;
+}
+
+const dayClock = (ms: number) => `${new Date(ms).toLocaleDateString('en-US', { weekday: 'short' })} ${clock(ms)}`;
+
+export function weekForecast(snap: Snapshot | null, samples: Sample[], now: Date): WeekForecast | null {
+  const v = windowView(snap?.sevenDay, now);
+  if (!v.known) return null;
+  const elapsed = WEEK - v.msLeft;
+  // Too early in the week for an average to mean anything.
+  if (elapsed < 12 * 3600_000) return null;
+  const rate = v.usedPct / elapsed;
+  const projected = v.usedPct + rate * v.msLeft;
+  const windowPct = windowShareOfWeek(samples);
+  const unusedPct = Math.max(0, 100 - projected);
+  const spareWindows = windowPct ? unusedPct / windowPct : null;
+  const maxReachablePct = windowPct ? Math.min(100, v.usedPct + (v.msLeft / FIVE_HOURS) * windowPct) : null;
+  const resets = v.resetsAt * 1000;
+  const head = `Week ${Math.round(v.usedPct)}% used.`;
+  let line: string;
+  let runsOutAt: number | undefined;
+  if (projected >= 100 && rate > 0) {
+    runsOutAt = now.getTime() + (100 - v.usedPct) / rate;
+    line = `${head} At your pace it runs out ~${dayClock(runsOutAt)}, before the reset ${dayClock(resets)}.`;
+  } else {
+    const spare = spareWindows !== null && spareWindows >= 1 ? `: about ${Math.floor(spareWindows)} full 5-hour window${Math.floor(spareWindows) === 1 ? '' : 's'}` : '';
+    line = `${head} At your pace ~${Math.round(unusedPct)}% resets unused on ${dayClock(resets)}${spare}.`;
+    if (maxReachablePct !== null && maxReachablePct < 99) line += ` Even running every window flat out, you'd reach ~${Math.round(maxReachablePct)}%.`;
+  }
+  const short = line.slice(head.length + 1);
+  return { usedPct: v.usedPct, resetsAt: v.resetsAt, unusedPct, ...(runsOutAt ? { runsOutAt } : {}), windowPct, spareWindows, maxReachablePct, line, short };
+}
+
 // ---------- rolling daily allowance ----------
 
 /** The day you're in: from your last bedtime (or midnight) to the next. */
@@ -226,6 +298,8 @@ export interface Pacing {
   fiveHourDelta: number | null;
   weekDelta: number | null;
   fiveHourForecast: Forecast;
+  /** Will the week reset unused? */
+  week: WeekForecast | null;
   today: DailyAllowance | null;
   /** Per-model weekly windows (Opus, Sonnet, …) from the usage endpoint. */
   models: Record<string, { usedPct: number; delta: number | null; resetsAt: number }>;
@@ -241,6 +315,7 @@ export function pacing(snap: Snapshot | null, samples: Sample[], now: Date, bedt
     fiveHourDelta: paceDelta(snap?.fiveHour, FIVE_HOURS, now),
     weekDelta: paceDelta(snap?.sevenDay, WEEK, now),
     fiveHourForecast: forecastWindow(snap?.fiveHour, FIVE_HOURS, samples, (s) => s.five, now),
+    week: weekForecast(snap, samples, now),
     today: dailyAllowance(snap?.sevenDay, samples, now, bedtime),
     models,
   };

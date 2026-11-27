@@ -11,6 +11,8 @@ final class Store: ObservableObject {
     @Published var busy: Set<String> = []
     @Published var awayProcess: Process?
     @Published var selectedCardID: String?
+    /// The sidebar's "Suggest tasks" popover, also opened from the menu panel's weekly forecast.
+    @Published var showSuggest = false
     /// Tokens and API value from the usage ledger; loaded when a usage view shows (and kept fresh for the menu bar).
     @Published var usage: UsageData?
     private var usageLoadedAt: Date?
@@ -104,6 +106,7 @@ final class Store: ObservableObject {
             let result = try await Task.detached { try CLI.run(args) }.value
             guard result.ok else { error = result.message; if forceQuota { show(result.message) }; return }
             state = try JSONDecoder().decode(AppState.self, from: Data(result.out.utf8))
+            notifySpareWeek()
             error = nil
             // Say what the button did; when the check failed, also say how old the numbers on screen are.
             if forceQuota, let r = state?.quotaRefresh {
@@ -154,6 +157,20 @@ final class Store: ObservableObject {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(r.out.trimmingCharacters(in: .whitespacesAndNewlines), forType: .string)
         show("Copied. Paste it on the tester issue (#24).")
+    }
+
+    /// Once a day at most, between 9:00 and 21:00: when 2+ full 5-hour windows of the week are forecast to go unused.
+    func notifySpareWeek() {
+        guard let w = state?.quota.pacing?.week, let spare = w.spareWindows, spare >= 2 else { return }
+        let now = Date()
+        let hour = Calendar.current.component(.hour, from: now)
+        guard (9..<21).contains(hour) else { return }
+        let today = now.formatted(.iso8601.year().month().day())
+        guard UserDefaults.standard.string(forKey: "spareWeekNotified") != today else { return }
+        UserDefaults.standard.set(today, forKey: "spareWeekNotified")
+        let reset = Date(timeIntervalSince1970: w.resetsAt)
+        Notifier.post(id: "week-\(today)", title: "~\(Int(w.unusedPct.rounded()))% of your week will reset unused",
+                      body: "About \(Int(spare)) full 5-hour windows spare before \(reset.formatted(.dateTime.weekday(.abbreviated).hour().minute())). Board → Suggest tasks.")
     }
 
     /// Live suggestions on or off (`chompyy nudge on|off`: a Claude Code hook), then the panel's line again.
