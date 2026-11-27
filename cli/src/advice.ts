@@ -111,19 +111,19 @@ export function adviceFrom(r: DetectResult, opts: { nudgeOn?: boolean; settings?
         basis: f.basis,
         ...(f.tokens ? { tokens: f.tokens } : {}),
         check: w
-          ? `Cold returns a week (\`chompyy nudge\`): ${w.count} (${k(w.tokens)} rebuilt) in the week before. It worked if, two weeks on, a week has a third fewer.`
-          : 'Cold returns a week (`chompyy nudge`), against the week before you started.',
+          ? `Cold returns a week: ${w.count} before you start. It worked if week two has ${Math.floor((w.count * 2) / 3)} or fewer.`
+          : 'Cold returns a week, against the week before you start.',
       };
-      const fix = f.fix + (opts.nudgeOn ? '' : ' Live suggestions remind you at the moment it matters: `chompyy nudge on`.');
-      a.saw = `${k(f.tokens ?? 0)} tokens rebuilt in 14 days by coming back after the cache expired`;
-      a.doing = 'Nothing to install: before a long break, /compact or leave a note and start fresh. Chompyy warns you before it goes cold.';
-      a.checkShort = w ? `A week with a third fewer than ${w.count} cold returns` : 'Fewer cold returns a week';
+      const fix = 'Before a long break: /compact, or leave a note and start fresh.' + (opts.nudgeOn ? '' : ' `chompyy nudge on` reminds you in time.');
+      a.saw = `${k(f.tokens ?? 0)} tokens rewritten in 14 days: you came back after the cache expired`;
+      a.doing = 'Before a break: /compact, or leave a note and start fresh';
+      a.checkShort = w ? `Week two: ${Math.floor((w.count * 2) / 3)} or fewer cold returns (was ${w.count})` : 'Fewer cold returns a week';
       const weeks = r.scanned.coldWeeks ?? [];
       if (weeks.length) {
         a.chart = {
           title: 'Tokens rebuilt by cold returns, per week',
           bars: weeks.map((x, i) => ({ label: i === weeks.length - 1 ? 'Last 7 days' : `Week of ${new Date(x.from).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`, value: x.tokens })),
-          note: `${weeks.map((x) => x.count).join(' · ')} cold returns a week. The goal: the next bars a third lower.`,
+          note: `Cold returns a week: ${weeks.map((x) => x.count).join(' · ')}. Goal: a third lower.`,
         };
       }
       out.push({ title: 'Stop paying for cold returns', idea: fix, cwd: home, plan: plan(f, a, `**What to do:** ${fix}`), advice: a });

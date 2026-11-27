@@ -87,7 +87,7 @@ export function checkC1(since: number, now: number, s: Scan): AdviceResult {
       verdict: 'too-early',
       before: before.length,
       after: so.length,
-      line: `So far ${plural(so.length, 'cold return')} in ${Math.floor(days)} day${Math.floor(days) === 1 ? '' : 's'} (about ${Math.round((so.length * 7) / days)} a week), against ${before.length} the week before you started. The verdict comes on ${day(due)}.`,
+      line: `${plural(so.length, 'cold return')} so far (was ${before.length} a week). Verdict ${day(due)}.`,
     };
   }
   const week = coldReturns(s, since + 7 * DAY).filter((x) => x.at < due);
@@ -108,8 +108,8 @@ export function checkC1(since: number, now: number, s: Scan): AdviceResult {
     before: before.length,
     after: week.length,
     saved,
-    line: `Cold returns a week: ${before.length} → ${week.length} (${saved >= 0 ? `${k(saved)} fewer tokens rebuilt` : `${k(-saved)} more tokens rebuilt`}): ${said}.`,
-    also: `You started ${nAfter} sessions that week and ${nBefore} the week before: a quieter week also means fewer cold returns, and before/after can't tell the two apart.`,
+    line: `${said[0]!.toUpperCase()}${said.slice(1)}: cold returns ${before.length} → ${week.length} a week (${saved >= 0 ? `${k(saved)} fewer` : `${k(-saved)} more`} tokens rewritten).`,
+    also: `Sessions: ${nBefore} → ${nAfter}. A quieter week also cuts cold returns.`,
   };
 }
 
@@ -133,9 +133,9 @@ export function checkC2(since: number, now: number, s: Scan): AdviceResult {
   const before = rebuilds(s, since - HABIT_DAYS * DAY, since);
   const after = rebuilds(s, since, Math.min(now, due));
   const base = { at: new Date(now).toISOString(), method: 'before-after' as const, per: 'two weeks', dueAt: new Date(due).toISOString(), before: before.count, after: after.count };
-  if (!before.count) return { ...base, verdict: 'cant-tell', line: `No mid-session rebuilds in the two weeks before you started, so there is nothing to improve${after.count ? `; ${plural(after.count, 'has', 'have')} happened since` : ''}.` };
+  if (!before.count) return { ...base, verdict: 'cant-tell', line: `Nothing to improve: no mid-session rebuilds before you started${after.count ? `, ${after.count} since` : ''}.` };
   if (now < due) {
-    return { ...base, verdict: 'too-early', line: `So far ${plural(after.count, 'mid-session rebuild')} since you started, against ${before.count} in the two weeks before. The verdict comes on ${day(due)}.` };
+    return { ...base, verdict: 'too-early', line: `${plural(after.count, 'mid-session rebuild')} so far (was ${before.count}). Verdict ${day(due)}.` };
   }
   const verdict = verdictOf(before.count, after.count, after.count === 0);
   const saved = before.tokens - after.tokens;
@@ -143,7 +143,7 @@ export function checkC2(since: number, now: number, s: Scan): AdviceResult {
     ...base,
     verdict,
     saved,
-    line: `Mid-session rebuilds in two weeks: ${before.count} → ${after.count} (${saved >= 0 ? `${k(saved)} fewer tokens re-cached` : `${k(-saved)} more tokens re-cached`}): ${verdict === 'worked' ? 'it worked' : verdict === 'worse' ? 'more than before' : 'not none, as the card asked'}.`,
+    line: `${verdict === 'worked' ? 'It worked' : verdict === 'worse' ? 'More than before' : 'Not zero yet'}: mid-session rebuilds ${before.count} → ${after.count} in two weeks (${saved >= 0 ? `${k(saved)} fewer` : `${k(-saved)} more`} tokens).`,
   };
 }
 
@@ -190,7 +190,7 @@ export function checkPlugin(a: Advice, since: number, now: number, s: Scan | nul
   const promised = a.baseline?.perStart ?? (bars?.length === 2 ? bars[0]!.value - bars[1]!.value : 0);
   const p = provenance(changes);
   if (p.state !== 'intact') {
-    return { at, verdict: 'cant-tell', method: 'recount', provenance: p.state, line: `Not claimed: ${p.what}, so the plugin loads again (turned back on with /plugin, or by hand). Approve the card again if you still want it off.` };
+    return { at, verdict: 'cant-tell', method: 'recount', provenance: p.state, line: `Not claimed: ${p.what}, so the plugin loads again.` };
   }
   const claudeDir = dirname(changes[0]!.file);
   const still = installedSkills(claudeDir).filter((x) => x.plugin === id).reduce((n, x) => n + x.descriptionTokens, 0);
@@ -206,8 +206,8 @@ export function checkPlugin(a: Advice, since: number, now: number, s: Scan | nul
     saved,
     per: 'session start',
     line: promised
-      ? `Re-counted: the plugin's skills added ~${k(promised)} tokens to every session start, now ~${k(still)}${worked ? ': it worked.' : '.'} The setting is still as Chompyy left it.`
-      : `Re-counted: its skills now add ~${k(still)} tokens to a session start. The card didn't record what they added before, so there's no verdict.`,
+      ? `${worked ? 'It worked' : 'Not yet'}: each session start ~${k(promised)} → ~${k(still)} tokens (re-counted).`
+      : `Its skills add ~${k(still)} tokens to a session start. No baseline, so no verdict.`,
   };
   // The weaker method, beside it: whole session starts before vs after (moves with which projects you worked in).
   if (s && now - since >= MIN_DAYS * DAY) {
@@ -215,7 +215,7 @@ export function checkPlugin(a: Advice, since: number, now: number, s: Scan | nul
     const n = startCost(s, since, now);
     if (b.n >= MIN_SESSIONS && n.n >= MIN_SESSIONS) {
       const d = b.median - n.median;
-      r.also = `Whole session starts, median before → after: ${(b.median / 1000).toFixed(1)}k → ${(n.median / 1000).toFixed(1)}k (${d >= 0 ? `${Math.round(d)} smaller` : `${Math.round(-d)} bigger`}, ${n.n} sessions since). That also moves with which projects you worked in, so it isn't added to the re-count.`;
+      r.also = `Whole session starts: ${(b.median / 1000).toFixed(1)}k → ${(n.median / 1000).toFixed(1)}k (${d >= 0 ? `${Math.round(d)} smaller` : `${Math.round(-d)} bigger`}; moves with your projects too).`;
     }
   }
   return r;
@@ -240,8 +240,8 @@ export function checkSkillsGone(a: Advice, now: number, claudeDir?: string, plan
     before: names.length,
     after: left.length,
     line: left.length
-      ? `Re-counted: ${gone} of the ${names.length} skills no longer load; ${plural(left.length, 'still does', 'still do')} (~${k(tokens)} tokens a session start): ${left.slice(0, 6).join(', ')}${left.length > 6 ? ', …' : ''}.${worked ? ' Enough to call it worked.' : ''}`
-      : `Re-counted: none of the ${names.length} skills load any more: it worked.`,
+      ? `${worked ? 'It worked' : 'Not yet'}: ${left.length} of ${names.length} still load (~${k(tokens)} tokens a session): ${left.slice(0, 5).join(', ')}${left.length > 5 ? ', …' : ''}.`
+      : `It worked: none of the ${names.length} skills load any more.`,
   };
 }
 
@@ -263,7 +263,7 @@ export function checkClaudeMd(a: Advice, now: number): AdviceResult {
     ...(before === undefined ? {} : { before, saved }),
     after: tokens,
     per: 'session start there',
-    line: `Re-counted: ${a.baseline?.lines ? `${a.baseline.lines} → ` : ''}${lines} lines, ${before === undefined ? '' : `~${k(before)} → `}~${k(tokens)} tokens${worked ? ': under 200 lines and 2k tokens, it worked.' : ': still over 200 lines or 2k tokens.'}`,
+    line: `${worked ? 'It worked' : 'Still too long'}: ${a.baseline?.lines ? `${a.baseline.lines} → ` : ''}${lines} lines, ${before === undefined ? '' : `~${k(before)} → `}~${k(tokens)} tokens.`,
   };
 }
 
@@ -325,25 +325,25 @@ const ICON: Record<Verdict, string> = { 'too-early': '⏳', worked: '✅', short
 
 /** One screen: each fix, its verdict, and the saving by method (never added across methods). */
 export function workedText(cards: Card[]): string {
-  if (!cards.length) return 'Nothing to measure yet: approve an advice card (chompyy advise), and Chompyy checks it against the numbers on the card.';
-  const lines = ['Did it work? Each fix against the check written on its card before it was applied.', ''];
+  if (!cards.length) return 'Nothing to measure yet. Approve an advice card: chompyy advise';
+  const lines: string[] = [];
   for (const c of cards) {
     const r = c.advice!.result;
     if (!r) continue;
     lines.push(`${ICON[r.verdict]} #${c.id} ${c.title}`, `   ${r.line}`);
     if (r.also) lines.push(`   ${r.also}`);
-    if (r.verdict === 'worse' && c.advice!.lane === 'settings') lines.push(`   It went the wrong way: chompyy undo ${c.id} puts it back.`);
+    if (r.verdict === 'worse' && c.advice!.lane === 'settings') lines.push(`   Put it back: chompyy undo ${c.id}`);
   }
   const recount = cards.map((c) => c.advice!.result).filter((r) => r?.method === 'recount' && r.per === 'session start' && r.saved !== undefined && r.verdict !== 'cant-tell');
   const weekly = cards.map((c) => c.advice!.result).filter((r) => r?.method === 'before-after' && r.per === 'week' && r.saved !== undefined);
   if (recount.length || weekly.length) lines.push('');
   if (recount.length) {
     const sum = recount.reduce((n, r) => n + r!.saved!, 0);
-    lines.push(`Re-counted (strongest): ${sum >= 0 ? `~${k(sum)} tokens off` : `~${k(-sum)} tokens added to`} every session start, from ${plural(recount.length, 'fix', 'fixes')}.`);
+    lines.push(`Re-counted: ${sum >= 0 ? `~${k(sum)} tokens off` : `~${k(-sum)} tokens added to`} every session start.`);
   }
   if (weekly.length) {
     const sum = weekly.reduce((n, r) => n + r!.saved!, 0);
-    lines.push(`Before/after (can't isolate the fix): ${sum >= 0 ? `${k(sum)} fewer` : `${k(-sum)} more`} tokens rebuilt a week. Not added to the re-count.`);
+    lines.push(`Before vs after: ${sum >= 0 ? `${k(sum)} fewer` : `${k(-sum)} more`} tokens rewritten a week (not added to the line above).`);
   }
   return lines.join('\n');
 }

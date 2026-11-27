@@ -25,22 +25,22 @@ describe('C1: cold returns, the week before vs the second week after', () => {
   it('is too early before two weeks, with the reading so far and the day the verdict comes', () => {
     const r = checkC1(SINCE, SINCE + 4 * DAY, scanOf([...before, cold(SINCE + DAY)]));
     expect(r.verdict).toBe('too-early');
-    expect(r.line).toBe('So far 1 cold return in 4 days (about 2 a week), against 6 the week before you started. The verdict comes on Dec 10.');
+    expect(r.line).toBe('1 cold return so far (was 6 a week). Verdict Dec 10.');
   });
 
   it('worked at a third fewer in week two, with the saving in tokens and the session counts beside it', () => {
     const after = days(SINCE + 7 * DAY, 4).map((d) => cold(d));
     const r = checkC1(SINCE, SINCE + 15 * DAY, scanOf([...before, ...after]));
     expect(r).toMatchObject({ verdict: 'worked', method: 'before-after', before: 6, after: 4, saved: 200_000 });
-    expect(r.line).toContain('6 → 4 (200k fewer tokens rebuilt): it worked');
-    expect(r.also).toContain("before/after can't tell the two apart");
+    expect(r.line).toBe('It worked: cold returns 6 → 4 a week (200k fewer tokens rewritten).');
+    expect(r.also).toContain('A quieter week also cuts cold returns');
   });
 
   it('a regression is shown as one, signed, never as zero', () => {
     const after = days(SINCE + 7 * DAY, 7).map((d) => cold(d, 150_000));
     const r = checkC1(SINCE, SINCE + 15 * DAY, scanOf([...before, ...after]));
     expect(r).toMatchObject({ verdict: 'worse', saved: -450_000 });
-    expect(r.line).toContain('450k more tokens rebuilt');
+    expect(r.line).toContain('450k more tokens rewritten');
   });
 
   it('says so when there is nothing to compare against', () => {
@@ -90,7 +90,7 @@ describe('S3: a plugin turned off is re-counted', () => {
     const dir = claudeDir(false);
     const r = checkPlugin(pluginAdvice(dir), SINCE, SINCE + DAY, null);
     expect(r).toMatchObject({ verdict: 'worked', method: 'recount', provenance: 'intact', before: 309, after: 0, saved: 309, per: 'session start' });
-    expect(r.line).toContain('it worked');
+    expect(r.line).toBe('It worked: each session start ~309 → ~0 tokens (re-counted).');
   });
 
   it('turned back on since: not claimed, whatever the count says', () => {
@@ -118,7 +118,7 @@ describe('re-counting what only you can do', () => {
     const a: Advice = { key: 'S3:synced', rule: 'S3', lane: 'manual', basis: 'estimated', check: '', baseline: { names: ['pdf', 'docx', 'xlsx', 'pptx'] } };
     const r = checkSkillsGone(a, SINCE, dir);
     expect(r).toMatchObject({ verdict: 'worked', before: 4, after: 1 });
-    expect(r.line).toContain('3 of the 4 skills no longer load; 1 still does');
+    expect(r.line).toContain('It worked: 1 of 4 still load');
   });
 
   it('older cards without a baseline: the names come from the card\'s own instructions', () => {
@@ -155,7 +155,7 @@ describe('the board', () => {
     expect(measured[0]!.advice!.result?.verdict).toBe('worked');
     const text = workedText(measured);
     expect(text).toContain('✅ #1 card 1');
-    expect(text).toContain('Re-counted (strongest): ~309 tokens off every session start, from 1 fix.');
+    expect(text).toContain('Re-counted: ~309 tokens off every session start.');
     undoAdvice(b.cards[0]!, new Date(SINCE + 2 * DAY));
     expect(b.cards[0]!.advice!.result).toBeUndefined();
   });
@@ -168,6 +168,6 @@ describe('the board', () => {
   });
 
   it('says what to do when nothing is measured yet', () => {
-    expect(workedText([])).toContain('approve an advice card');
+    expect(workedText([])).toContain('Approve an advice card');
   });
 });

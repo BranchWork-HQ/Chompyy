@@ -133,12 +133,8 @@ export function decide(input: HookInput, now: number, events = loadNudges()): { 
 
 export function reasonText(e: Pick<NudgeEvent, 'idleMs' | 'context' | 'fresh'>): string {
   return [
-    `🍪 Chompyy: this conversation sat for ${formatDuration(e.idleMs)}, so its cache has expired.`,
-    `Sending now writes all ${k(e.context)} tokens of it again${e.fresh ? ` (a new conversation starts at about ${k(e.fresh)})` : ''}.`,
-    'Cheaper:',
-    `  /clear, then a line or two on where you were${e.fresh ? `: about ${k(e.fresh)}` : ''}`,
-    '  /compact, then carry on: one more full read, then every message after it is small',
-    'Or send it again as it is: Chompyy stops a conversation only once per break.',
+    `🍪 /compact first: idle ${formatDuration(e.idleMs)}, the cache expired, so sending rewrites all ${k(e.context)} tokens.`,
+    `Or /clear and say where you were${e.fresh ? ` (~${k(e.fresh)})` : ''}. Or send again: Chompyy stops once per break.`,
   ].join('\n');
 }
 
@@ -237,8 +233,8 @@ export function takeGoingCold(now = Date.now()): GoingCold[] {
 export function coldWarningText(d: GoingCold): { title: string; body: string } {
   const at = new Date(d.coldAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
   return {
-    title: `${d.project}: ${k(d.context)} conversation goes cold at ${at}`,
-    body: `Coming back after that writes all ${k(d.context)} again. If you'll return to it, /compact now while it's cheap; if you're done with it, do nothing.`,
+    title: `${d.project}: /compact before ${at}`,
+    body: `After ${at} its cache expires and coming back rewrites all ${k(d.context)}. Done with it? Do nothing.`,
   };
 }
 
@@ -330,8 +326,8 @@ export function impact(on = nudgeInstalled(), now = Date.now(), root?: string, e
   const stops = outcomes(events);
   const warnings = warnOutcomes(events);
   const saved = [...stops, ...warnings].filter((o) => now - Date.parse(o.event.at) < WEEK).reduce((a, o) => a + o.saved, 0);
-  const trend = `Cold returns this week: ${thisWeek.count} (${k(thisWeek.tokens)} rebuilt), last week ${lastWeek.count} (${k(lastWeek.tokens)}).`;
-  const line = saved ? `Saved this week: ~${k(saved)} tokens not rebuilt. ${trend}` : trend;
+  const trend = `Cold returns: ${thisWeek.count} this week (${k(thisWeek.tokens)}), ${lastWeek.count} last week (${k(lastWeek.tokens)}).`;
+  const line = saved ? `~${k(saved)} tokens saved this week. ${trend}` : trend;
   return { on, thisWeek, lastWeek, stops, warnings, saved, line };
 }
 

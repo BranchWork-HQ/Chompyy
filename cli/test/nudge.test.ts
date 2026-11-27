@@ -30,9 +30,9 @@ describe('the cold-return nudge', () => {
     const d = decide({ session_id: 's1', transcript_path: big(), prompt: 'carry on' }, T0 + 75 * MIN, []);
     expect(d.block).toBe(true);
     if (!d.block) return;
-    expect(d.reason).toContain('sat for 1h15m');
+    expect(d.reason).toContain('idle 1h15m');
     expect(d.reason).toContain('180k tokens');
-    expect(d.reason).toContain('starts at about 22k');
+    expect(d.reason).toContain('(~22k)');
     expect(d.reason).toContain('/compact');
     expect(d.event.kind).toBe('stopped');
   });
@@ -121,8 +121,8 @@ describe('before it goes cold', () => {
     expect(due).toHaveLength(1);
     expect(due[0]).toMatchObject({ session: 'abc', project: 'app', context: 180_003, fresh: 22_003, coldAt: new Date(T0 + 60 * MIN).toISOString() });
     const text = coldWarningText(due[0]!);
-    expect(text.title).toMatch(/^app: 180k conversation goes cold at /);
-    expect(text.body).toContain('/compact now');
+    expect(text.title).toMatch(/^app: \/compact before /);
+    expect(text.body).toContain('rewrites all 180k');
   });
 
   it('stays quiet too early, too late, for small conversations and for automated folders', () => {
@@ -172,6 +172,6 @@ describe('what the warnings did, and the trend', () => {
     const i = impact(true, NOW, root, []);
     expect(i.thisWeek).toEqual({ count: 3, tokens: 300_000 });
     expect(i.lastWeek).toEqual({ count: 1, tokens: 100_000 });
-    expect(i.line).toBe('Cold returns this week: 3 (300k rebuilt), last week 1 (100k).');
+    expect(i.line).toBe('Cold returns: 3 this week (300k), 1 last week (100k).');
   });
 });

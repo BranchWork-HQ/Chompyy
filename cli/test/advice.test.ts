@@ -43,7 +43,7 @@ describe('advice cards from detect', () => {
       [`S3:plugin:${PLUGIN}`, 'settings'],
       ['S3:synced', 'manual'],
     ]);
-    expect(drafts[0]!.advice.check).toContain('16 (2.5M rebuilt) in the week before');
+    expect(drafts[0]!.advice.check).toContain('16 before you start. It worked if week two has 10 or fewer.');
     expect(drafts[0]!.idea).toContain('chompyy nudge on');
     const plugin = drafts[1]!;
     expect(plugin.title).toBe('Turn off the mattpocock-skills plugin (25 skills, never used)');
