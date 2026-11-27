@@ -6,7 +6,7 @@ import type { Advice } from '../src/advice.js';
 import { undoAdvice } from '../src/advice.js';
 import type { BoardData, Card } from '../src/board.js';
 import type { Scan, Session, Turn } from '../src/detect.js';
-import { checkC1, checkC2, checkClaudeMd, checkPlugin, checkSkillsGone, checkWorked, measurable, workedText } from '../src/didwork.js';
+import { checkC1, checkC2, checkClaudeMd, checkPlugin, checkSkillsGone, checkWorked, measurable, nudgeProof, nudgeProofText, workedText } from '../src/didwork.js';
 
 const DAY = 86_400_000;
 const HOUR = 3_600_000;
@@ -93,6 +93,13 @@ describe('S3: a plugin turned off is re-counted', () => {
     expect(r.line).toBe('It worked: each session start ~309 → ~0 tokens (re-counted).');
   });
 
+  it('older cards: the promise is read back from the check text', () => {
+    const dir = claudeDir(false);
+    const { baseline: _, ...old } = pluginAdvice(dir);
+    const r = checkPlugin({ ...old, check: 'A session start costs about 47k now. It worked if new sessions start about 965 tokens smaller.' }, SINCE, SINCE + DAY, null);
+    expect(r).toMatchObject({ verdict: 'worked', before: 965, after: 0 });
+  });
+
   it('turned back on since: not claimed, whatever the count says', () => {
     const dir = claudeDir(true);
     const r = checkPlugin(pluginAdvice(dir), SINCE, SINCE + DAY, null);
@@ -169,5 +176,23 @@ describe('the board', () => {
 
   it('says what to do when nothing is measured yet', () => {
     expect(workedText([])).toContain('Approve an advice card');
+  });
+});
+
+describe('live suggestions: did the nudge work?', () => {
+  it('counts what each stop saved or cost, and judges cold returns from the day it was turned on', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'chompyy-didwork-nudge-'));
+    // Stopped at 180k; you came back small (compacted): the next request wrote 20k.
+    const t = join(dir, 's.jsonl');
+    const r = (at: number, write: number) => JSON.stringify({ type: 'assistant', timestamp: new Date(at).toISOString(), message: { usage: { input_tokens: 3, cache_read_input_tokens: 0, cache_creation_input_tokens: write } } });
+    writeFileSync(t, [r(SINCE + DAY, 180_000), r(SINCE + DAY + 2 * HOUR, 20_000)].join('\n') + '\n');
+    const events = [{ at: new Date(SINCE + DAY + HOUR).toISOString(), kind: 'stopped' as const, session: 's', transcript: t, idleMs: HOUR, context: 180_000, cwd: '/w' }];
+    const before = days(SINCE + DAY - 7 * DAY, 6).map((d) => cold(d));
+    const p = nudgeProof(new Date(SINCE + 5 * DAY), { events, s: scanOf(before) })!;
+    expect(p.since).toBe(new Date(SINCE + DAY + HOUR).toISOString());
+    expect(p.counted).toMatchObject({ stops: 1, compacted: 1, sent: 0, saved: 160_000, measured: 160_000 });
+    expect(p.result.verdict).toBe('too-early');
+    const text = nudgeProofText(p).join('\n');
+    expect(text).toContain('Counted per stop: ~160k not rewritten (compacted 1, left 0). Sent anyway 0.');
   });
 });

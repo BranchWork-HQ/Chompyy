@@ -18,6 +18,64 @@ export const MIN_CONTEXT = 40_000;
 /** Warn this long into a pause: still time to /compact while the cache is warm (reads at a tenth of the price). */
 export const WARN_AFTER_MS = 45 * 60_000;
 const MARK = '# chompyy nudge';
+/** Sent anyway this many stops in a row in one project: stop stopping you there (a heads-up instead). */
+export const QUIET_AFTER = 3;
+
+// ---------- what Chompyy learned from you: per project ----------
+
+export interface NudgePrefs {
+  /** When live suggestions were turned on: the "before" for did-it-work. */
+  onAt?: string;
+  /** Projects you asked to always stop (overrides learning) or never stop. */
+  strict?: string[];
+  quiet?: string[];
+}
+
+const prefsPath = () => homePath('nudge-prefs.json');
+export function loadPrefs(): NudgePrefs {
+  try {
+    return JSON.parse(readFileSync(prefsPath(), 'utf8')) as NudgePrefs;
+  } catch {
+    return {};
+  }
+}
+export function savePrefs(p: NudgePrefs): void {
+  writeFileSync(prefsPath(), JSON.stringify(p, null, 2) + '\n');
+}
+
+/** `chompyy nudge strict|quiet|learn <dir>`: always stop here, never stop here, or go back to learning. */
+export function setProjectMode(mode: 'strict' | 'quiet' | 'learn', cwd: string): string {
+  const p = loadPrefs();
+  p.strict = (p.strict ?? []).filter((x) => x !== cwd);
+  p.quiet = (p.quiet ?? []).filter((x) => x !== cwd);
+  if (mode !== 'learn') p[mode] = [...p[mode]!, cwd];
+  savePrefs(p);
+  const name = basename(cwd);
+  return mode === 'strict' ? `${name}: Chompyy always stops a cold return here.` : mode === 'quiet' ? `${name}: a one-line heads-up only, never a stop.` : `${name}: back to learning from what you do.`;
+}
+
+/**
+ * Should Chompyy stop you in this project, or only give a heads-up? Your choice first; otherwise it learns: after
+ * QUIET_AFTER stops in a row here that you sent anyway, being stopped isn't helping you, so it stops stopping.
+ */
+export function learnedQuiet(cwd: string, events: NudgeEvent[], prefs = loadPrefs()): { quiet: boolean; why: 'you' | 'learned' | null; sentInARow: number } {
+  if (prefs.strict?.includes(cwd)) return { quiet: false, why: 'you', sentInARow: 0 };
+  if (prefs.quiet?.includes(cwd)) return { quiet: true, why: 'you', sentInARow: 0 };
+  const here = outcomes(events.filter((e) => e.cwd === cwd));
+  let n = 0;
+  for (const o of [...here].reverse()) {
+    if (o.did !== 'sent') break;
+    n++;
+  }
+  return { quiet: n >= QUIET_AFTER, why: n >= QUIET_AFTER ? 'learned' : null, sentInARow: n };
+}
+
+export function quietText(e: Pick<NudgeEvent, 'context' | 'cwd'>, first: boolean): string {
+  const name = basename(e.cwd ?? '');
+  return first
+    ? `🍪 You sent anyway the last ${QUIET_AFTER} times in ${name}, so Chompyy won't stop you here any more (${k(e.context)} rewritten now). To be stopped again: chompyy nudge strict`
+    : `🍪 Cold cache: this message rewrites ${k(e.context)} tokens.`;
+}
 
 export interface Reply {
   at: number;
@@ -28,7 +86,10 @@ export interface Reply {
 
 export interface NudgeEvent {
   at: string;
-  kind: 'stopped' | 'sent' | 'warned';
+  /** quiet: let through with a one-line heads-up, because you sent anyway the last times in this project. */
+  kind: 'stopped' | 'sent' | 'warned' | 'quiet';
+  /** The project folder, so Chompyy learns per project. */
+  cwd?: string;
   /** warned: when the cache goes cold. */
   coldAt?: string;
   project?: string;
@@ -104,7 +165,7 @@ export interface HookInput {
  * What to tell Claude Code about this prompt: a block with the reason, or nothing (let it through).
  * Never throws: any doubt lets the prompt through.
  */
-export function decide(input: HookInput, now: number, events = loadNudges()): { block: false } | { block: true; reason: string; event: NudgeEvent } | { block: false; event: NudgeEvent } {
+export function decide(input: HookInput, now: number, events = loadNudges(), prefs = loadPrefs()): { block: false } | { block: true; reason: string; event: NudgeEvent } | { block: false; event: NudgeEvent; notice?: string } {
   const prompt = (input.prompt ?? '').trimStart();
   const transcript = input.transcript_path;
   const session = input.session_id ?? '';
@@ -122,10 +183,20 @@ export function decide(input: HookInput, now: number, events = loadNudges()): { 
   const idleMs = now - last.at;
   if (idleMs <= COLD_AFTER_MS || last.context < MIN_CONTEXT) return { block: false };
   const fresh = first && first.context < last.context / 2 ? first.context : undefined;
-  const base = { session, transcript, idleMs, context: last.context, ...(fresh ? { fresh } : {}) };
+  let cwd = '';
+  try {
+    cwd = cwdOf(transcript);
+  } catch {}
+  const base = { session, transcript, idleMs, context: last.context, ...(fresh ? { fresh } : {}), ...(cwd ? { cwd } : {}) };
   // Already stopped once for this break: you chose to send it.
   if (events.some((e) => e.kind === 'stopped' && e.session === session && Date.parse(e.at) > last.at)) {
     return { block: false, event: { at: new Date(now).toISOString(), kind: 'sent', ...base } };
+  }
+  // Learned per project: if stopping you here never helped, a one-line heads-up instead.
+  if (cwd && learnedQuiet(cwd, events, prefs).quiet) {
+    const event: NudgeEvent = { at: new Date(now).toISOString(), kind: 'quiet', ...base };
+    const first = !events.some((e) => e.kind === 'quiet' && e.cwd === cwd);
+    return { block: false, event, notice: quietText(event, first) };
   }
   const event: NudgeEvent = { at: new Date(now).toISOString(), kind: 'stopped', ...base };
   return { block: true, reason: reasonText(event), event };
@@ -154,7 +225,8 @@ export function runHook(stdin: string, now = Date.now()): string {
       /* logging never stops a prompt */
     }
   }
-  return d.block ? JSON.stringify({ decision: 'block', reason: d.reason }) : '';
+  if (d.block) return JSON.stringify({ decision: 'block', reason: d.reason });
+  return 'notice' in d && d.notice ? JSON.stringify({ systemMessage: d.notice }) : '';
 }
 
 // ---------- before it goes cold: the menu bar app asks every minute ----------
@@ -345,6 +417,13 @@ export function nudgeText(on: boolean, list = outcomes(), now = Date.now()): str
     `Last 30 days: stopped ${recent.length} time${recent.length === 1 ? '' : 's'}. You compacted ${n('compacted')}, left or started fresh ${n('left')}, sent anyway ${n('sent')}.`,
     `${saved ? `About ${k(saved)} tokens not written again` : 'Nothing saved yet'}${rebuilt ? `; ${k(rebuilt)} rebuilt when you sent anyway` : ''}.`,
   );
+  const events = list.map((o) => o.event);
+  const prefs = loadPrefs();
+  for (const cwd of new Set(events.map((e) => e.cwd).filter((c): c is string => Boolean(c)))) {
+    const q = learnedQuiet(cwd, loadNudges(), prefs);
+    if (q.quiet) lines.push(`Heads-up only in ${basename(cwd)} (${q.why === 'you' ? 'you asked' : `you sent anyway ${QUIET_AFTER} times in a row`}). Stop me again: chompyy nudge strict ${cwd}`);
+  }
+  lines.push('Did it work? chompyy worked');
   return lines.join('\n');
 }
 
@@ -370,6 +449,18 @@ const groups = (s: Record<string, unknown>): HookGroup[] => {
   return Array.isArray(hooks.UserPromptSubmit) ? (hooks.UserPromptSubmit as HookGroup[]) : [];
 };
 const ours = (g: HookGroup) => (g.hooks ?? []).some((h) => h.command?.includes(MARK));
+
+const nudgeInstalledBefore = (raw: string | null) => Boolean(raw?.includes(MARK));
+
+/** When live suggestions were turned on: recorded since this version; before that, the settings backup `nudge on` made, else the first event. */
+export function nudgeOnSince(events = loadNudges(), path = settingsPath()): number | null {
+  const at = Date.parse(loadPrefs().onAt ?? '');
+  if (at) return at;
+  try {
+    return statSync(`${path}.chompyy-backup`).mtimeMs;
+  } catch {}
+  return events.length ? Date.parse(events[0]!.at) : null;
+}
 
 export function nudgeInstalled(path = settingsPath()): boolean {
   try {
@@ -399,6 +490,10 @@ export function setNudge(on: boolean, command?: string, path = settingsPath()): 
   if (raw !== null) writeFileSync(`${path}.chompyy-backup`, raw);
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, JSON.stringify(settings, null, 2) + '\n');
+  try {
+    const p = loadPrefs();
+    if (on && !nudgeInstalledBefore(raw)) savePrefs({ ...p, onAt: new Date().toISOString() });
+  } catch {}
   return on
     ? `On. Added a UserPromptSubmit hook to ${path.replace(homedir(), '~')} (the old file is saved next to it as .chompyy-backup). Conversations already open may need a restart to pick it up.`
     : `Off. Removed Chompyy's hook from ${path.replace(homedir(), '~')}; your other hooks are untouched.`;

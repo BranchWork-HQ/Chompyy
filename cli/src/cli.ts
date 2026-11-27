@@ -4,7 +4,7 @@ import { execFileSync, spawn } from 'node:child_process';
 import { backfillTokens, median } from './tokenstore.js';
 import { compact, formatTokens, totalTokens } from './tokens.js';
 import { closeSync, existsSync, openSync, readFileSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { away, cacheEnv, runCard, type AwayDeps } from './away.js';
 import { formatPreflight, loadProfile, preflight, saveProfile } from './preflight.js';
@@ -43,8 +43,8 @@ import { formatTrace, traceSession } from './trace.js';
 import { homedir } from 'node:os';
 import { clashOf, refreshCard, refreshGate, refreshClashing, withRefreshLock, type RefreshDeps } from './refresh.js';
 import { adviseText, applyDue, approveAdvice, runAdvise, undoAdvice } from './advice.js';
-import { checkWorked, workedText } from './didwork.js';
-import { coldWarningText, hookCommand, impact, nudgeInstalled, nudgeText, outcomes, runHook, setNudge, takeGoingCold } from './nudge.js';
+import { checkWorked, nudgeProof, nudgeProofText, workedText } from './didwork.js';
+import { coldWarningText, hookCommand, impact, loadNudges, nudgeInstalled, nudgeText, outcomes, runHook, setNudge, setProjectMode, takeGoingCold } from './nudge.js';
 import { formatLive, keepAffectsLive, liveOff, liveSet, liveUpdateLocked, loadLive, startLiveUpdate } from './live.js';
 import { agentInstalled, awayRunning, bedtimeKey, decideTrigger, installAgent, loadTriggerState, markFired, noteTick, parseClock, takeAwayLock, uninstallAgent } from './triggers.js';
 
@@ -62,6 +62,8 @@ Quota
   chompyy worked [--json]       did it work? measure each approved advice card against the check on its card
   chompyy nudge on|off          live suggestions while you work: stops the first message to a big conversation
                                 whose cache expired, with the price and the cheaper ways (Claude Code hook)
+  chompyy nudge strict|quiet|learn [dir]   in this project: always stop me, only a heads-up, or learn (default:
+                                after 3 stops in a row you sent anyway, a heads-up instead)
   chompyy nudge                 on or off, and what the stops saved
   chompyy nudge due [--json]    conversations 45-60 min into a pause, about to go cold (each reported once; the app notifies; only while nudge is on)
   chompyy premise [--json]      how often a 5-hour window reset with capacity left while the week still had room
@@ -1085,8 +1087,10 @@ async function main(argv: string[]): Promise<void> {
     case 'worked': {
       // The detective, step 5: each applied/tried advice card against the check it registered (didwork.ts).
       const cards = updateBoard((b) => checkWorked(b, now));
-      if (values.json) return json(cards.map((c) => ({ id: c.id, title: c.title, rule: c.advice!.rule, lane: c.advice!.lane, ...c.advice!.result })));
-      return console.log(workedText(cards));
+      const proof = nudgeInstalled() || loadNudges().length ? nudgeProof(now) : null;
+      if (values.json) return json({ cards: cards.map((c) => ({ id: c.id, title: c.title, rule: c.advice!.rule, lane: c.advice!.lane, ...c.advice!.result })), nudge: proof });
+      if (!cards.length && proof) return console.log(nudgeProofText(proof).join('\n'));
+      return console.log([workedText(cards), ...(proof ? ['', ...nudgeProofText(proof)] : [])].join('\n'));
     }
     case 'hook': {
       // Claude Code's UserPromptSubmit hook. Must never fail loudly or stop a prompt by accident.
@@ -1102,6 +1106,8 @@ async function main(argv: string[]): Promise<void> {
     case 'nudge': {
       const sub = args[0];
       if (sub === 'on' || sub === 'off') return console.log(setNudge(sub === 'on', sub === 'on' ? hookCommand() : undefined));
+      // Per project: always stop me here, never stop me (a heads-up only), or learn from what I do (the default).
+      if (sub === 'strict' || sub === 'quiet' || sub === 'learn') return console.log(setProjectMode(sub, resolve(args[1] ?? process.cwd())));
       if (sub === 'due') {
         // The app asks every minute; each conversation going cold is reported once.
         const due = (nudgeInstalled() ? takeGoingCold(now.getTime()) : []).map((d) => ({ ...d, ...coldWarningText(d) }));
