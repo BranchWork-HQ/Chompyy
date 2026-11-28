@@ -2,7 +2,7 @@
 // message: if no window is active, the first message would start a new 5-hour window.
 import { formatDuration } from './duration.js';
 import { homePath, readJson, writeJson } from './home.js';
-import { FIVE_HOURS, WEEK, dailyAllowance, forecastWindow, formatAllowance, formatDelta, formatForecast, formatForecastShort, paceDelta, recordSample, type Sample } from './pacing.js';
+import { FIVE_HOURS, WEEK, dailyAllowance, forecastWindow, formatAllowance, formatDelta, formatForecast, formatForecastShort, paceDelta, recordSample, weekForecast, type Sample } from './pacing.js';
 
 export interface QuotaWindow {
   usedPct: number;
@@ -142,6 +142,8 @@ export function statusText(snap: Snapshot | null, now: Date, opts: { samples?: S
   if (d5 || d7) lines.push(`pace       ${[d5 && `5h ${d5}`, d7 && `7d ${d7}`].filter(Boolean).join(' · ')}  (⇣ headroom, ⇡ faster than an even pace)`);
   if (five.known) lines.push(`forecast   ${formatForecast(forecastWindow(snap.fiveHour, FIVE_HOURS, opts.samples ?? [], (s) => s.five, now))}`);
   if (week.known) lines.push(formatAllowance(dailyAllowance(snap.sevenDay, opts.samples ?? [], now, opts.bedtime ?? null)));
+  const wf = weekForecast(snap, opts.samples ?? [], now);
+  if (wf) lines.push(`week       ${wf.short}${wf.spareWindows !== null && wf.spareWindows >= 2 ? ' Fill it: chompyy suggest <repo>' : ''}`);
   const age = now.getTime() - Date.parse(snap.capturedAt);
   const stale = !five.known;
   lines.push(`snapshot   taken ${formatDuration(age)} ago${stale ? ' · STALE' : ''}`);

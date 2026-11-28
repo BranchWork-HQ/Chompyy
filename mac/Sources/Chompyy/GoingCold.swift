@@ -25,15 +25,17 @@ extension ISO8601DateFormatter {
 
 /// macOS notifications for live suggestions. Asks once; if you say no, the menu panel still shows them.
 enum Notifier {
-    static func post(_ c: GoingCold) {
+    static func post(_ c: GoingCold) { post(id: "cold-\(c.id)", title: c.title, body: c.body) }
+
+    static func post(id: String, title: String, body: String) {
         let center = UNUserNotificationCenter.current()
         center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
             guard granted else { return }
             let content = UNMutableNotificationContent()
-            content.title = c.title
-            content.body = c.body
+            content.title = title
+            content.body = body
             content.sound = .default
-            center.add(UNNotificationRequest(identifier: "cold-\(c.id)", content: content, trigger: nil))
+            center.add(UNNotificationRequest(identifier: id, content: content, trigger: nil))
         }
     }
 }

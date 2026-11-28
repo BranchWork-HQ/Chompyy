@@ -171,6 +171,18 @@ struct MenuPanel: View {
             if let week = store.state?.quota.sevenDay, week.known, let used = week.usedPct, let ms = week.msLeft {
                 WeekPace(usedPct: used, elapsedPct: max(0, min(100, (1 - ms / (7 * 24 * 3600 * 1000)) * 100)))
             }
+            if let wf = store.state?.quota.pacing?.week {
+                // Will the week reset unused? The 5-hour window can't say; this does, from your own readings.
+                Text(wf.short).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                if (wf.spareWindows ?? 0) >= 2 {
+                    Button {
+                        store.showSuggest = true
+                        openBoard()
+                    } label: { Label("Suggest tasks to fill it", systemImage: "sparkles") }
+                        .buttonStyle(.link).font(.caption)
+                        .help("Chompyy reads a repo's docs, issues and TODOs and suggests a few tasks to approve for your away runs")
+                }
+            }
             Divider()
             GoingColdRows()
             if let t = store.usage?.today { UsageToday(today: t) }

@@ -451,6 +451,9 @@ struct BoardSidebar: View {
                      help: liveOn ? "Chompyy stops the first message to a big conversation whose cache expired, once. Click to turn off." : "When you come back to a big conversation after its cache expired, Chompyy stops the first message once and shows the cheaper ways. Adds a Claude Code hook; click again to remove it.") {
                     Task { await store.setNudge(!liveOn) }
                 }
+                item("Suggest tasks", "sparkles", busy: store.busy.contains("suggest"),
+                     help: "Pick a repo: Chompyy reads its docs, issues and TODOs and suggests a few tasks to approve") { store.showSuggest = true }
+                    .popover(isPresented: $store.showSuggest, arrowEdge: .trailing) { SuggestPopover().environmentObject(store) }
                 item("Ideas from history", "clock.arrow.circlepath", help: "Read your Claude Code history and suggest tasks and taste lines") { showColdStart = true }
             }
             group("See") {
@@ -500,6 +503,52 @@ struct BoardSidebar: View {
         .buttonStyle(.plain)
         .disabled(busy)
         .help(help)
+    }
+}
+
+/// Suggest tasks: pick a repo, Chompyy reads what it wants to become and what its code shows, and adds a few
+/// suggested cards (`chompyy suggest`).
+struct SuggestPopover: View {
+    @EnvironmentObject var store: Store
+    @AppStorage("lastProject") private var project = ""
+    @State private var projects: [Project] = []
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Suggest tasks for a repo").font(.headline)
+            if let wf = store.state?.quota.pacing?.week, (wf.spareWindows ?? 0) >= 1 {
+                Label(wf.short, systemImage: "calendar").font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            Menu {
+                ForEach(projects, id: \.path) { p in
+                    Button(p.name) { project = p.path }
+                }
+            } label: {
+                Label(project.isEmpty ? "Pick a project" : (project as NSString).lastPathComponent, systemImage: "folder")
+            }
+            .fixedSize()
+            Text("Reads its README, roadmap docs, open issues, TODOs and recent commits, plus your taste. One model call (~10k tokens) while your window is active. Each task names where it came from.")
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Spacer()
+                Button("Cancel") { store.showSuggest = false }.keyboardShortcut(.cancelAction)
+                Button("Suggest 5 tasks") {
+                    let repo = project
+                    store.showSuggest = false
+                    Task { _ = await store.act("suggest", ["suggest", repo]) }
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(project.isEmpty || store.busy.contains("suggest"))
+            }
+        }
+        .padding(16)
+        .frame(width: 360)
+        .task {
+            guard let r = try? await Task.detached(operation: { try CLI.run(["projects", "--json"]) }).value, r.ok,
+                  let list = try? JSONDecoder().decode([Project].self, from: Data(r.out.utf8)) else { return }
+            projects = list.filter { $0.isGit != false }
+            if project.isEmpty || !projects.contains(where: { $0.path == project }) { project = projects.first?.path ?? "" }
+        }
     }
 }
 
