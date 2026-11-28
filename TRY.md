@@ -17,9 +17,9 @@ For Macs with Claude Code only in the desktop app. About 5 minutes, then a week 
 2. **Open it.** It isn't notarized yet, so macOS blocks the first launch. Go to **System Settings → Privacy & Security** and press **Open Anyway**. You only do this once.
 3. **🍪 → Open board → Find savings.** Chompyy reads your Claude Code sessions on this Mac and adds cards for what wastes tokens.
 4. **Approve the top card**, and **Turn on live suggestions** in the sidebar.
-5. **In a week: Share results** (sidebar). It copies a summary with no project, skill or file names. Paste it on [#24](https://github.com/BranchWork-HQ/Chompyy/issues/24).
+5. **In a week: Share results** (sidebar). It copies a summary with no project, skill or file names. Paste it in [Results](https://github.com/BranchWork-HQ/Chompyy/discussions/78).
 
-If **Find savings** says it found no sessions, or live suggestions never fire in the desktop app, say so on #24. Both are checked only with Claude Code in Terminal so far.
+If **Find savings** says it found no sessions, or live suggestions never fire in the desktop app, say so in [Results](https://github.com/BranchWork-HQ/Chompyy/discussions/78). Both are checked only with Claude Code in Terminal so far.
 
 ## Everything, including away runs: what you need
 
